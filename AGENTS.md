@@ -23,6 +23,19 @@ alongside [MDPrepBench](https://github.com/matsunagalab/MDPrepBench) and
   bundle, and are marked `slow`.
 - `docs/`: design references and `memo.md`.
 
+## Recording Work
+
+`docs/memo.md` is the running record of benchmark work: what was run, the
+numbers it produced, what was decided, and why. Append a dated entry whenever
+you finish a piece of work or reach a conclusion that outlives the session.
+Newest first. When a later finding contradicts an earlier entry, add the
+correction and name what it overturns rather than editing the old entry away.
+
+This matters more here than in most repositories: nearly every threshold in
+this suite was set by a measurement, not by judgement, and several were set by
+a measurement that overturned the obvious choice. A threshold whose measurement
+is not written down cannot be defended or revised.
+
 ## Invariants
 
 - **Data is fetched, never vendored.** Task contracts carry the accession, the
