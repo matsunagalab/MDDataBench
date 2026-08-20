@@ -66,11 +66,33 @@ benchmarks/mddatabench/tasks/D03_...  endothelin-1 (PDB 1EDN, MDDB A00EC)
 | D02 | CspB, 67 res | A00AJ | side-chain completion, non-zero solute charge | MDPrepBench P32 |
 | D03 | endothelin-1, 21 res | A00EC | two disulfides, and a small mobile peptide | MDPrepBench P10 |
 
-The cast deliberately overlaps MDPrepBench. Of its 30 PDB entries, MDDB carries
-1UBQ, 1CSP, 2CBA and 1BNA under a CC licence with classical MD and a full
-analysis set. 2CBA is held back: the MoDEL deposit contains no zinc, so making
-it a task would reward stripping the catalytic metal that MDPrepBench P26
-exists to test.
+The cast deliberately overlaps MDPrepBench. 1934 of MDDB's 4554 projects are
+eligible — CC licensed, classical MD, a full analysis set, and a PDB entry —
+and they cover most of MDPrepBench's capability axes:
+
+| axis | eligible entries | example |
+|---|---|---|
+| disulfides | 677 | `A00EC` 1EDN (D03) |
+| terminal caps | 144 | `A007Z` 1CCR |
+| selenomethionine | 31 | `A015F` 1WHZ |
+| zinc, with the metal retained | 139 | `MCV1900209` PLpro 6W9C |
+| ligand bound | 78 | `MCV1900211` PLpro + 3k |
+| glycosylation (NAG) | 79 | `MCV1900112` 6VW1 |
+| DNA duplex, counterions retained | 126 | `A01MQ` 1ICK |
+| RNA | 10 | `A01AU` 1Q9A |
+| protein-DNA, with Mg | 26 | `A01FH` 1VTN |
+| multimer | 254 | `A007P` 1CDL calmodulin |
+
+Metadata alone is not enough to pick from this. `OTHRATS > 0` together with
+`PTM: Acetylation` reads like a metalloprotein but is an ACE cap: 1CCR and
+1JEB both come with their haem stripped, as 2CBA comes without its zinc, so
+MoDEL cannot supply a metal task at all. The composition that matters is in
+`RSNAME`, and the entries above were each confirmed by fetching the deposited
+structure. 2CBA is held back for that reason — making it a task would reward
+stripping the catalytic metal that MDPrepBench P26 exists to test.
+
+Four axes have no eligible entry: membranes (the only CC bilayers are ten
+SARS-CoV-2 viral membranes), implicit solvent, mutants, and phosphorylation.
 
 ## Prompts are minimal
 
@@ -91,7 +113,7 @@ tolerate by design (heavy-atom count is tautomer independent).
 
 - **Data is fetched, never vendored.** Task contracts carry the accession, the
   retrieval date, the licence, and the SHA-256 of the bundle. Re-run
-  `fetch_reference.py` to reproduce it.
+  `mddatabench fetch_benchmark_reference` to reproduce it.
 - **Only CC BY / CC0 projects are eligible.** 24 of MDDB's 4554 projects carry
   other licences and are excluded.
 - **The reference database is blocked at solve time.** RCSB stays reachable;
@@ -155,7 +177,7 @@ Run `mddatabench run_benchmark_negative_controls` whenever an md-side threshold 
 
 ## The subspace test
 
-`subspace_test.py` implements one contract and one test.
+`mddatabench/subspace.py` implements one contract and one test.
 
 `pca_backbone_subspace@1` pins the atom selection, the superposition, the mode
 count, and the units. MDDB publishes PCA eigenvalues and projections but not
