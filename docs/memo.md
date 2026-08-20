@@ -17,7 +17,7 @@ package modules under `mddatabench/`, and
 
 ## 2026-08-20 — MDDataBench を別リポジトリに切り出した
 
-MDPrepBench / MDStudyBench と同じ形で `/home/yasu/tmp/MDDataBench` に独立させた。
+MDPrepBench / MDStudyBench と同じ形で 独立したリポジトリに切り出した。
 mdclaw 側の `benchmarks/mddatabench/` と `docs/research/db_derived_benchmark_validation.md` は削除済み
 (どちらも git 未追跡だったので履歴操作は不要)。**本エントリより前の 8/18-8/19 の各エントリが参照している
 `docs/research/db_derived_benchmark_validation.md` は、いまは `MDDataBench/docs/validation-design.md` にある。**
