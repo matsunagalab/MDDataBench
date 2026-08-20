@@ -1,5 +1,5 @@
 {
-  "dataset_id": "MDDataBench-v0.1",
+  "dataset_id": "MDDataBench-v0.2",
   "description": "Short-MD tasks whose reference simulations come from MDDB under CC BY 4.0. Each task is scored on two separate axes: prep (system building, checkable without running MD) and md (the run actually happened and explored the collective directions the reference did).",
   "reference_database": {
     "name": "MDDB",
@@ -8,7 +8,22 @@
     "licence_policy": "Only CC BY / CC0 projects are eligible. 24 of MDDB's 4554 projects carry other licences and are excluded."
   },
   "tasks": [
-    {"task_id": "D01_pca_subspace_ubiquitin", "accession": "A0142", "pdb": "1UBQ"},
-    {"task_id": "D02_pca_subspace_cspb", "accession": "A00AJ", "pdb": "1CSP", "companion": "MDPrepBench P32"}
+    {
+      "task_id": "D01_pca_subspace_ubiquitin",
+      "accession": "A0142",
+      "pdb": "1UBQ"
+    },
+    {
+      "task_id": "D02_pca_subspace_cspb",
+      "accession": "A00AJ",
+      "pdb": "1CSP",
+      "companion": "MDPrepBench P32"
+    },
+    {
+      "task_id": "D03_pca_subspace_endothelin",
+      "accession": "A00EC",
+      "pdb": "1EDN",
+      "companion": "MDPrepBench P10"
+    }
   ]
 }

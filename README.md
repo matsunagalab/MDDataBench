@@ -55,6 +55,7 @@ mddatabench/controls.py    adversarial baselines that must fail
 mddatabench/_threads.py    BLAS thread guard, imported before numpy
 benchmarks/mddatabench/tasks/D01_...  ubiquitin (PDB 1UBQ, MDDB A0142)
 benchmarks/mddatabench/tasks/D02_...  cold-shock protein CspB (PDB 1CSP, MDDB A00AJ)
+benchmarks/mddatabench/tasks/D03_...  endothelin-1 (PDB 1EDN, MDDB A00EC)
 ```
 
 ## Tasks
@@ -63,6 +64,7 @@ benchmarks/mddatabench/tasks/D02_...  cold-shock protein CspB (PDB 1CSP, MDDB A0
 |---|---|---|---|---|
 | D01 | ubiquitin, 76 res | A0142 | the baseline: prep, 1 ns MD, subspace test | — |
 | D02 | CspB, 67 res | A00AJ | side-chain completion, non-zero solute charge | MDPrepBench P32 |
+| D03 | endothelin-1, 21 res | A00EC | two disulfides, and a small mobile peptide | MDPrepBench P10 |
 
 The cast deliberately overlaps MDPrepBench. Of its 30 PDB entries, MDDB carries
 1UBQ, 1CSP, 2CBA and 1BNA under a CC licence with classical MD and a full
@@ -188,10 +190,15 @@ less than one independent sample.
 Both tasks were solved with MDClaw 0.6.6 on one RTX A6000 (ff14SB + TIP3P,
 cubic 15 A, HMR 4 fs, NVT 100 ps + NPT 200 ps, 1 ns NPT production).
 
-| task | atoms | production | RMSIP | structure-only null | clock | prep | md |
+| task | atoms | RMSIP | structure-only null (max) | margin | clock | prep | md |
 |---|---|---|---|---|---|---|---|
-| D01 | 31355 | 2 m 29 s | 0.717 | 0.517 +/- 0.048 | 1000 ps / 1000 | 7/7 | 5/5 |
-| D02 | 35466 | ~2 m | 0.703 | 0.460 +/- 0.067 | 1013 ps / 1000 | 8/8 | 5/5 |
+| D01 | 31355 | 0.717 | 0.588 | +0.129 | 1000 ps / 1000 | 7/7 | 5/5 |
+| D02 | 35466 | 0.703 | 0.637 | +0.066 | 1013 ps / 1000 | 8/8 | 5/5 |
+| D03 | 21656 | 0.828 | 0.766 | +0.062 | 1016 ps / 1000 | 8/8 | 5/5 |
+
+Both nulls climb as the system shrinks — D03 has 3M = 189, so even the random
+null is sqrt(10/189) = 0.230 — which is why the smallest system has the
+narrowest margin rather than the widest.
 
 Three D01 replicas (different seeds) give RMSIP 0.729 / 0.743 / 0.717, so a
 single 1 ns measurement is reproducible to **SD 0.010**. Differences below about

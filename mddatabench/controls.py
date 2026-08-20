@@ -25,6 +25,7 @@ import numpy as np
 
 from mddatabench import execution as ex
 from mddatabench import subspace as st
+from mddatabench.scoring import find_node
 
 
 def load_reference(bundle: pathlib.Path, n_atoms: int):
@@ -50,9 +51,12 @@ def run_negative_controls(job_dir: str, bundle: str, task_file: str) -> dict:
                     if c["check_id"] == "elapsed_simulated_time_is_physical"
                     )["minimum_measured_fraction_of_claim"]
 
-    nodes = job_dir / "nodes"
-    topology = next(nodes.glob("topo_*/artifacts/system.topology.pdb"))
-    traj = md.load(str(sorted(nodes.glob("prod_*/artifacts/*.dcd"))[0]), top=str(topology))
+    # Same node-selection rule as the scorer: the latest COMPLETED node. Globbing
+    # instead picked up an abandoned run left in `running`, and the two tools then
+    # silently graded different trajectories (0.818 against 0.828).
+    topology = find_node(job_dir, "topo") / "artifacts" / "system.topology.pdb"
+    traj = md.load(str(next((find_node(job_dir, "prod") / "artifacts").glob("*.dcd"))),
+                   top=str(topology))
     lookup = {}
     n = 0
     for line in open(topology):

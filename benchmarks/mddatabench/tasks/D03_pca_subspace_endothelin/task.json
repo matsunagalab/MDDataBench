@@ -1,0 +1,322 @@
+{
+  "schema_version": "1.0",
+  "task_id": "D03_pca_subspace_endothelin",
+  "category": "database_derived_md",
+  "primary_score": "database_agreement",
+  "evaluation_target": "agent_md_and_analysis_fidelity",
+  "capability_tags": [
+    "preparation_workflow",
+    "explicit_solvent",
+    "short_production_md",
+    "essential_dynamics",
+    "database_reference",
+    "disulfide_bonds",
+    "small_peptide"
+  ],
+  "reference": {
+    "database": "MDDB",
+    "api": "https://mmb.mddbr.eu/api/rest/v1/projects",
+    "accession": "A00EC",
+    "retrieved": "2026-08-20",
+    "license": "CC BY 4.0",
+    "license_url": "https://creativecommons.org/licenses/by/4.0/",
+    "citation": "DOI: 10.1016/j.str.2010.07.013",
+    "pdb_ids": [
+      "1EDN"
+    ],
+    "reference_conditions": {
+      "FF": [
+        "Amber Parm99"
+      ],
+      "WAT": "TIP3P",
+      "TEMP": 300,
+      "ENSEMBLE": "NPT",
+      "TIMESTEP": 2,
+      "LENGTH": 10,
+      "PROGRAM": "Amber",
+      "METHOD": "Classical MD"
+    },
+    "reference_system": {
+      "PROTRES": 21,
+      "PROTATS": 328,
+      "heavy_atoms": 171,
+      "SOL": 0,
+      "NA": 0,
+      "CL": 0,
+      "chains": 1,
+      "termini": "charged (Cys1 / Trp21)",
+      "note": "Endothelin-1, a 21-residue peptide with two disulfides. The deposit is dehydrated, so no DB-derived claim about solvent or ion counts is possible. PDB 1EDN and the reference agree on 171 heavy atoms, so unlike D02 there is nothing to complete; the chemistry under test is the disulfides."
+    },
+    "bundle": {
+      "fetch": "mddatabench fetch_benchmark_reference --accession A00EC --n-frames 500",
+      "policy": "Fetched from MDDB at scoring time by the evaluator and verified against the sha256 recorded here. It is NEVER staged into the solver workspace: the agent runs MD and the evaluator does all comparison, so the reference cannot leak.",
+      "sha256": {
+        "reference.pdb": "49b76bdfbcf70f625b70934711d65a142f1a28a5fa48cf9eed990b5ae4d075d6",
+        "reference_frames.f32": "4e4a9c7b653276acfde59a039f64280a4cd7bc249cbb13fbbec18da74f916dda",
+        "pca_atom_indices.json": "65b1ceb9e3b0eb36772cc20a0fc5f303820747aee8141e25188c2fbb15bb6ffc"
+      }
+    },
+    "solve_time_network_policy": {
+      "allow": [
+        "files.rcsb.org",
+        "www.rcsb.org"
+      ],
+      "deny": [
+        "mddbr.eu",
+        "mmb.mddbr.eu"
+      ],
+      "rationale": "The agent must not be able to fetch the reference it is scored against."
+    },
+    "sidechain_completion": {
+      "rcsb_heavy_atoms": 505,
+      "reference_heavy_atoms": 521,
+      "difference": 16,
+      "incomplete_residues_in_rcsb": {
+        "A:3": "GLU 5/9",
+        "A:21": "GLU 5/9",
+        "A:36": "GLU 5/9",
+        "A:66": "GLU 5/9"
+      },
+      "note": "PDB 1CSP deposits four glutamates with truncated side chains. The MDDB reference carries the completed side chains, so the reference itself supplies the ground truth for the completion: 505 + 16 = 521 heavy atoms. The prompt does not name the four residues; finding them is the task."
+    },
+    "disulfides": {
+      "pairs": [
+        [
+          1,
+          15
+        ],
+        [
+          3,
+          11
+        ]
+      ],
+      "source": "SSBOND records in PDB 1EDN, and all four cysteines are CYX in the MDDB reference",
+      "atom_count_signature": {
+        "with_both_disulfides": 328,
+        "with_free_cysteines": 332,
+        "note": "Each disulfide removes one HG from each partner, so a submission that leaves the cysteines reduced carries four extra hydrogens. The total atom count alone separates the two cases; the dedicated check attributes the difference."
+      }
+    }
+  },
+  "analysis_contract": {
+    "contract_id": "pca_backbone_subspace@1",
+    "selection": "backbone N, CA, C; residue order; N/CA/C order within residue",
+    "n_selected_atoms": 63,
+    "superposition": "Kabsch fit onto reference.pdb, then 3 iterations onto the running mean",
+    "n_modes": 10,
+    "units": "angstrom",
+    "note": "MDDB publishes PCA eigenvalues and projections but NOT eigenvectors, so the scorer recomputes the reference subspace. The pinned contract reproduces MDDB's published eigenvalues to within -4.8% to +3.7% on the 500-frame bundle.",
+    "published_eigenvalue_crosscheck": {
+      "scored": false,
+      "measured_20260820": {
+        "500_frame_bundle": "-4.8% to +3.7%"
+      },
+      "note": "Recorded for provenance. The scorer's recomputation is authoritative."
+    }
+  },
+  "required_outputs": [
+    "manifest.json",
+    "metrics.json",
+    "provenance.json",
+    "prepared_structure.pdb",
+    "topology",
+    "production_trajectory"
+  ],
+  "scoring": {
+    "deterministic_checks": [
+      {
+        "check_id": "sequence_matches_reference",
+        "check_type": "sequence_identity_rescan@1",
+        "capability": "identity",
+        "expected_residue_count": 21,
+        "expected_chain_count": 1,
+        "expected_protein_copies": 1,
+        "weight": 1.0,
+        "category": "prep"
+      },
+      {
+        "check_id": "topology_loads_and_is_parameterized",
+        "check_type": "openmm_system_load@1",
+        "capability": "physical_validity",
+        "weight": 1.0,
+        "category": "prep"
+      },
+      {
+        "check_id": "forcefield_applied_to_every_atom",
+        "check_type": "forcefield_applied_rescan@1",
+        "capability": "physical_validity",
+        "weight": 1.0,
+        "category": "prep"
+      },
+      {
+        "check_id": "system_is_neutral",
+        "check_type": "net_charge_check@1",
+        "capability": "physical_validity",
+        "expected_net_charge": 0,
+        "weight": 1.0,
+        "category": "prep"
+      },
+      {
+        "check_id": "disulfide_bonds_formed",
+        "check_type": "disulfide_bond_rescan@1",
+        "capability": "composition_fidelity",
+        "category": "prep",
+        "expected_pairs": [
+          [
+            1,
+            15
+          ],
+          [
+            3,
+            11
+          ]
+        ],
+        "maximum_sg_distance_angstrom": 2.5,
+        "weight": 1.0,
+        "note": "Measured between the SG atoms of the paired cysteines in the submitted topology. Attributes a missing bond to the disulfides rather than to some other composition error, which the atom count alone cannot do."
+      },
+      {
+        "check_id": "protein_heavy_atom_count_matches_reference",
+        "check_type": "reference_composition_rescan@1",
+        "capability": "composition_fidelity",
+        "expected_heavy_atoms": 171,
+        "expected_total_protein_atoms": 328,
+        "total_atom_tolerance": 2,
+        "weight": 1.0,
+        "note": "171 heavy atoms matches PDB 1EDN exactly; nothing needs completing. The total of 328 assumes both disulfides: leaving the cysteines reduced gives 332 and fails this check as well as the dedicated one.",
+        "category": "prep"
+      },
+      {
+        "check_id": "water_model_matches_reference",
+        "check_type": "water_model_fingerprint@1",
+        "capability": "composition_fidelity",
+        "expected_water_model": "tip3p",
+        "note": "MDClaw defaults to opc; TIP3P must be requested explicitly.",
+        "weight": 1.0,
+        "category": "prep"
+      },
+      {
+        "check_id": "thermodynamic_conditions_match_reference",
+        "check_type": "ensemble_conditions_rescan@1",
+        "capability": "composition_fidelity",
+        "expected_temperature_k": 300.0,
+        "temperature_tolerance_k": 1.0,
+        "expected_ensemble": "NPT",
+        "weight": 1.0,
+        "category": "md"
+      },
+      {
+        "check_id": "production_ran_for_one_nanosecond",
+        "check_type": "production_length_check@1",
+        "capability": "execution_validity",
+        "minimum_production_ns": 1.0,
+        "require_finite_coordinates": true,
+        "weight": 1.0,
+        "category": "md",
+        "note": "Reads the runner's recorded metadata. Kept as a declaration check; elapsed_simulated_time_is_physical is what actually verifies it."
+      },
+      {
+        "check_id": "elapsed_simulated_time_is_physical",
+        "check_type": "elapsed_simulated_time@1",
+        "capability": "execution_validity",
+        "category": "md",
+        "minimum_measured_fraction_of_claim": 0.5,
+        "weight": 1.0,
+        "note": "Measures elapsed simulated time from continuously unwrapped solvent displacement instead of trusting the runner's recorded simulation_time_ns. The self-diffusion coefficient is intensive and cannot tell 1 ns from 100 ps; the accumulated displacement is extensive and recovers the true time to within a percent (989 ps measured against 999 ps true, 98 ps against 99 ps, 15 ps against 9 ps). A submission with no bulk solvent is not measurable and fails, which is the correct verdict for an ensemble generated without dynamics."
+      },
+      {
+        "check_id": "contract_atoms_resolvable",
+        "check_type": "reference_subspace_recompute@1",
+        "capability": "observable_recompute",
+        "contract_id": "pca_backbone_subspace@1",
+        "input": "reference_frames.f32",
+        "minimum_rmsip_against_scorer": 0.95,
+        "weight": 1.0,
+        "eigenvalue_relative_tolerance_against_scorer": 0.01,
+        "note": "Scorer-side precondition: the reference's contract atoms must resolve onto the submitted topology by (residue number, atom name). The agent is no longer asked to analyse anything, so agent analysis skill is not measured here; that belongs in an analysis-only task family that runs no MD.",
+        "category": "prep"
+      },
+      {
+        "check_id": "subspace_beyond_structure_only_model",
+        "check_type": "subspace_beyond_structure@1",
+        "capability": "ensemble_reproduction",
+        "category": "md",
+        "test_id": "subspace_beyond_structure@1",
+        "contract_id": "pca_backbone_subspace@1",
+        "null_hypothesis": "the submission is no better than what the fold alone predicts: its RMSIP against the reference is drawn from the spread of elastic network models of the same structure, swept over cutoff 7.0-20.0 A",
+        "decision": "pass when the observed RMSIP exceeds every null draw",
+        "weight": 1.0,
+        "note": "Replaces an earlier test against independent uniformly random subspaces. That null was far too weak: measured 2026-08-19, an elastic-network ensemble that ran no dynamics rejected it at z=46 and a run truncated to 10 ps rejected it at z=36. The structure-only null subsumes it, so only this test is a gate. Against this null the same baselines land at z=-0.04 and z=-2.01 and correctly fail, while a real 1 ns run reaches z=4.38."
+      },
+      {
+        "check_id": "radius_of_gyration_is_physical",
+        "check_type": "observable_range_check@1",
+        "capability": "physical_validity",
+        "observable": "radius_of_gyration_nm",
+        "minimum": 0.7,
+        "maximum": 1.1,
+        "weight": 0.5,
+        "category": "md",
+        "note": "Reference Rg is 0.867 +/- 0.048 nm with 1 ns window means spanning 0.78-0.94; a 21-residue peptide is far more mobile than D01's protein, so the band is correspondingly wider. It still catches a peptide that has come apart, which is the realistic failure when the disulfides are missing."
+      }
+    ],
+    "diagnostics": [
+      {
+        "diagnostic_id": "subspace_rmsip_value",
+        "note": "Continuous RMSIP against the reference. Recorded, not scored: the agent runs a modern Amber force field while the reference is Parm99, and that force-field sensitivity is uncalibrated. Accumulated values are the calibration set.",
+        "measured_reference_scale_20260820": {
+          "random_subspaces_null": 0.23,
+          "structure_only_anm_null": "0.602 +/- 0.067 (max 0.766)",
+          "one_ns_window_vs_one_ns_window": "0.801 +/- 0.037",
+          "one_ns_window_vs_full_10ns": "0.860 +/- 0.024 (min 0.795)",
+          "note": "Both nulls sit much higher than in D01 because the system is small: 3M = 189, so the random null alone is sqrt(10/189) = 0.230. The margin between the reference's own 1 ns windows and the structure-only null is +0.094, narrower than D01's +0.141. This task is the tightest of the three."
+        }
+      },
+      {
+        "diagnostic_id": "effective_sample_size",
+        "note": "Measured on D01's reference; the same caveat applies here. One nanosecond contains far less than one independent sample along the slowest modes, so this task tests only that the subspaces are related, not that they agree quantitatively."
+      }
+    ],
+    "categories": {
+      "prep": "System building. Scoreable without running any MD.",
+      "md": "Simulation. Requires that the run actually happened and explored the right collective directions.",
+      "rationale": "Reported separately so a failure is attributable. The adversarial baselines make the point: an ANM ensemble and a 10 ps run both score full marks on prep and must fail on md."
+    }
+  },
+  "references": [
+    {
+      "source": "MDDB A00EC",
+      "url": "https://mmb.mddbr.eu/#/id/A00EC"
+    },
+    {
+      "source": "PDB 1EDN",
+      "url": "https://www.rcsb.org/structure/1EDN"
+    },
+    {
+      "source": "doi:10.1016/j.str.2010.07.013",
+      "note": "MoDEL dataset citation carried by the MDDB record"
+    }
+  ],
+  "companion_task": {
+    "mdprepbench": "P10_prep_bpti_disulfides",
+    "note": "Same chemistry as MDPrepBench's disulfide task, extended with 1 ns of MD and the subspace test."
+  },
+  "prompt_policy": {
+    "principle": "State only what cannot be inferred, and nothing about how to analyse.",
+    "stated": [
+      "the PDB entry",
+      "TIP3P water",
+      "neutralised",
+      "300 K",
+      "NPT",
+      "at least 1 ns"
+    ],
+    "deliberately_not_stated": [
+      "chain selection (each entry has one protein chain)",
+      "histidine tautomer (the neutral form is standard at pH 7 and the heavy-atom count is tautomer independent)",
+      "box shape and padding (not compared against the reference)",
+      "side-chain completion (correct practice, and the point of D02)",
+      "the analysis contract (the evaluator computes both subspaces itself; numbers the agent reports are never used)"
+    ]
+  }
+}

@@ -97,6 +97,24 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
               f"each expected {want} heavy atoms"
               + (f"; still short: {short}" if short else "; all complete"))
 
+    disulfide = next((c for c in task["scoring"]["deterministic_checks"]
+                      if c["check_id"] == "disulfide_bonds_formed"), None)
+    if disulfide is not None:
+        sulfur = {a[1]: np.array(a[3]) for a in atoms if a[2] == "SG"}
+        limit = disulfide["maximum_sg_distance_angstrom"]
+        broken = {}
+        for first, second in disulfide["expected_pairs"]:
+            left, right = sulfur.get(str(first)), sulfur.get(str(second))
+            if left is None or right is None:
+                broken[f"{first}-{second}"] = "SG missing"
+                continue
+            separation = float(np.linalg.norm(left - right))
+            if separation > limit:
+                broken[f"{first}-{second}"] = f"{separation:.2f} A"
+        check("disulfide_bonds_formed", not broken,
+              f"{len(disulfide['expected_pairs'])} pairs, SG-SG within {limit} A"
+              + (f"; not bonded: {broken}" if broken else "; all bonded"))
+
     system = mm.XmlSerializer.deserialize((topo / "artifacts" / "system.system.xml").read_text())
     nonbonded = next(f for f in system.getForces() if isinstance(f, mm.NonbondedForce))
     charge = sum(nonbonded.getParticleParameters(i)[0]
