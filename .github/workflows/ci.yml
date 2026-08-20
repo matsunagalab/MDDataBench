@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint-and-fast-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e . pytest ruff
+      - name: Lint
+        run: ruff check mddatabench/ tests/
+      - name: Fast tests
+        # Scoring and control tests need openmm+mdtraj and a fetched reference
+        # bundle; they run outside CI. These cover the task contracts, the
+        # dataset, and the CLI surface.
+        run: python -m pytest tests/ -q -m "not slow"

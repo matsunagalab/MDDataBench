@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+
+# Reference data is never vendored. It is fetched from MDDB by
+# `mddatabench fetch_benchmark_reference` and verified against the SHA-256
+# recorded in the task contract. Nothing downloaded may be committed.
+reference/
+reference_bundles/
+*.f32
+*.bin
+*.dcd
+*.xtc
+*.nc
+
+benchmark_runs/
+outputs/
