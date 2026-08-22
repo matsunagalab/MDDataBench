@@ -9,21 +9,25 @@
   },
   "tasks": [
     {
-      "task_id": "D01_pca_subspace_ubiquitin",
-      "accession": "A0142",
-      "pdb": "1UBQ"
+      "task_id": "D01_plpro_sars2_6w9c",
+      "accession": "MCV1900209",
+      "pdb": "6W9C",
+      "chains": "C",
+      "reference_length_ns": 1000
     },
     {
-      "task_id": "D02_pca_subspace_cspb",
-      "accession": "A00AJ",
-      "pdb": "1CSP",
-      "companion": "MDPrepBench P32"
+      "task_id": "D02_plpro_sars2_6wrh",
+      "accession": "MCV1900210",
+      "pdb": "6WRH",
+      "chains": "A",
+      "reference_length_ns": 1000
     },
     {
-      "task_id": "D03_pca_subspace_endothelin",
-      "accession": "A00EC",
-      "pdb": "1EDN",
-      "companion": "MDPrepBench P10"
+      "task_id": "D03_plpro_sars_4ow0",
+      "accession": "MCV1900208",
+      "pdb": "4OW0",
+      "chains": "A",
+      "reference_length_ns": 1000
     }
   ]
 }

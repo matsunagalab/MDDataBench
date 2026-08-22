@@ -30,14 +30,14 @@ OpenMM is best installed from conda-forge.
 
 ```bash
 # 1. fetch the reference bundle for a task; data is fetched, never vendored
-mddatabench fetch_benchmark_reference --accession A0142 --out /tmp/refbundle
+mddatabench fetch_benchmark_reference --accession MCV1900209 --out /tmp/refbundle
 
 # 2. hand prompt.md to your agent, let it produce an MDClaw job directory
 
 # 3. score what it produced
 mddatabench score_benchmark_submission \
   --job-dir <study>/jobs/main --bundle /tmp/refbundle \
-  --task-file benchmarks/mddatabench/tasks/D01_pca_subspace_ubiquitin/task.json
+  --task-file benchmarks/mddatabench/tasks/D01_plpro_sars2_6w9c/task.json
 
 # 4. confirm the md-side checks still reject what they should
 mddatabench run_benchmark_negative_controls \
@@ -49,24 +49,40 @@ mddatabench run_benchmark_negative_controls \
 ```
 mddatabench/subspace.py    the pinned analysis contract and the hypothesis test
 mddatabench/execution.py   elapsed simulated time, measured from the solvent
+mddatabench/composition.py per-monomer composition, protonation, and disulfides
+mddatabench/energetics.py  potential energies, recomputed and never read
 mddatabench/reference.py   MDDB bundle retrieval and provenance
 mddatabench/scoring.py     per-check scoring, split into prep and md
 mddatabench/controls.py    adversarial baselines that must fail
+mddatabench/_prep_checks.py  the prep check block, written into every task.json
+mddatabench/_md_checks.py    the md check block, written into every task.json
 mddatabench/_threads.py    BLAS thread guard, imported before numpy
-benchmarks/mddatabench/tasks/D01_...  ubiquitin (PDB 1UBQ, MDDB A0142)
-benchmarks/mddatabench/tasks/D02_...  cold-shock protein CspB (PDB 1CSP, MDDB A00AJ)
-benchmarks/mddatabench/tasks/D03_...  endothelin-1 (PDB 1EDN, MDDB A00EC)
+benchmarks/mddatabench/tasks/D01_...  SARS-CoV-2 PLpro (PDB 6W9C, MDDB MCV1900209)
+benchmarks/mddatabench/tasks/D02_...  SARS-CoV-2 PLpro (PDB 6WRH, MDDB MCV1900210)
+benchmarks/mddatabench/tasks/D03_...  SARS-CoV PLpro   (PDB 4OW0, MDDB MCV1900208)
 ```
 
 ## Tasks
 
-| id | system | MDDB | adds over the previous task | companion |
-|---|---|---|---|---|
-| D01 | ubiquitin, 76 res | A0142 | the baseline: prep, 1 ns MD, subspace test | — |
-| D02 | CspB, 67 res | A00AJ | side-chain completion, non-zero solute charge | MDPrepBench P32 |
-| D03 | endothelin-1, 21 res | A00EC | two disulfides, and a small mobile peptide | MDPrepBench P10 |
+| id | system | MDDB | chain | reference | adds |
+|---|---|---|---|---|---|
+| D01 | SARS-CoV-2 PLpro, 312 res + Zn | MCV1900209 | 6W9C C | 1 µs | the baseline: prep, 1 ns MD, subspace test |
+| D02 | SARS-CoV-2 PLpro, 312 res + Zn | MCV1900210 | 6WRH A | 1 µs | a second deposit of the same protein |
+| D03 | SARS-CoV PLpro, 312 res + Zn | MCV1900208 | 4OW0 A | 1 µs | the orthologue, and non-default protonation |
 
-The cast deliberately overlaps MDPrepBench. 1934 of MDDB's 4554 projects are
+The cast was re-selected on 2026-08-22 by sequence alignment: every reference
+monomer is aligned against the RCSB polymer entities of its deposit
+(Biopython global alignment, ≥90% coverage and ≥95% identity required), and
+every non-polymer component of the reference must also exist in the deposit.
+The second condition is what rules out the DE Shaw Anton entries, whose docked
+`LIG` / `RT` / `ATP` / `MG` are absent from the deposited structures.
+
+All three references are 1 µs, which is the point: a 1 ns submission is
+compared against many independent 1 ns windows of the reference rather than
+against a single trajectory, so the reference supplies its own spread and the
+agent still only runs 1 ns.
+
+The eligible pool deliberately overlaps MDPrepBench. 1934 of MDDB's 4554 projects are
 eligible — CC licensed, classical MD, a full analysis set, and a PDB entry —
 and they cover most of MDPrepBench's capability axes:
 
@@ -103,11 +119,22 @@ the reference bundle is never staged into the solver workspace — the evaluator
 fetches it at scoring time and computes both subspaces itself, so numbers the
 agent reports are never used and the reference cannot leak.
 
-Verified on 2026-08-19: with no protonation guidance at all, MDClaw lands on
-602/1231 atoms for 1UBQ and 521/1014 for 1CSP, both exactly the reference
-composition, and completes 1CSP's four truncated glutamates unprompted. The two
-runs pick opposite histidine tautomers from the reference, which the checks
-tolerate by design (heavy-atom count is tautomer independent).
+Verified on 2026-08-19 against the earlier task cast: with no protonation
+guidance at all, MDClaw landed on 602/1231 atoms for 1UBQ and 521/1014 for
+1CSP, both exactly the reference composition, and completed 1CSP's four
+truncated glutamates unprompted. The two runs picked opposite histidine
+tautomers from the reference, which the checks tolerate by design (heavy-atom
+count is tautomer independent).
+
+Measured 2026-08-22 on the current cast, where the systems are 25× larger, the
+prompt is no longer enough on its own. D03 reproduces the reference sequence,
+monomer count, element composition and disulfide set exactly and still differs
+on three residues: the reference simulates two zinc-coordinating cysteines as
+thiolates (CYM) and one histidine protonated (HIP), where MDClaw builds neutral
+CYS and HIE. That is what grading protonation by atom count rather than by
+residue name is for — the difference is −1 −1 +1 hydrogens, and the total atom
+count agrees at 4862 against 4861. D01 and D02 differ more coarsely, at 311 and
+316 residues against the reference's 312.
 
 ## Principles
 
@@ -130,6 +157,88 @@ Checks are reported under **prep** and **md** separately, because a single
 number cannot say whether a submission failed at building the system or at
 simulating it. The adversarial baselines make the point: an elastic-network
 ensemble and a 10 ps run both score full marks on prep and must fail on md.
+
+A third category, **precondition**, is reported and not scored. It holds
+`contract_atoms_resolvable`, which asks whether the reference's contract atoms
+land on the submitted topology at all. That measures the scorer's ability to
+line two systems up, not the agent's preparation.
+
+## What a submission has to clear on the prep side
+
+Every prep check takes its expectation from the reference bundle rather than
+from a curator, so the block is identical across tasks: there are no per-system
+prep checks left. D02's completed side chains and D03's disulfides used to be
+hand-written per-task entries and are now instances of checks that run
+everywhere and expect zero as readily as two.
+
+**Composition is compared per monomer.** Both sides are split into covalently
+connected polymer chains by backbone geometry and paired by canonical sequence.
+PDB chain IDs are not used: preparation tools relabel and reuse them, and D03's
+`system.topology.pdb` carries chains A, B and C where the reference has only A.
+A multimer is then N monomers rather than a special case, and a failure names a
+chain and a residue instead of a total.
+
+**Protonation is graded by atom count, never by residue name.** Names are a
+convention — the same MDClaw submission writes CYX in `merged.pdb` and CYS in
+`system.topology.pdb`, GROMACS writes HISD/HISE/HISH, CHARMM HSD/HSE/HSP.
+Counts are not, and they have exactly the property the task needs. Measured
+2026-08-21, the reference and the submission disagree on the histidine tautomer
+in D01 (HIE vs HID) and D02 (HID vs HIE) and agree on every per-residue count:
+
+| variant | hydrogens | detected |
+|---|---|---|
+| HID ↔ HIE, the agent's free choice | same | no, correctly |
+| HIP | +1 | yes |
+| ASH, GLH | +1 | yes |
+| LYN, CYM | −1 | yes |
+| CYX, from a disulfide | −1 | yes |
+
+This is why the total atom count is now **exact**. The earlier `±2` tolerance
+was believed to be needed for tautomers; it protected nothing, because HID and
+HIE have the same formula, and it admitted up to two ionisation errors.
+
+**Disulfides are read from CONECT, on every task.** The expected pairs come
+from the reference's own CYX residues and coordinates. The observed pairs come
+from the CONECT records of the submitted topology, because `system.system.xml`
+is a compiled force-field object with no atom names and, once HBonds and rigid
+water turn bonds into constraints, no usable bond list either — D03's System
+keeps 177 `HarmonicBondForce` terms against 21451 constraints. Comparing the
+whole pair set also rejects a *spurious* disulfide, which the earlier per-task
+check could not.
+
+**Energies are recomputed, never read.** The runner's own
+`minimization_report.json` is the same class of claim as `simulation_time_ns`,
+which the solvent clock exists to distrust. The scorer deserialises the
+submitted `system.xml` and evaluates it at the built and minimised states. Two
+gates: the energy is finite with a per-particle magnitude below a loose ceiling,
+and minimisation lowered it. The per-atom value itself is a diagnostic —
+measured 2026-08-21 it is −17.00 / −16.93 / −16.94 kJ/mol/atom on D01 / D02 /
+D03, which is tight enough to be tempting and is three systems on one force
+field.
+
+Mutating a passing submission confirms each check rejects what it should
+(measured 2026-08-21 on D01 and D03):
+
+| mutation | rejected by |
+|---|---|
+| one HIP (one extra hydrogen) | residue atom counts, total atoms |
+| a truncated side chain | residue atom counts, elements, total atoms |
+| one backbone N written as O | elements only — the total is unchanged |
+| a broken peptide bond | monomer count, sequence, residue atom counts |
+| a disulfide's CONECT removed | disulfides |
+| a spurious SG–SG CONECT added | disulfides |
+
+**What MDDB cannot support.** Water counts are never available: `SOL`,
+`SOLVATS` and `SOLVRES` are empty in all 4554 projects. Ion counts and box size
+coexist in only 47 of the 1940 eligible projects, and in 46 of those the ion is
+a single neutralising counterion, so no salt concentration can be demanded
+either — and a concentration could not be graded tightly anyway, since asking
+packmol-memgen for 0.15 M yields 0.146 / 0.118 / 0.130 M across the three tasks
+once neutralising counterions and integer quantisation are accounted for. Net
+neutrality is the only solvent-side property that is checked. Box shape is
+recorded by MDDB (`BOXTYPE`, 89.6% of the eligible pool, `Octahedral` for all
+three references against the submitted cubic boxes) and is deliberately not
+scored, like the force field: comparable, but not worth grading.
 
 ## What a submission has to clear on the md side
 
@@ -167,11 +276,22 @@ With both in place every adversarial baseline fails and the real runs pass. The
 100 ps truncation still clears the structure-only null and is caught only by the
 clock, which is why both checks are kept.
 
-**Radius of gyration is not redundant with the subspace test.** RMSIP is
-invariant to the overall scale of the fluctuations: a trajectory uniformly
-expanded by 30% -- a unit error, say -- scores an identical 0.729 while its Rg
-moves from 1.14 to 1.48 nm. Even progressive swelling to Rg 1.82 still scores
-0.711. Rg is the only check that constrains compactness at all.
+**Nothing constrains the overall scale of the trajectory.** Radius of gyration
+used to, and was removed on 2026-08-21 because it is a property of the prepared
+structure rather than of the simulation: measured that day it is 1.1616 /
+1.1031 / 0.8549 nm as built against 1.1784 / 1.1224 / 0.8223 nm averaged over
+production, while the within-trajectory SD is only 0.007-0.012 nm against bands
+that were 0.2-0.4 nm wide. A nanosecond does not move it, so grading it on the
+md side attributed a preparation property to the simulation.
+
+The cost is real and is recorded rather than papered over. RMSIP is invariant to
+the overall scale of the fluctuations, because canonical correlations see only
+the direction of a subspace: measured on D01, scaling the trajectory by 0.8,
+1.3 or 1.5 leaves RMSIP at exactly 0.700 and H0 rejected in every case, while Rg
+moves to 0.943, 1.532 and 1.768 nm. The solvent clock is scale-invariant too, as
+a ratio of accumulated displacement to a diffusion coefficient fitted from the
+same trajectory. A uniform scaling error -- a unit mistake, say -- is therefore
+caught by nothing. `rg_mean_nm` is still reported as a diagnostic.
 
 Run `mddatabench run_benchmark_negative_controls` whenever an md-side threshold changes.
 
@@ -209,14 +329,29 @@ less than one independent sample.
 
 ## Reference solves
 
-Both tasks were solved with MDClaw 0.6.6 on one RTX A6000 (ff14SB + TIP3P,
-cubic 15 A, HMR 4 fs, NVT 100 ps + NPT 200 ps, 1 ns NPT production).
+All three tasks were solved with MDClaw 0.6.6 on one RTX A6000 (ff14SB + TIP3P,
+cubic 15 A, HMR 4 fs, NVT 100 ps + NPT 200 ps, 1 ns NPT production). The prep
+counts below are the 7-and-8-check block these solves were graded against; the
+current block is 11 checks on every task.
 
 | task | atoms | RMSIP | structure-only null (max) | margin | clock | prep | md |
 |---|---|---|---|---|---|---|---|
 | D01 | 31355 | 0.717 | 0.588 | +0.129 | 1000 ps / 1000 | 7/7 | 5/5 |
 | D02 | 35466 | 0.703 | 0.637 | +0.066 | 1013 ps / 1000 | 8/8 | 5/5 |
 | D03 | 21656 | 0.828 | 0.766 | +0.062 | 1016 ps / 1000 | 8/8 | 5/5 |
+
+Re-solved 2026-08-21 with MDClaw 0.6.8 on one NVIDIA GB200, same protocol,
+graded against the current block:
+
+| task | atoms | RMSIP | null (max) | margin | clock | prep | md |
+|---|---|---|---|---|---|---|---|
+| D01 | 31355 | 0.700 | 0.588 | +0.112 | 989 ps / 1000 | 12/12 | 5/5 |
+| D02 | 35469 | 0.707 | 0.637 | +0.070 | 981 ps / 1000 | 12/12 | 5/5 |
+| D03 | 21656 | 0.779 | 0.766 | +0.013 | 1017 ps / 1000 | 12/12 | 5/5 |
+
+D03's margin of +0.013 is the narrowest measurement in the suite and is close
+enough to the null's maximum that a different seed could cross it. A one-run
+D03 verdict should not be treated as stable.
 
 Both nulls climb as the system shrinks — D03 has 3M = 189, so even the random
 null is sqrt(10/189) = 0.230 — which is why the smallest system has the
