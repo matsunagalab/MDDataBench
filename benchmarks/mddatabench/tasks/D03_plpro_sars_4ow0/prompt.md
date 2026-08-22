@@ -1,6 +1,7 @@
 # Task D03
 
-Simulate SARS-CoV papain-like protease, PDB entry **4OW0**, chain **A**, in explicit solvent.
+Simulate SARS-CoV papain-like protease, PDB entry **4OW0**, chain **A**,
+**residues 4–315**, in explicit solvent.
 
 - **Amber ff14SB** protein force field, **TIP3P** water, neutralised
 - **298 K**, **NPT**

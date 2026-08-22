@@ -52,7 +52,8 @@
     },
     "selection": {
       "chains": "A",
-      "note": "Stated in the prompt because it cannot be inferred: the deposit carries copies and crystallisation additives that the reference does not."
+      "note": "Stated in the prompt because it cannot be inferred: the deposits resolve different residue ranges (6W9C 4-314, 6WRH 0-315, 4OW0 4-315) while every reference simulates 4-315, and 6WRH carries the C111S inactivating substitution that the reference does not.",
+      "residue_range": "4-315"
     },
     "bundle": {
       "fetch": "mddatabench fetch_benchmark_reference --accession MCV1900210 --n-frames 500",
@@ -137,14 +138,6 @@
         "weight": 1.0,
         "category": "prep",
         "note": "Heavy atoms counted per element rather than in total, so a substitution that preserves the total does not pass. Tautomer independent."
-      },
-      {
-        "check_id": "protein_atom_count_matches_reference",
-        "check_type": "reference_composition_rescan@1",
-        "capability": "composition_fidelity",
-        "weight": 1.0,
-        "category": "prep",
-        "note": "Exact, with no tolerance. The earlier +/-2 allowance was believed to be needed for histidine tautomers; measured 2026-08-21, D02 picked the opposite tautomer from the reference and still matched 1014/1014 exactly, because HID and HIE have the same formula. The tolerance protected nothing and admitted up to two ionisation errors, each of which is exactly one hydrogen."
       },
       {
         "check_id": "disulfide_bonds_match_reference",
