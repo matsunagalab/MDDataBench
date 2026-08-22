@@ -67,17 +67,20 @@
       "stated_protonation": [
         {
           "chain": "A",
-          "residue": "16",
+          "residue": "34",
           "name": "HIP",
-          "meaning": "protonated histidine"
+          "meaning": "protonated histidine",
+          "reference_residue": "16"
         },
         {
           "chain": "A",
-          "residue": "210",
+          "residue": "228",
           "name": "HIP",
-          "meaning": "protonated histidine"
+          "meaning": "protonated histidine",
+          "reference_residue": "210"
         }
       ],
+      "numbering_certain": true,
       "derivation": "reference structure aligned to the deposit's SEQRES, then SEQRES positions mapped to author numbering through the observed residues"
     },
     "deposit": {

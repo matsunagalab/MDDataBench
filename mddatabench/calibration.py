@@ -91,7 +91,18 @@ def atom_selector(indices):
     return selector
 
 
-def window_frames(base, target, indices, start, count, n_atoms=None):
+def window_stride(count, wanted=FRAMES_PER_WINDOW):
+    """Take every nth frame of a window, so its length sets the cost, not its
+    sampling.
+
+    A 1 ns window of a reference written every 1 ps is a thousand frames where a
+    hundred is enough to estimate an RMSF -- 18 MB against 1.8 MB, per window,
+    a hundred times over. The estimator sees the same nanosecond either way.
+    """
+    return max(1, count // max(wanted, 1))
+
+
+def window_frames(base, target, indices, start, count, n_atoms=None, stride=1):
     """One window of the reference trajectory, as (frames, atoms, 3) in Angstrom.
 
     MDDB serves raw little-endian float32 xyz with no header, so the shape has
@@ -116,7 +127,7 @@ def window_frames(base, target, indices, start, count, n_atoms=None):
     # is a 502, and ``9902:10002:1`` returns a truncated body rather than an
     # error. So the stop is start + count - 1, and the last usable start is
     # frames - count + 1.
-    url = f"{base}/{target}/trajectory?frames={start}:{start + count - 1}:1"
+    url = f"{base}/{target}/trajectory?frames={start}:{start + count - 1}:{stride}"
     if not whole:
         url += f"&atoms={selector}"
     # A calibration is a hundred requests of a few megabytes each. Letting one
@@ -272,6 +283,7 @@ def calibrate(accession, bundle, node="mmb", window_ns=None, slack_window_sd=2.0
     if window_ns is None:
         window_ns = frames_per_window * step_ns
     count = int(round(window_ns / step_ns))
+    stride = window_stride(count, frames_per_window)
     if count < frames_per_window:
         raise SystemExit(
             f"{accession}: a {window_ns} ns window holds {count} frames at "
@@ -294,8 +306,8 @@ def calibrate(accession, bundle, node="mmb", window_ns=None, slack_window_sd=2.0
         wanted = max(1, -(-target_windows // replicas))
         for start in window_starts(frames, count, wanted):
             xyz = window_frames(base, target, indices, start, count,
-                                n_atoms=n_atoms)
-            if xyz.shape[0] < frames_per_window:
+                                n_atoms=n_atoms, stride=stride)
+            if xyz.shape[0] < frames_per_window // 2:
                 continue
             per_replica.setdefault(replica, []).append(window_statistics(xyz, profile))
         per_replica.setdefault(replica, [])
@@ -351,13 +363,15 @@ def calibrate(accession, bundle, node="mmb", window_ns=None, slack_window_sd=2.0
     out = {
         "windows": len(pooled),
         "window_ns": window_ns,
-        "frames_per_window": count,
+        "frames_per_window": len(range(0, count, stride)),
+        "window_frame_stride": stride,
         "replicas_used": sorted(per_replica),
         "windows_per_replica": {str(k): len(v) for k, v in per_replica.items()},
         "frames_per_replica": frames_per,
         "window_definition": (
-            f"non-overlapping {window_ns:g} ns windows, {count} frames at "
-            f"{step_ns * 1000:g} ps, contract atoms only, pooled across "
+            f"non-overlapping {window_ns:g} ns windows, "
+            f"{len(range(0, count, stride))} frames at {step_ns * stride * 1000:g} ps, "
+            f"contract atoms only, pooled across "
             f"{len(per_replica)} replica(s)"),
         "window_fetch": ("GET {api}/{accession}[.replica]/trajectory"
                          "?frames=<start>:<start+frames-1>:1"

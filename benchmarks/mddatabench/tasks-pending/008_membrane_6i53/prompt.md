@@ -1,6 +1,6 @@
 # Task 008_membrane_6i53
 
-Simulate Gamma-aminobutyric acid receptor subunit gamma-2 in complex with Gamma-aminobutyric acid receptor subunit alpha-1, PDB entry **6I53**, chain **E** residues **8–312** and **10–312** and **418–447**, chain **B** residues **418–447**, chain **A** residues **10–323** and **384–418**, chain **C** residues **28–323** and **406–436**, chain **D** residues **10–322** and **384–417**, in explicit solvent.
+Simulate Gamma-aminobutyric acid receptor subunit gamma-2 in complex with Gamma-aminobutyric acid receptor subunit alpha-1, PDB entry **6I53**, chain **E** residues **8–312** and **10–312** and **418–447**, chain **B** residues **418–447**, chain **A** residues **10–323** and **384–418**, chain **C** residues **28–323** and **406–436**, chain **D** residues **10–401**, in explicit solvent.
 
 - **CHARMM36** protein force field, **TIP3P** water, neutralised
 - **310 K**, **NPT**

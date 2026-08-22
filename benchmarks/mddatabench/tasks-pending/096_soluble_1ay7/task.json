@@ -69,9 +69,11 @@
           "chain": "A",
           "residue": "53",
           "name": "HIP",
-          "meaning": "protonated histidine"
+          "meaning": "protonated histidine",
+          "reference_residue": "53"
         }
       ],
+      "numbering_certain": true,
       "derivation": "reference structure aligned to the deposit's SEQRES, then SEQRES positions mapped to author numbering through the observed residues"
     },
     "deposit": {

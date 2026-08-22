@@ -76,39 +76,46 @@
           "chain": "A",
           "residue": "3",
           "name": "HIP",
-          "meaning": "protonated histidine"
+          "meaning": "protonated histidine",
+          "reference_residue": "3"
         },
         {
           "chain": "A",
           "residue": "93",
           "name": "HIP",
-          "meaning": "protonated histidine"
+          "meaning": "protonated histidine",
+          "reference_residue": "93"
         },
         {
           "chain": "A",
           "residue": "191",
           "name": "HIP",
-          "meaning": "protonated histidine"
+          "meaning": "protonated histidine",
+          "reference_residue": "191"
         },
         {
           "chain": "A",
           "residue": "197",
           "name": "HIP",
-          "meaning": "protonated histidine"
+          "meaning": "protonated histidine",
+          "reference_residue": "197"
         },
         {
           "chain": "A",
           "residue": "260",
           "name": "HIP",
-          "meaning": "protonated histidine"
+          "meaning": "protonated histidine",
+          "reference_residue": "260"
         },
         {
           "chain": "A",
           "residue": "263",
           "name": "HIP",
-          "meaning": "protonated histidine"
+          "meaning": "protonated histidine",
+          "reference_residue": "263"
         }
       ],
+      "numbering_certain": true,
       "derivation": "reference structure aligned to the deposit's SEQRES, then SEQRES positions mapped to author numbering through the observed residues"
     },
     "deposit": {

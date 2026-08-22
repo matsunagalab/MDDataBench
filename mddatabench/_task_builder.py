@@ -55,7 +55,8 @@ FUSION_RESIDUES = 30
 
 IONISATION = {"HIP": "protonated histidine", "CYM": "deprotonated cysteine",
               "ASH": "protonated aspartate", "GLH": "protonated glutamate",
-              "LYN": "neutral lysine"}
+              "LYN": "neutral lysine", "ARN": "neutral arginine",
+              "TYM": "deprotonated tyrosine"}
 
 
 def _code(name):
@@ -106,6 +107,19 @@ def seqres_to_auth(deposit, chain):
         out[index + 1] = number
         index += 1
     return out
+
+
+def mapping_is_trustworthy(deposit, chain, mapping, minimum=0.5):
+    """Whether enough of the chain was placed to believe the numbering.
+
+    The walk treats every code mismatch as an unobserved residue and advances,
+    so a sequence conflict or a repeat can shift every later anchor, and a code
+    that never recurs makes it stop early and map nothing after that point.
+    Neither is visible in the result, so the share of observed residues actually
+    placed is checked instead.
+    """
+    seen = len(observed(deposit).get(chain, []))
+    return bool(seen) and len(mapping) >= minimum * seen
 
 
 def auth_number(mapping, position):
@@ -203,6 +217,7 @@ def selection(record, deposit):
         if chain.get("種別") == "SEQRES に連続一致":
             lo, hi = _span(chain["SEQRES位置"])
             entry["ranges"], entry["numbering_certain"] = auth_ranges(mapping, lo, hi)
+            entry["seqres_start"] = lo
             entry["build_missing"] = sum(1 for p in range(lo, hi + 1) if p not in mapping)
         elif chain.get("種別", "").startswith("SEQRES に 2 区間"):
             spans = []
@@ -213,6 +228,7 @@ def selection(record, deposit):
             entry["ranges"] = [span for segment in spans for span in segment]
             entry["removed_residues"] = chain.get("除去長")
             entry["internal_deletion"] = True
+            entry["seqres_start"] = _span(chain["区間1"])[0]
             entry["numbering_certain"] = all(x for span in spans for x in span)
         out.append(entry)
     for detail in (record.get("詳細") or []):
@@ -256,7 +272,14 @@ def assign_distinct_chains(entries, deposit):
         twin = next((other for other, sequence in full.items()
                      if other not in taken and sequence == full.get(chain)), None)
         if twin:
+            # Identical SEQRES does not mean identical numbering or identical
+            # observed extent, so the ranges have to be measured again on the
+            # chain they are now claimed to describe.
             entry = dict(entry, deposit_chain=twin)
+            if entry.get("seqres_start") is not None and entry.get("ranges"):
+                span = entry["seqres_start"], entry["seqres_start"] + (entry.get("residues") or 1) - 1
+                entry["ranges"], entry["numbering_certain"] = auth_ranges(
+                    seqres_to_auth(deposit, twin), span[0], span[1])
             taken.add(twin)
         out.append(entry)
     return out
@@ -280,9 +303,13 @@ def merge_by_deposit_chain(entries):
         target["ranges"] = sorted(target["ranges"] + entry["ranges"],
                                   key=lambda span: _sort_key(span[0]))
         target["residues"] = (target.get("residues") or 0) + (entry.get("residues") or 0)
-        for key in ("build_missing", "removed_residues"):
-            if entry.get(key):
-                target[key] = (target.get(key) or 0) + entry[key]
+        if entry.get("build_missing"):
+            target["build_missing"] = (target.get("build_missing") or 0) + entry["build_missing"]
+        # Never add author numbers together: a renumbered fusion partner makes
+        # the arithmetic report 790 residues for a 160-residue insert. The
+        # classifier's own count is used where it exists.
+        if entry.get("removed_residues"):
+            target["removed_residues"] = entry["removed_residues"]
         if entry.get("differences"):
             target.setdefault("differences", []).extend(entry["differences"])
         # Two reference chains on one deposit chain means the reference left a
@@ -352,26 +379,32 @@ def modified_residues(deposit, chains):
         parent, note = line[24:27].strip(), line[29:].strip()
         if chains and chain not in chains:
             continue
-        if not any(entry["name"] == name for entry in out):
+        if not any(e["name"] == name and e["residue"] == number for e in out):
             out.append({"name": name, "parent": parent, "chain": chain,
                         "residue": number, "note": note})
     return out
 
 
-def stated_protonation(reference_pdb):
-    """Ionisation variants a prompt has to state, with the carve-outs removed.
+def stated_protonation(reference_pdb, deposit=None, chains=None):
+    """Ionisation variants a prompt has to state, in the deposit's numbering.
 
-    ``RSNAME`` lists every variant the reference used, but two kinds are exempt
-    from scoring and so must not be stated: the residues that ligate a metal and
-    the catalytic cysteine-histidine pair.  There is no settled answer for
-    either -- the literature disagrees with itself about whether such a pair is
-    a thiolate-imidazolium or neutral -- which is why the scorer exempts them,
-    and stating an exempt residue would hand over an answer nobody is being
-    asked for.  The exemption is found by geometry here exactly as the scorer
-    finds it, so the two agree by construction.
+    Two kinds are exempt from scoring and so must not be stated: the residues
+    that ligate a metal and the catalytic cysteine-histidine pair.  There is no
+    settled answer for either -- the literature disagrees with itself about
+    whether such a pair is a thiolate-imidazolium or neutral -- which is why the
+    scorer exempts them, and stating an exempt residue would hand over an answer
+    nobody is being asked for.  The exemption is found by geometry here exactly
+    as the scorer finds it, so the two agree by construction.
 
     Tautomers are never returned.  The scorer counts atoms per residue and HID
     and HIE have the same formula, so it cannot see them either way.
+
+    **The number is the deposit's, not the reference's.**  References renumber:
+    ATLAS 16pk_A runs 1-415 in its own file.  Returning that number would name a
+    residue an agent cannot find in the entry it is given, which is the mistake
+    this module exists to remove.  Without a mapping the residue is returned
+    with ``residue: None`` and the caller drops it rather than stating a number
+    that does not mean anything.
     """
     from mddatabench import composition as cp
 
@@ -382,14 +415,28 @@ def stated_protonation(reference_pdb):
                    cp.catalytic_dyad_positions(monomers, metals)):
         for monomer_id, positions in source.items():
             exempt.update((monomer_id, position) for position in positions)
+    mappings = {}
+    if deposit and chains:
+        for entry in chains:
+            deposit_chain = entry.get("deposit_chain")
+            if deposit_chain and deposit_chain not in mappings:
+                mappings[deposit_chain] = seqres_to_auth(deposit, deposit_chain)
     out = []
-    for monomer in monomers:
+    for index, monomer in enumerate(monomers):
+        entry = chains[index] if chains and index < len(chains) else None
         for position, residue in enumerate(monomer, start=1):
             name = residue.name.strip().upper()
-            if name in IONISATION and (id(monomer), position) not in exempt:
-                out.append({"chain": residue.chain, "residue": residue.resseq,
-                            "name": name, "meaning": IONISATION[name]})
-    return out
+            if name not in IONISATION or (id(monomer), position) in exempt:
+                continue
+            number = None
+            if entry and entry.get("seqres_start") is not None:
+                mapping = mappings.get(entry.get("deposit_chain")) or {}
+                number, _ = auth_number(mapping, entry["seqres_start"] + position - 1)
+            out.append({"chain": entry.get("deposit_chain") if entry else residue.chain,
+                        "residue": number, "name": name,
+                        "meaning": IONISATION[name],
+                        "reference_residue": residue.resseq})
+    return [entry for entry in out if entry["residue"] is not None]
 
 
 def chain_from_name(text):
@@ -420,7 +467,8 @@ FORCE_FIELDS = {"Amber ff14SB": "Amber ff14SB", "Amber ff19SB": "Amber ff19SB",
                 "Amber ff99SB-ILDN": "Amber ff99SB-ILDN", "CHARMM36m": "CHARMM36m",
                 "CHARMM36": "CHARMM36"}
 WATERS = {"TIP3P": "TIP3P", "OPC": "OPC", "OPC3": "OPC3", "TIP4PEW": "TIP4P-Ew",
-          "SPCE": "SPC/E", "SPC/E": "SPC/E"}
+          "TIP4P-EW": "TIP4P-Ew", "TIP4PEW ": "TIP4P-Ew", "SPCE": "SPC/E",
+          "SPC/E": "SPC/E", "SPC-E": "SPC/E"}
 
 
 def buildable_force_field(fields):
@@ -439,8 +487,19 @@ def buildable_force_field(fields):
 
 
 def _range_text(entry):
-    spans = " and ".join(f"**{a}–{b}**" for a, b in entry["ranges"])
-    return f"chain **{entry['deposit_chain']}** residues {spans}"
+    """A chain and its ranges, or a refusal.
+
+    An entry whose numbering could not be recovered used to print "chain
+    **None** residues **None–None**", which is worse than not shipping the task.
+    """
+    chain = entry.get("deposit_chain")
+    spans = [(a, b) for a, b in entry.get("ranges") or [] if a is not None and b is not None]
+    if not chain or not spans:
+        raise SystemExit(
+            f"the reference chain {entry.get('reference_chain')!r} could not be placed "
+            "on the deposit; the task cannot state what to simulate")
+    return (f"chain **{chain}** residues "
+            + " and ".join(f"**{a}–{b}**" for a, b in spans))
 
 
 def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonation,
@@ -458,8 +517,12 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
         conditions.append(f"**{water}** water")
     conditions.append("neutralised")
     lines.append("- " + ", ".join(conditions))
+    temperature = metadata.get("TEMP")
+    if temperature is None:
+        raise SystemExit("the reference records no temperature, so the prompt cannot "
+                         "state one and the measured-temperature check cannot be scored")
     ensemble = metadata.get("ENSEMBLE") or "NPT"
-    lines.append(f"- **{metadata.get('TEMP')} K**, **{ensemble}**")
+    lines.append(f"- **{temperature} K**, **{ensemble}**")
     lines.append(f"- at least **{window_ns:g} ns** of production MD")
     lines.append("")
 
@@ -477,18 +540,24 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
             lines += [f"Residue {where} of chain {entry['deposit_chain']} is not part of "
                       "the reference. Leave it out.", ""]
         for difference in (entry.get("differences") or []):
+            if difference.get("residue") is None:
+                continue
             lines += [f"Residue {difference['residue']} is deposited as "
                       f"**{ONE_LETTER.get(difference['deposited'], difference['deposited'])}**; "
                       f"simulate the "
                       f"**{ONE_LETTER.get(difference['reference'], difference['reference'])}**.", ""]
     for entry in modres:
+        if not entry.get("residue"):
+            continue
         lines += [f"Residue {entry['residue']} is deposited as **{entry['name']}**, a "
                   f"modified {entry['parent']}. Simulate the unmodified residue.", ""]
     if metadata.get("_structural_metals"):
         names = ", ".join(sorted(metadata["_structural_metals"]))
         lines += [f"The entry carries a structural {names}. Keep it.", ""]
     for entry in protonation:
-        lines += [f"Residue {entry['residue']} is a {entry['meaning']}.", ""]
+        where = (f"Residue {entry['residue']} of chain {entry['chain']}"
+                 if entry.get("chain") else f"Residue {entry['residue']}")
+        lines += [f"{where} is a {entry['meaning']}.", ""]
     if replicas > 1:
         lines += ["", ]
     lines += ["Leave the prepared structure, the topology, the minimised state and the "

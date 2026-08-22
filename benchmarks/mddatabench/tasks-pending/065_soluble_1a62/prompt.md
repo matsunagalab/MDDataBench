@@ -10,5 +10,9 @@ Simulate RHO, PDB entry **1A62**, chain **A** residues **1–130**, in explicit 
 
 Residue 1 is deposited as **MSE**, a modified MET. Simulate the unmodified residue.
 
+Residue 21 is deposited as **MSE**, a modified MET. Simulate the unmodified residue.
+
+Residue 29 is deposited as **MSE**, a modified MET. Simulate the unmodified residue.
+
 Leave the prepared structure, the topology, the minimised state and the production
 trajectory as artifacts. The evaluator recomputes everything it needs from them.

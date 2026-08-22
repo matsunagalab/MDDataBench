@@ -8,5 +8,13 @@ Simulate ALPHA-CATENIN, PDB entry **1DOW**, chain **A** residues **57–261**, i
 
 Residue 104 is deposited as **MSE**, a modified MET. Simulate the unmodified residue.
 
+Residue 124 is deposited as **MSE**, a modified MET. Simulate the unmodified residue.
+
+Residue 144 is deposited as **MSE**, a modified MET. Simulate the unmodified residue.
+
+Residue 190 is deposited as **MSE**, a modified MET. Simulate the unmodified residue.
+
+Residue 207 is deposited as **MSE**, a modified MET. Simulate the unmodified residue.
+
 Leave the prepared structure, the topology, the minimised state and the production
 trajectory as artifacts. The evaluator recomputes everything it needs from them.

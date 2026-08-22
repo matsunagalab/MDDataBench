@@ -104,7 +104,10 @@ def fetch_reference(accession: str, out: str, n_frames: int = 0,
     target = replica_id(accession, replica)
     project = get_json(f"{base}/{target}")
     metadata = project.get("metadata", {})
-    if frames is None:
+    # Only worked out when frames are actually wanted: with n_frames at its
+    # default of zero there is nothing to select, and computing the selector
+    # anyway divided by it.
+    if frames is None and n_frames:
         total = frame_count(project, base, target)
         frames = f"1:{total}:{max(1, total // n_frames)}"
     pca = get_json(f"{base}/{target}/analyses/pca")["data"]

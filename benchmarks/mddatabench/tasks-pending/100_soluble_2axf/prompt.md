@@ -6,17 +6,17 @@ Simulate 10-mer peptide from BZLF1 trans-activator protein in complex with Beta-
 - **300 K**, **NPT**
 - at least **1 ns** of production MD
 
-Residue 3 is a protonated histidine.
+Residue 3 of chain A is a protonated histidine.
 
-Residue 93 is a protonated histidine.
+Residue 93 of chain A is a protonated histidine.
 
-Residue 191 is a protonated histidine.
+Residue 191 of chain A is a protonated histidine.
 
-Residue 197 is a protonated histidine.
+Residue 197 of chain A is a protonated histidine.
 
-Residue 260 is a protonated histidine.
+Residue 260 of chain A is a protonated histidine.
 
-Residue 263 is a protonated histidine.
+Residue 263 of chain A is a protonated histidine.
 
 Leave the prepared structure, the topology, the minimised state and the production
 trajectory as artifacts. The evaluator recomputes everything it needs from them.

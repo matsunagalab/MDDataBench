@@ -98,3 +98,18 @@ def test_a_polymer_topology_with_no_bonds_is_refused(tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as raised:
         tp.load_reference(tmp_path / "reference.tpr", tmp_path / "reference.pdb")
     assert "bond" in str(raised.value)
+
+
+def test_no_frames_means_no_frame_selector(monkeypatch, tmp_path):
+    """n_frames defaults to zero because nothing reads the frames any more.
+    The selector was still being computed, and computing it divided by zero."""
+    project = {"metadata": {"SYSTATS": 100, "LICENSE": "cc"}, "files": ["topology.prmtop"],
+               "totalFrames": 1000, "mdcount": 1}
+    monkeypatch.setattr(rf, "get_json", lambda url, **kw:
+                        {"data": {"atoms": [], "eigenvalues": []}} if "analyses/pca" in url
+                        else project)
+    monkeypatch.setattr(rf, "download", lambda url, destination: (
+        destination.write_text("{}"), destination)[1])
+    provenance = rf.fetch_reference("A0001", str(tmp_path), node="mmb")
+    assert provenance["n_frames"] == 0
+    assert provenance["frame_selector"] is None

@@ -63,9 +63,17 @@
           "chain": "A",
           "residue": "168",
           "note": "GLYCOSYLATION SITE"
+        },
+        {
+          "name": "ASN",
+          "parent": "ASN",
+          "chain": "A",
+          "residue": "12",
+          "note": "GLYCOSYLATION SITE"
         }
       ],
       "stated_protonation": [],
+      "numbering_certain": true,
       "derivation": "reference structure aligned to the deposit's SEQRES, then SEQRES positions mapped to author numbering through the observed residues"
     },
     "deposit": {

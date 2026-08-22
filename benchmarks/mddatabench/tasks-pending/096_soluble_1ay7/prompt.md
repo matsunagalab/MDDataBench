@@ -6,7 +6,7 @@ Simulate RIBONUCLEASE SA COMPLEX WITH BARSTAR, PDB entry **1AY7**, chain **A** r
 - **300 K**, **NPT**
 - at least **1 ns** of production MD
 
-Residue 53 is a protonated histidine.
+Residue 53 of chain A is a protonated histidine.
 
 Leave the prepared structure, the topology, the minimised state and the production
 trajectory as artifacts. The evaluator recomputes everything it needs from them.
