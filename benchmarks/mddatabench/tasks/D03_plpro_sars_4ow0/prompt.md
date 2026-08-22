@@ -9,5 +9,8 @@ Simulate SARS-CoV papain-like protease, PDB entry **4OW0**, chain **A**,
 
 The entry carries a structural zinc. Keep it.
 
+Residue 112 is deposited as **OCS** (cysteine sulfonic acid), an oxidation
+artefact of the catalytic cysteine. Simulate the unmodified cysteine.
+
 Leave the prepared structure, the topology, the minimised state and the production
 trajectory as artifacts. The evaluator recomputes everything it needs from them.

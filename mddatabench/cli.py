@@ -32,12 +32,20 @@ def list_benchmark_tasks(dataset_dir: str = "benchmarks/mddatabench") -> dict:
 
 
 def fetch_benchmark_reference(accession: str, out: str, n_frames: int = 500,
-                              frames: str = None) -> dict:
-    """Download one MDDB reference bundle and record its provenance."""
+                              frames: str = None, node: str = "mmb",
+                              replica: int = None) -> dict:
+    """Download one MDDB reference bundle and record its provenance.
+
+    ``node`` names the MDDB node (accessions are node-local; see
+    ``mddatabench.reference.NODES``).  ``replica`` selects one MD of a
+    multi-replica project.
+    """
     from mddatabench.reference import fetch_reference
-    provenance = fetch_reference(accession, out, n_frames=n_frames, frames=frames)
+    provenance = fetch_reference(accession, out, n_frames=n_frames, frames=frames,
+                                 node=node, replica=replica)
     return {"success": True, "out": out, **{k: provenance[k] for k in
-            ("accession", "license", "n_frames", "frame_bytes", "sha256")}}
+            ("node", "accession", "md", "replica", "replica_count", "topology_file",
+             "license", "n_frames", "frame_bytes", "sha256")}}
 
 
 def score_benchmark_submission(job_dir: str, bundle: str, task_file: str,

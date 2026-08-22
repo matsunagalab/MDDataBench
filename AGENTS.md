@@ -41,9 +41,17 @@ is not written down cannot be defended or revised.
 - **Data is fetched, never vendored.** Task contracts carry the accession, the
   retrieval date, the licence, and the bundle SHA-256. Nothing downloaded is
   committed.
-- **Only CC BY / CC0 projects are eligible.**
+- **Only openly licensed projects are eligible**, and the licence string MDDB
+  returns is recorded verbatim in the task contract. Most are CC BY 4.0. The
+  DynaRepo node returns Apache License 2.0 or no licence at all while its paper
+  states CC BY-NC 4.0; that discrepancy is recorded per task. Nothing
+  downloaded is redistributed either way.
+- **MDDB is eight federated nodes, and accessions are node-local.** A task
+  contract carries `(node, accession)`; `A01M6` is a different project on oxf,
+  mmb and bsc. The node registry is served only by the global API
+  (`mdposit.mddbr.eu`), which is not a superset of the nodes.
 - **The reference is never staged into the solver workspace.** The evaluator
-  fetches it at scoring time and computes both subspaces itself.
+  fetches it at scoring time and computes every comparison itself.
 - **Prompts state only what cannot be inferred** and say nothing about
   analysis. Never name the accession in a prompt.
 - **Every axis is evaluated independently**; only the final verdict is gated.

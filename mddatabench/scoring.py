@@ -29,7 +29,6 @@ from mddatabench import dynamics as dy
 from mddatabench import topology as tp
 from mddatabench import energetics as en
 from mddatabench import execution as ex
-from mddatabench import subspace as st
 
 
 def pdb_atoms(path):
@@ -216,7 +215,9 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     amber = json.loads((topo / "artifacts" / "amber_metadata.json").read_text())
     prod_meta = json.loads((prod / "node.json").read_text()).get("metadata", {})
     signature = prod_meta.get("system_signature", {})
-    expect = task["reference"]["reference_system"]
+    # ``reference["reference_system"]`` is provenance only: every composition
+    # expectation is recomputed from the fetched bundle at scoring time, so
+    # nothing here reads the curated copy.
     results = []
 
     spec = {c["check_id"]: c for c in task["scoring"]["deterministic_checks"]}

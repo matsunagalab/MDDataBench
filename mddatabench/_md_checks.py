@@ -160,7 +160,10 @@ MD_CHECKS = [
         "weight": 0.0,
         "category": "precondition",
         "note": "Scorer-side precondition, reported and not scored: the reference's "
-                "contract atoms must resolve onto the submitted topology before either "
-                "subspace can be computed.",
+                "contract atoms must resolve onto the submitted topology before the "
+                "fluctuation and radius-of-gyration comparisons can be made. The atom "
+                "set is still the reference's own published PCA selection, which is why "
+                "the contract id keeps that name; the subspace test it was introduced "
+                "for is gone (2026-08-22).",
     },
 ]

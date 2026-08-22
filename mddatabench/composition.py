@@ -35,7 +35,6 @@ from __future__ import annotations
 from mddatabench import _threads  # noqa: F401  must precede numpy
 
 import collections
-import itertools
 
 import numpy as np
 
