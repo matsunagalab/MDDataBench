@@ -124,6 +124,42 @@ def _minimized_state(job_dir: pathlib.Path):
                      or sorted(artifacts.glob("*.xml"))), None)
 
 
+def _prepared_structure(prep: pathlib.Path) -> pathlib.Path:
+    """The prepared structure a prep node declares, whatever produced it.
+
+    Reading it out of `artifacts/merge/` assumed `prepare_complex` wrote it, and
+    a prep node need not be that tool: a mutation node is also `node_type=prep`
+    and registers its output as `merged_pdb` pointing at `artifacts/mutated.pdb`.
+    Globbing the merge directory raised StopIteration on the first submission
+    that reverted a crystallographic mutation.  The node says where its
+    structure is; ask it.
+    """
+    declared = json.loads((prep / "node.json").read_text()).get("artifacts") or {}
+    relative = declared.get("merged_pdb")
+    if relative:
+        candidate = prep / relative
+        if candidate.is_file():
+            return candidate
+        # A node that names a structure it does not have is not a node to guess
+        # for. Falling back here would score whatever else is in the directory
+        # while the report says the declared artifact was used -- a mutation
+        # node whose output went missing would be scored on its unmutated
+        # parent, which is worse than stopping.
+        raise SystemExit(
+            f"{prep.name} declares merged_pdb={relative} and the file is not "
+            "there; the node's artifacts are inconsistent")
+    for pattern in ("artifacts/merge/*.pdb", "artifacts/*.pdb"):
+        found = sorted(prep.glob(pattern))
+        if len(found) > 1:
+            raise SystemExit(
+                f"{prep.name} declares no merged_pdb and holds {len(found)} "
+                f"candidates ({', '.join(path.name for path in found)}); "
+                "which one was prepared cannot be guessed")
+        if found:
+            return found[0]
+    raise SystemExit(f"no prepared structure under {prep}")
+
+
 def _check_topology_chemistry(check, submitted, submitted_bonds, reference,
                               spec_valid):
     """Faults that are wrong on their own terms, then the disulfide comparison.
@@ -195,7 +231,7 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     # canonical sequence. Everything below runs inside a matched pair, so a
     # multimer is N monomers rather than a special case, and a failure is
     # attributable to a chain and a residue instead of to a total.
-    prepared = next((prep / "artifacts" / "merge").glob("*.pdb"))
+    prepared = _prepared_structure(prep)
     topology_pdb = topo / "artifacts" / "system.topology.pdb"
     reference_monomers = cp.split_monomers(cp.read_residues(bundle / "reference.pdb"))
     submitted_monomers = cp.split_monomers(cp.read_residues(prepared))
@@ -270,11 +306,6 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
           f"heavy atoms by element {submitted_elements} vs reference {reference_elements}"
           + (f"; per-residue differences {findings['elements'][:3]}"
              if findings["elements"] else ""))
-
-    submitted_atoms = cp.atom_totals(submitted_monomers)
-    check("protein_atom_count_matches_reference", submitted_atoms == expect["PROTATS"],
-          f"total {submitted_atoms}/{expect['PROTATS']} atoms "
-          f"(exact: an ionisation error is one hydrogen)")
 
     # --- chemistry that is wrong on its own terms ------------------------------
     spec_valid = spec["topology_is_chemically_valid"]

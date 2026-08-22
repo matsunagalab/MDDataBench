@@ -78,13 +78,14 @@ def test_one_extra_hydrogen_is_detected(tmp_path):
     assert findings["atom_counts"] and not findings["sequence"]
 
 
-def test_element_swap_that_preserves_the_total_is_detected(tmp_path):
+def test_element_swap_that_preserves_the_count_is_detected(tmp_path):
+    """Counting atoms cannot see a substitution; counting elements can."""
     reference = glycine(1, 1, (0.0, 0.0, 0.0))
     submitted = [row.replace("           N\n", "           O\n") if " N  " in row else row
                  for row in glycine(1, 1, (0.0, 0.0, 0.0))]
     ref = cp.split_monomers(cp.read_residues(write(tmp_path, "re.pdb", reference)))
     sub = cp.split_monomers(cp.read_residues(write(tmp_path, "se.pdb", submitted)))
-    assert cp.atom_totals(ref) == cp.atom_totals(sub)
+    assert ref[0][0].n_atoms == sub[0][0].n_atoms
     assert cp.element_totals(ref) != cp.element_totals(sub)
 
 def test_solvent_and_ions_are_not_part_of_the_solute(tmp_path):

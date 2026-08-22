@@ -379,7 +379,3 @@ def element_totals(monomers):
         for residue in monomer:
             total += residue.element_counts()
     return dict(sorted(total.items()))
-
-
-def atom_totals(monomers):
-    return sum(r.n_atoms for m in monomers for r in m)

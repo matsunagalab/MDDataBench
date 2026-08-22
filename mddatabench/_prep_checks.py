@@ -86,18 +86,6 @@ PREP_CHECKS = [
                 "preserves the total does not pass. Tautomer independent."
     },
     {
-        "check_id": "protein_atom_count_matches_reference",
-        "check_type": "reference_composition_rescan@1",
-        "capability": "composition_fidelity",
-        "weight": 1.0,
-        "category": "prep",
-        "note": "Exact, with no tolerance. The earlier +/-2 allowance was believed to be needed "
-                "for histidine tautomers; measured 2026-08-21, D02 picked the opposite tautomer "
-                "from the reference and still matched 1014/1014 exactly, because HID and HIE "
-                "have the same formula. The tolerance protected nothing and admitted up to two "
-                "ionisation errors, each of which is exactly one hydrogen."
-    },
-    {
         "check_id": "disulfide_bonds_match_reference",
         "check_type": "disulfide_bond_rescan@1",
         "capability": "composition_fidelity",
