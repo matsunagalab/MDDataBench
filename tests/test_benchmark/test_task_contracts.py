@@ -38,12 +38,17 @@ def test_every_check_is_categorised_and_versioned(path):
     checks = load(path)["scoring"]["deterministic_checks"]
     assert checks
     for check in checks:
-        assert check["category"] in ("prep", "md"), check["check_id"]
+        assert check["category"] in ("prep", "md", "precondition"), check["check_id"]
         assert check["check_type"].endswith("@1"), (
             f"{check['check_id']}: check types are versioned so a scorer fix "
             "does not silently rescore old submissions")
     assert any(c["category"] == "prep" for c in checks)
     assert any(c["category"] == "md" for c in checks)
+    for check in checks:
+        if check["category"] == "precondition":
+            assert check["weight"] == 0.0, (
+                f"{check['check_id']}: a precondition measures the scorer, not the "
+                "agent, so it is reported and never scored")
 
 
 @pytest.mark.parametrize("path", TASKS, ids=lambda p: p.parent.name)
