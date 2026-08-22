@@ -5,6 +5,38 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-23 — Sceptical review of calibration.py (pooled-band rewrite)
+
+Reviewed the replica-pooling rewrite the day it landed. Verified by execution:
+atom_selector is correct (round-trips to the 0-based index set; no off-by-one),
+but 5000 fragmented atoms would make a 26 KB selector URL with no length
+guard. Defects found, unfixed pending decision: (1) window-start grid
+`range(1, frames-count, count)` loses the aligned last window and never
+samples the trajectory tail (frames=1000, count=100: last window ends at
+frame 900); combined with `[:wanted]` taking each replica's first windows,
+calibration sees a deterministic early slice of every run. (2) Held-out test
+uses only the last replica — one draw, when leave-one-out over all replicas
+is free since the rows are already computed; it degenerates to a
+single-trajectory band when replicas == 2, and is silently dropped when any
+replica yields zero rows. (3) `_rejected` raises TypeError on a None statistic
+in a held-out window (`_bands` guards None, `_rejected` does not); `_bands`
+screens None but not NaN, and a NaN band rejects everything on the two-sided
+checks while passing everything on the one-sided rank floor. (4) window_frames
+checks only byte divisibility — no expected-byte count, no layout/NaN/
+magnitude screen, so a unit slip (nm vs A) or divisible garbage becomes a band
+silently. (5) Single-replica references (~47% of eligible projects) still get
+the single-trajectory band the module docstring discredits, with nothing in
+the contract marking the absence. (6) The docstring's DynaRepo example is
+arithmetically wrong: 2.5 ns at 100 ps is 25 frames, not 100, and would raise
+at the frames_per_window floor; cli.calibrate_reference cannot pass
+frames_per_window anyway. (7) frames_per_replica in the contract records only
+the last replica's (averaged) value. Also noted: the three shipped contracts
+(D01–D03) are dated 2026-08-22, pre-pooling — single-trajectory windows and a
+block-CV slack rationale — and scoring.py:519 still quotes the 7–16% block-CV
+no-slack rejection while the honest held-out test measures 30% (ATLAS 16pk_A;
+0.00 at 2.0 window-SD slack). Contracts and the scoring comment predate the
+module they describe and need regenerating.
+
 The entries below the extraction were written in
 [matsunagalab/mdclaw](https://github.com/matsunagalab/mdclaw)'s `docs/memo.md`
 before this repository existed and are copied here verbatim. They refer to

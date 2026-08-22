@@ -110,3 +110,62 @@ def test_a_window_with_no_rankable_profile_is_refused_not_turned_into_nan():
     assert stats["rank_correlation"] is None
     with pytest.raises(SystemExit):
         cb._bands([stats, stats])
+
+
+# --- review findings, 2026-08-23 ---------------------------------------------
+# Each of these was a real defect the reviewer pointed at, and each one made the
+# band wrong in the direction the module exists to correct.
+
+def test_duplicate_indices_cannot_desync_the_payload():
+    """A repeated index would ask for the atom twice while len(indices) counts
+    it once, and the reshape would then be against the wrong atom count."""
+    assert cb.atom_selector([0, 0, 1]) == "1-2"
+
+
+def test_a_negative_index_is_refused_rather_than_sent():
+    with pytest.raises(SystemExit):
+        cb.atom_selector([-1, 2, 3])
+
+
+def test_a_scattered_selection_outgrows_any_request_line():
+    """Collapsing runs only helps a contiguous selection. 16pk_A's 1245 contract
+    atoms already need 6020 characters, which is why window_frames falls back to
+    fetching the whole frame and slicing rather than failing."""
+    scattered = list(range(0, 40000, 2))
+    assert len(cb.atom_selector(scattered)) > cb.MAX_SELECTOR_CHARS
+
+
+def test_the_fallback_needs_the_atom_count_and_says_so(monkeypatch):
+    scattered = list(range(0, 40000, 2))
+    with pytest.raises(SystemExit) as raised:
+        cb.window_frames("http://x", "A0001", scattered, 1, 10)
+    assert "atom count" in str(raised.value)
+
+
+def test_a_nan_statistic_is_refused_because_a_nan_band_admits_everything():
+    """min/max propagate a NaN and every comparison against it is False, so the
+    band would pass every submission. _bands guarded None but not NaN."""
+    good = {k: 1.0 for k in cb.KEYS}
+    bad = dict(good, radius_of_gyration_angstrom=float("nan"))
+    with pytest.raises(SystemExit):
+        cb._bands([good, bad])
+
+
+def test_window_starts_span_the_replica_rather_than_its_head():
+    """Taking the first N of a head-to-tail enumeration put every calibration
+    window in the first third of the trajectory, leaving out where slow drift
+    and late relaxation live."""
+    starts = cb.window_starts(frames=10001, count=100, wanted=10)
+    assert starts[0] == 1
+    assert starts[-1] == 10001 - 100 + 1
+    assert len(starts) == 10
+
+
+def test_window_starts_never_runs_past_the_end():
+    for frames in (100, 101, 150, 1000):
+        for start in cb.window_starts(frames, count=100, wanted=5):
+            assert start + 100 - 1 <= frames
+
+
+def test_a_replica_too_short_for_one_window_yields_no_starts():
+    assert cb.window_starts(frames=50, count=100, wanted=5) == []

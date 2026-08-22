@@ -34,6 +34,7 @@ from __future__ import annotations
 from mddatabench import _threads  # noqa: F401  must precede numpy
 
 import json
+import time
 import urllib.request
 
 import numpy as np
@@ -50,6 +51,16 @@ FRAMES_PER_WINDOW = 100
 # range over few windows underestimates the population it is standing for.
 TARGET_WINDOWS = 100
 
+# Longest ``atoms=`` selector to put in a URL.  Servers and proxies commonly cut
+# the request line off at 8 KB; the rest of the URL is about 120 characters.
+# Measured: 16pk_A's 1245 contract atoms need 6020 characters, so the limit has
+# to sit above that, and a larger contract will exceed any limit -- which is
+# what the whole-frame fallback below is for.
+MAX_SELECTOR_CHARS = 7000
+
+# Attempts per window request.
+RETRIES = 4
+
 
 def _get(url, timeout=180):
     with urllib.request.urlopen(url, timeout=timeout) as response:
@@ -65,32 +76,122 @@ def atom_selector(indices):
     """
     if len(indices) == 0:
         return ""
-    ordered = np.sort(np.asarray(indices, dtype=int))
+    ordered = np.asarray(indices, dtype=int)
+    if ordered.min() < 0:
+        raise SystemExit(f"atom index {int(ordered.min())} is negative")
+    ordered = np.unique(ordered)          # duplicates would desync the payload
     breaks = np.flatnonzero(np.diff(ordered) != 1)
     starts = np.concatenate(([0], breaks + 1))
     stops = np.concatenate((breaks, [len(ordered) - 1]))
-    return ",".join(f"{ordered[a] + 1}-{ordered[b] + 1}" if a != b else f"{ordered[a] + 1}"
-                    for a, b in zip(starts, stops))
+    selector = ",".join(f"{ordered[a] + 1}-{ordered[b] + 1}" if a != b else f"{ordered[a] + 1}"
+                        for a, b in zip(starts, stops))
+    # Collapsing runs only helps when the selection is mostly contiguous. A
+    # scattered one degenerates to a term per atom, and the request then fails
+    # as an opaque HTTP error deep inside the loop rather than here.
+    return selector
 
 
-def window_frames(base, target, indices, start, count):
+def window_frames(base, target, indices, start, count, n_atoms=None):
     """One window of the reference trajectory, as (frames, atoms, 3) in Angstrom.
 
     MDDB serves raw little-endian float32 xyz with no header, so the shape has
     to be imposed here; a wrong atom count would reshape silently into garbage,
     which is why it is checked.
+
+    Collapsing the selection into ranges only helps when the contract atoms are
+    mostly contiguous.  16pk_A's 1245 of them already need 6020 characters, and
+    a larger or more scattered contract exceeds any request-line limit, so past
+    ``MAX_SELECTOR_CHARS`` the whole frame is fetched and sliced here instead.
+    That costs bytes and always works; failing would leave the task
+    uncalibratable.
     """
-    url = (f"{base}/{target}/trajectory?frames={start}:{start + count}:1"
-           f"&atoms={atom_selector(indices)}")
-    with urllib.request.urlopen(url, timeout=600) as response:
-        raw = response.read()
+    selector = atom_selector(indices)
+    whole = len(selector) > MAX_SELECTOR_CHARS
+    if whole and not n_atoms:
+        raise SystemExit(
+            f"{target}: the atom selector needs {len(selector)} characters and the "
+            "whole-frame fallback needs the system's atom count")
+    # ``frames=a:b:c`` is 1-based and inclusive at both ends -- measured:
+    # ``1:11:1`` returns 11 frames, ``10001:10002:1`` on a 10001-frame replica
+    # is a 502, and ``9902:10002:1`` returns a truncated body rather than an
+    # error. So the stop is start + count - 1, and the last usable start is
+    # frames - count + 1.
+    url = f"{base}/{target}/trajectory?frames={start}:{start + count - 1}:1"
+    if not whole:
+        url += f"&atoms={selector}"
+    # A calibration is a hundred requests of a few megabytes each. Letting one
+    # dropped connection out of here aborts the whole measurement -- which it
+    # did, on an IncompleteRead 818520 bytes into a 1.5 MB window.
+    raw = None
+    for attempt in range(RETRIES):
+        try:
+            with urllib.request.urlopen(url, timeout=600) as response:
+                raw = response.read()
+            break
+        except Exception as exc:                                    # noqa: BLE001
+            if attempt == RETRIES - 1:
+                raise SystemExit(
+                    f"{target}: window at {start} could not be fetched after "
+                    f"{RETRIES} attempts: {type(exc).__name__}: {exc}") from exc
+            time.sleep(2 ** attempt)
     values = np.frombuffer(raw, dtype="<f4")
-    per_frame = len(indices) * 3
+    width = n_atoms if whole else len(indices)
+    per_frame = width * 3
     if per_frame == 0 or values.size % per_frame:
         raise SystemExit(
             f"{target}: window at {start} returned {values.size} floats, which is "
-            f"not a multiple of {per_frame} for {len(indices)} atoms")
-    return values.reshape(-1, len(indices), 3).astype(np.float64)
+            f"not a multiple of {per_frame} for {width} atoms")
+    xyz = values.reshape(-1, width, 3).astype(np.float64)
+    if whole:
+        xyz = xyz[:, np.asarray(indices, dtype=int), :]
+    # The modulo check above validates the shape and nothing else. A payload of
+    # NaNs reshapes just as cleanly, and a NaN reaches the band as a NaN rather
+    # than as a None -- ``min``/``max`` propagate it and every comparison against
+    # it is False, so the band would admit every submission.
+    if not np.isfinite(xyz).all():
+        raise SystemExit(f"{target}: window at {start} contains non-finite coordinates")
+    return xyz
+
+
+def replica_frames(base, target):
+    """Frames in one replica.
+
+    ``totalFrames`` is the same project-wide number at every replica address --
+    measured on ATLAS 16pk_A, ``A02K9``, ``.1``, ``.2`` and ``.3`` all report
+    30003 for three replicas of 10001 -- so it has to be divided.  ``mdFrames``
+    is the per-replica count and is preferred when present.  The last resort is
+    an analysis series, which is decimated: the same project's ``rmsds`` is 3334
+    long with ``step`` 3, so the length alone underestimates by threefold.
+    """
+    project = _get(f"{base}/{target}")
+    metadata = project.get("metadata") or {}
+    if metadata.get("mdFrames"):
+        return int(metadata["mdFrames"])
+    total = project.get("totalFrames")
+    if total:
+        return int(total) // max(int(project.get("mdcount") or 1), 1)
+    series = _get(f"{base}/{target}/analyses/rmsds")
+    step = int(series.get("step") or 1)
+    for entry in (series.get("data") or []):
+        if entry.get("values"):
+            return len(entry["values"]) * step
+    raise SystemExit(f"{target}: cannot determine how many frames it has")
+
+
+def window_starts(frames, count, wanted):
+    """Window starts spread over the whole replica, not clustered at its head.
+
+    Taking the first ``wanted`` of a head-to-tail enumeration put every
+    calibration window in the first third of the trajectory, which leaves out
+    exactly where slow drift and late relaxation live -- the same too-narrow
+    band the pooling was introduced to fix, arriving from the sampling side.
+    """
+    last = frames - count + 1
+    if last < 1:
+        return []
+    if wanted <= 1:
+        return [1]
+    return sorted({int(round(x)) for x in np.linspace(1, last, min(wanted, last))})
 
 
 def window_statistics(xyz, reference_profile):
@@ -117,10 +218,11 @@ def _bands(rows):
     """Range and spread of each statistic over a set of windows."""
     band, spread = {}, {}
     for key in KEYS:
-        missing = sum(1 for row in rows if row.get(key) is None)
+        missing = sum(1 for row in rows
+                      if row.get(key) is None or not np.isfinite(row[key]))
         if missing:
             raise SystemExit(
-                f"{missing} of {len(rows)} calibration windows have no {key}; "
+                f"{missing} of {len(rows)} calibration windows have no finite {key}; "
                 "a band built from the rest would stand for a different set")
         values = np.array([row[key] for row in rows], dtype=float)
         band[key] = [float(values.min()), float(values.max())]
@@ -177,30 +279,26 @@ def calibrate(accession, bundle, node="mmb", window_ns=None, slack_window_sd=2.0
 
     indices = np.asarray(json.loads(
         (bundle / "pca_atom_indices.json").read_text())["atom_indices"], dtype=int)
-    profile = np.asarray(json.loads(
+    full_profile = np.asarray(json.loads(
         (bundle / "reference_fluctuation.json").read_text())["y"]["rmsf"]["data"],
-        dtype=float)[indices] * 10.0
+        dtype=float)
+    n_atoms = len(full_profile)          # one entry per atom of the whole system
+    profile = full_profile[indices] * 10.0
 
     replicas = int(project.get("mdcount") or 1)
-    per_replica, frames_each = {}, None
+    per_replica, frames_per = {}, {}
     for replica in range(1, replicas + 1):
         target = replica_id(accession, replica)
-        total = _get(f"{base}/{target}")
-        frames = total.get("totalFrames")
-        frames = (int(frames) // replicas) if frames else None
-        if frames is None:
-            series = _get(f"{base}/{target}/analyses/rmsds").get("data") or []
-            frames = next((len(e["values"]) for e in series if e.get("values")), 0)
-        frames_each = frames
+        frames = replica_frames(base, target)
+        frames_per[str(replica)] = frames
         wanted = max(1, -(-target_windows // replicas))
-        starts = list(range(1, max(2, frames - count), count))[:wanted]
-        rows = []
-        for start in starts:
-            xyz = window_frames(base, target, indices, start, count)
+        for start in window_starts(frames, count, wanted):
+            xyz = window_frames(base, target, indices, start, count,
+                                n_atoms=n_atoms)
             if xyz.shape[0] < frames_per_window:
                 continue
-            rows.append(window_statistics(xyz, profile))
-        per_replica[replica] = rows
+            per_replica.setdefault(replica, []).append(window_statistics(xyz, profile))
+        per_replica.setdefault(replica, [])
 
     pooled = [row for rows in per_replica.values() for row in rows]
     if len(pooled) < 10:
@@ -217,19 +315,38 @@ def calibrate(accession, bundle, node="mmb", window_ns=None, slack_window_sd=2.0
             _, within = _bands(first)
 
     # The honest false-rejection test: calibrate without one replica, then score
-    # every window of it.
+    # every window of it.  Every fold is already in memory, so leave-one-out over
+    # all of them costs nothing and one draw would be one draw.
+    folds = []
+    for held in sorted(per_replica):
+        if not per_replica[held]:
+            continue
+        kept = [row for r, rows in per_replica.items() if r != held for row in rows]
+        if len(kept) < 10:
+            continue
+        kb, ks = _bands(kept)
+        folds.append({
+            "replica": held,
+            "windows": len(per_replica[held]),
+            "calibrated_on_replicas": sorted(r for r in per_replica if r != held),
+            "rejected_fraction": _rejected(per_replica[held], kb, ks, slack_window_sd),
+            "rejected_fraction_without_slack": _rejected(per_replica[held], kb, ks, 0.0),
+        })
     held_out = None
-    if replicas > 1 and all(per_replica.get(r) for r in per_replica):
-        last = max(per_replica)
-        kept = [row for r, rows in per_replica.items() if r != last for row in rows]
-        if len(kept) >= 10:
-            kb, ks = _bands(kept)
-            held_out = {
-                "replica": last,
-                "windows": len(per_replica[last]),
-                "rejected_fraction": _rejected(per_replica[last], kb, ks, slack_window_sd),
-                "rejected_fraction_without_slack": _rejected(per_replica[last], kb, ks, 0.0),
-            }
+    if folds:
+        held_out = {
+            "folds": folds,
+            "rejected_fraction": max(f["rejected_fraction"] for f in folds),
+            "rejected_fraction_without_slack":
+                max(f["rejected_fraction_without_slack"] for f in folds),
+            # With two replicas each fold calibrates on a single one, which is
+            # the within-replica band this module exists to widen. The number
+            # then describes the old fault, not the band that ships.
+            "note": ("each fold calibrates on one replica only, so this measures the "
+                     "within-replica band rather than the pooled one"
+                     if replicas == 2 else
+                     f"leave-one-out over {len(folds)} replica(s)"),
+        }
 
     out = {
         "windows": len(pooled),
@@ -237,13 +354,14 @@ def calibrate(accession, bundle, node="mmb", window_ns=None, slack_window_sd=2.0
         "frames_per_window": count,
         "replicas_used": sorted(per_replica),
         "windows_per_replica": {str(k): len(v) for k, v in per_replica.items()},
-        "frames_per_replica": frames_each,
+        "frames_per_replica": frames_per,
         "window_definition": (
             f"non-overlapping {window_ns:g} ns windows, {count} frames at "
             f"{step_ns * 1000:g} ps, contract atoms only, pooled across "
             f"{len(per_replica)} replica(s)"),
         "window_fetch": ("GET {api}/{accession}[.replica]/trajectory"
-                         "?frames=<start>:<start+frames>:1&atoms=<contract ranges, 1-based>"),
+                         "?frames=<start>:<start+frames-1>:1"
+                         "&atoms=<contract ranges, 1-based>; both ends inclusive"),
         "estimator": ("frames superposed on their own mean structure, a linear trend "
                       "in time removed per atom, then per-atom RMSF; the same "
                       "estimator is applied to the submission"),
@@ -256,5 +374,5 @@ def calibrate(accession, bundle, node="mmb", window_ns=None, slack_window_sd=2.0
         out["pooled_over_within_sd_ratio"] = {
             key: (spread[key] / within[key]) if within.get(key) else None for key in KEYS}
     if held_out:
-        out["held_out_replica"] = held_out
+        out["held_out"] = held_out
     return out
