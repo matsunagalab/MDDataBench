@@ -210,8 +210,82 @@ def _check_topology_chemistry(check, submitted, submitted_bonds, reference,
     check("disulfide_bonds_match_reference", expected == observed, detail)
 
 
+# What the scorer needs the submission's DAG to have produced.  A run that
+# errored out before these exist is not a low-scoring submission, it is one that
+# cannot be measured at all.
+REQUIRED_STAGES = ("prep", "topo", "prod")
+
+
+def _report(task, results, diagnostics=None):
+    """Per-category scores from a list of check results."""
+    by_category = {}
+    for row in results:
+        bucket = by_category.setdefault(row["category"], {"passed": 0, "total": 0,
+                                                          "weight": 0.0, "earned": 0.0})
+        bucket["total"] += 1
+        bucket["passed"] += int(row["passed"])
+        bucket["weight"] += row["weight"]
+        bucket["earned"] += row["weight"] * int(row["passed"])
+    # One score per category, each normalised on its own. A zero weight excludes
+    # a check from every score, which is how `precondition` stays reported and
+    # ungraded: it asks whether the reference's contract atoms land on the
+    # submitted topology, and that measures the scorer, not the agent.
+    scores = {name: (bucket["earned"] / bucket["weight"] if bucket["weight"] else None)
+              for name, bucket in by_category.items()}
+    scored = [r for r in results if r["weight"]]
+    return {"task_id": task["task_id"], "checks": results, "by_category": by_category,
+            "scores": scores,
+            "passed": sum(1 for r in scored if r["passed"]), "total": len(scored),
+            "diagnostics": diagnostics or {}}
+
+
+def _unrunnable(task, reason):
+    """Every graded check failed, because the submission produced nothing to grade.
+
+    A pipeline that errors out used to raise straight out of the scorer, which
+    reports no score at all rather than a zero -- the same fault
+    ``topology_loads_and_is_parameterized`` had until 2026-08-21.  A prep stage
+    that failed leaves no structure to compare and no system to simulate, so
+    both axes are zero and say why, instead of the run being absent from the
+    results.
+    """
+    results = [{"check_id": c["check_id"], "category": c.get("category", "prep"),
+                "weight": float(c.get("weight", 1.0)), "passed": False,
+                "detail": reason}
+               for c in task["scoring"]["deterministic_checks"]]
+    report = _report(task, results, {"unrunnable": reason})
+    report["unrunnable"] = reason
+    return report
+
+
+def _resolve_stages(job_dir):
+    """The prep, topo and prod nodes, or the reason there is no scoring to do."""
+    if not (job_dir / "nodes").is_dir():
+        return None, f"no nodes directory under {job_dir}"
+    nodes = {}
+    for stage in REQUIRED_STAGES:
+        try:
+            nodes[stage] = find_node(job_dir, stage)
+        except SystemExit as exc:
+            return None, str(exc)
+        except OSError as exc:
+            return None, f"the {stage} node could not be read: {exc}"
+    required = {"topo": ("system.topology.pdb", "system.system.xml",
+                         "amber_metadata.json")}
+    for stage, names in required.items():
+        for name in names:
+            if not (nodes[stage] / "artifacts" / name).exists():
+                return None, f"the {stage} node produced no {name}"
+    if not list((nodes["prod"] / "artifacts").glob("*.dcd")):
+        return None, "the prod node produced no trajectory"
+    return nodes, None
+
+
 def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
-    prep, topo, prod = (find_node(job_dir, t) for t in ("prep", "topo", "prod"))
+    nodes, unrunnable = _resolve_stages(job_dir)
+    if unrunnable:
+        return _unrunnable(task, unrunnable)
+    prep, topo, prod = (nodes[t] for t in REQUIRED_STAGES)
     amber = json.loads((topo / "artifacts" / "amber_metadata.json").read_text())
     prod_meta = json.loads((prod / "node.json").read_text()).get("metadata", {})
     signature = prod_meta.get("system_signature", {})
@@ -240,7 +314,7 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
 
     # Both topologies, read rather than inferred. The reference ships its own
     # topology.prmtop and the submission ships the System that exerts force.
-    reference_topology = tp.load_reference(bundle / "reference.prmtop",
+    reference_topology = tp.load_reference(tp.find_reference_topology(bundle),
                                            bundle / "reference.pdb")
     submitted_topology, submitted_bonds, topology_error = tp.load_submission(
         topo / "artifacts" / "system.system.xml", topology_pdb)
@@ -555,34 +629,13 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
           " | ".join(metal_report) if metal_report
           else "no metal ion in the submitted topology")
 
-    by_category = {}
-    for row in results:
-        bucket = by_category.setdefault(row["category"], {"passed": 0, "total": 0,
-                                                          "weight": 0.0, "earned": 0.0})
-        bucket["total"] += 1
-        bucket["passed"] += int(row["passed"])
-        bucket["weight"] += row["weight"]
-        bucket["earned"] += row["weight"] * int(row["passed"])
-
-    # One score per category, each normalised on its own. A zero weight excludes
-    # a check from every score, which is how `precondition` stays reported and
-    # ungraded: it asks whether the reference's contract atoms land on the
-    # submitted topology, and that measures the scorer, not the agent.
-    scores = {name: (bucket["earned"] / bucket["weight"] if bucket["weight"] else None)
-              for name, bucket in by_category.items()}
-    scored = [r for r in results if r["weight"]]
-    return {"task_id": task["task_id"], "checks": results, "by_category": by_category,
-            "scores": scores,
-            "passed": sum(1 for r in scored if r["passed"]), "total": len(scored),
-            "diagnostics": {"fluctuation_rank_correlation": agreement,
-                            "n_frames": int(traj.n_frames),
-                            "built_energy_per_atom_kj_mol":
-                                built.get("energy_per_particle_kj_mol"),
-                            "minimized_energy_per_atom_kj_mol":
-                                (relaxed.get("energy_per_particle_kj_mol")
-                                 if minimized is not None else None),
-                            "minimized_max_force_kj_mol_nm":
-                                (relaxed.get("max_force_kj_mol_nm")
-                                 if minimized is not None else None)}}
+    return _report(task, results, {
+        "fluctuation_rank_correlation": agreement,
+        "n_frames": int(traj.n_frames),
+        "built_energy_per_atom_kj_mol": built.get("energy_per_particle_kj_mol"),
+        "minimized_energy_per_atom_kj_mol":
+            (relaxed.get("energy_per_particle_kj_mol") if minimized is not None else None),
+        "minimized_max_force_kj_mol_nm":
+            (relaxed.get("max_force_kj_mol_nm") if minimized is not None else None)})
 
 

@@ -9,9 +9,11 @@ The submission ships ``system.xml``, which is the thing that exerts force.  A
 CONECT record is metadata and can disagree with it; the bond that moved D01's
 two zinc-ligating sulfurs from 3.00 to 2.04 A was a HarmonicBondForce term.
 
-The reference ships ``topology.prmtop``.  MDDB serves it for every project and
-this repository was not fetching it.  It states the bond list, the residue
-names and the atom types outright, so nothing has to be guessed:
+The reference ships a topology, but not always the same one.  MDDB is eight
+federated nodes and they deposit different formats: Amber ``topology.prmtop``
+on mmb, cin and rpbs, GROMACS ``topology.tpr`` on bsc, oxf and inr, CHARMM
+``topology.psf`` on part of inr.  Whichever arrives states the bond list, the
+residue names and the atom types outright, so nothing has to be guessed:
 
     MCV1900208  4862 atoms, 313 residues, net charge -2.0
                 CYM 3, HIP 1, HIE 10, CYS 5, no S-S bond
@@ -73,29 +75,86 @@ def _donor_atoms(residue):
     return tuple(atom for atom in residue.atoms if atom.name in names)
 
 
-def load_reference(prmtop_path, pdb_path):
-    """The reference's own Amber topology, carrying its structure's coordinates.
+# Topology formats MDDB nodes deposit, in the order a bundle is searched.
+# ``.prmtop`` first only because it is the most common; nothing else depends on
+# the order.
+REFERENCE_TOPOLOGIES = (".prmtop", ".parm7", ".tpr", ".psf", ".top")
+
+
+def find_reference_topology(bundle):
+    """The reference topology in this bundle, whatever format the node served.
+
+    Returns the path.  Raises if the bundle has none, because every prep
+    comparison -- residue composition, elements, disulfide bonds -- is read from
+    it, and silently scoring without one would report agreement that was never
+    checked.
+    """
+    for suffix in REFERENCE_TOPOLOGIES:
+        candidate = bundle / f"reference{suffix}"
+        if candidate.exists():
+            return candidate
+    raise SystemExit(
+        f"{bundle} carries no reference topology; expected one of "
+        + ", ".join(f"reference{s}" for s in REFERENCE_TOPOLOGIES))
+
+
+def read_topology(path):
+    """One topology file, as a ParmEd structure with bonds, charges and elements.
+
+    ParmEd reads Amber prmtop, CHARMM psf and GROMACS top.  It cannot read a
+    ``.tpr``: that is GROMACS's binary run input, not a text topology.
+    MDAnalysis can, and converting its universe gives the same ParmEd structure
+    the rest of this module already consumes -- verified on ATLAS 16pk_A, where
+    the tpr yields 6378 atoms, 6429 bonds, per-atom charges and elements, and
+    agrees with the bundle's own reference.pdb on every atom and residue name.
+    """
+    import parmed
+    suffix = path.suffix.lower()
+    if suffix == ".tpr":
+        import MDAnalysis
+        return MDAnalysis.Universe(str(path)).atoms.convert_to("PARMED")
+    if suffix in REFERENCE_TOPOLOGIES:
+        return parmed.load_file(str(path))
+    raise SystemExit(f"{path.name}: unsupported topology format")
+
+
+def load_reference(topology_path, pdb_path):
+    """The reference's own topology, carrying its structure's coordinates.
 
     The two files are separate downloads and nothing in the format ties them
     together, so the correspondence is checked rather than assumed: transplanting
     coordinates onto a topology whose atoms are in a different order would put a
     metal on the wrong residue and be visible nowhere in the report.  Verified
-    2026-08-22 across all three references -- 4897/4897/4862 atoms, no atom-name
-    and no residue-name mismatch.
+    2026-08-22 across all three PLpro references -- 4897/4897/4862 atoms, no
+    atom-name and no residue-name mismatch -- and 2026-08-23 on an ATLAS tpr.
     """
     import parmed
-    structure = parmed.load_file(str(prmtop_path))
+    structure = read_topology(topology_path)
     coordinates = parmed.load_file(str(pdb_path))
     if len(coordinates.atoms) != len(structure.atoms):
         raise SystemExit(
-            f"{prmtop_path.name} has {len(structure.atoms)} atoms and "
+            f"{topology_path.name} has {len(structure.atoms)} atoms and "
             f"{pdb_path.name} has {len(coordinates.atoms)}; the bundle is inconsistent")
     mismatched = [i for i, (a, b) in enumerate(zip(structure.atoms, coordinates.atoms))
                   if a.name != b.name]
     if mismatched:
         raise SystemExit(
-            f"{prmtop_path.name} and {pdb_path.name} disagree on atom order at "
+            f"{topology_path.name} and {pdb_path.name} disagree on atom order at "
             f"{len(mismatched)} position(s), first at index {mismatched[0]}")
+    # The atom check above says nothing about bonds, and every prep expectation
+    # that is a bond -- the disulfide set, the valence limits, the metal-bridge
+    # test -- is read from this list.  A conversion that dropped it would shrink
+    # the reference's expected set silently, so a submission missing a disulfide
+    # would score as agreement with nothing in the report to show it.  Refuse a
+    # polymer topology that declares no bonds at all.  Measured 2026-08-23 on
+    # crambin 1AB1 from a GROMACS tpr: 639 atoms, 648 bonds, and the three
+    # disulfides Cys3-Cys40, Cys4-Cys32, Cys16-Cys26 all present.
+    polymer = sum(1 for residue in structure.residues
+                  if residue.name.strip().upper() in POLYMER_RESIDUES)
+    if polymer and not len(structure.bonds):
+        raise SystemExit(
+            f"{topology_path.name} declares {polymer} polymer residue(s) and no "
+            "bonds; the bond list was lost in reading it")
     structure.coordinates = coordinates.coordinates
     return structure
 

@@ -10,6 +10,7 @@ def test_tools_are_registered():
     assert set(mddatabench.TOOLS) == {
         "list_benchmark_tasks",
         "fetch_benchmark_reference",
+        "calibrate_benchmark_task",
         "score_benchmark_submission",
         "run_benchmark_negative_controls",
     }

@@ -2,10 +2,17 @@
 
 A benchmark asking whether an agent can **run a molecular dynamics simulation
 that reproduces a real deposited one**. Reference answers come from a public
-database rather than from a curator: [MDDB](https://mddbr.eu/)
-(`https://mmb.mddbr.eu/api/rest/v1/`), used under CC BY 4.0. Scoring is
+database rather than from a curator: [MDDB](https://mddbr.eu/). Scoring is
 deterministic and artifact-based — everything is recomputed from the submitted
 system and trajectory, and numbers the agent reports never enter the score.
+
+MDDB is a **federation of eight nodes**, not one database, and accessions are
+node-local: `A01M6` is a MemProtMD membrane system on `oxf`, a different project
+on `mmb`, and a DynamicPDB entry on `bsc`. A task contract therefore carries
+`(node, accession)`. The node registry is served only by the global API
+(`mdposit.mddbr.eu`), which is **not** a superset of the nodes — `MCV1900208` is
+absent from it. Most references are CC BY 4.0; the licence string MDDB returns
+is recorded verbatim per task, and nothing downloaded is redistributed.
 
 MDDataBench was extracted from
 [matsunagalab/mdclaw](https://github.com/matsunagalab/mdclaw), alongside its
@@ -29,29 +36,42 @@ OpenMM is best installed from conda-forge.
 ## Using it
 
 ```bash
-# 1. fetch the reference bundle for a task; data is fetched, never vendored
-mddatabench fetch_benchmark_reference --accession MCV1900209 --out /tmp/refbundle
+# 1. fetch the reference bundle; data is fetched, never vendored.
+#    --node selects the MDDB node, --replica one MD of a multi-replica project.
+mddatabench fetch_benchmark_reference \
+  --node mmb --accession MCV1900209 --out /tmp/refbundle
 
-# 2. hand prompt.md to your agent, let it produce an MDClaw job directory
+# 2. measure the task's md bands from the reference's own windows, pooled
+#    across every replica it has. Only needed when building a new task.
+mddatabench calibrate_benchmark_task \
+  --node mmb --accession MCV1900209 --bundle /tmp/refbundle --out calibration.json
 
-# 3. score what it produced
+# 3. hand prompt.md to your agent, let it produce an MDClaw job directory
+
+# 4. score what it produced
 mddatabench score_benchmark_submission \
   --job-dir <study>/jobs/main --bundle /tmp/refbundle \
   --task-file benchmarks/mddatabench/tasks/D01_plpro_sars2_6w9c/task.json
 
-# 4. confirm the md-side checks still reject what they should
+# 5. confirm the md-side checks still reject what they should
 mddatabench run_benchmark_negative_controls \
   --job-dir <study>/jobs/main --bundle /tmp/refbundle --task-file <task.json>
 ```
 
+A submission whose pipeline errored out scores **prep 0 and md 0** with the
+reason recorded, rather than raising out of the scorer and vanishing from the
+results.
+
 ## What is here
 
 ```
-mddatabench/subspace.py    the pinned analysis contract and the hypothesis test
 mddatabench/execution.py   elapsed simulated time, measured from the solvent
+mddatabench/dynamics.py    the equilibrium estimators the md checks are built on
+mddatabench/calibration.py measures each task's bands from the reference's windows
+mddatabench/topology.py    the chemistry both sides declare, in any node's format
 mddatabench/composition.py per-monomer composition, protonation, and disulfides
 mddatabench/energetics.py  potential energies, recomputed and never read
-mddatabench/reference.py   MDDB bundle retrieval and provenance
+mddatabench/reference.py   MDDB node registry, bundle retrieval and provenance
 mddatabench/scoring.py     per-check scoring, split into prep and md
 mddatabench/controls.py    adversarial baselines that must fail
 mddatabench/_prep_checks.py  the prep check block, written into every task.json
@@ -64,51 +84,66 @@ benchmarks/mddatabench/tasks/D03_...  SARS-CoV PLpro   (PDB 4OW0, MDDB MCV190020
 
 ## Tasks
 
-| id | system | MDDB | chain | reference | adds |
+Three tasks shipped first, and are the ones every measurement below was made
+on. A hundred were selected on 2026-08-23; the full list with each task's chain
+and residue range is in [`docs/task-candidates.md`](docs/task-candidates.md).
+
+| id | system | node:accession | chain | reference | adds |
 |---|---|---|---|---|---|
-| D01 | SARS-CoV-2 PLpro, 312 res + Zn | MCV1900209 | 6W9C C | 1 µs | the baseline: prep, 1 ns MD, subspace test |
-| D02 | SARS-CoV-2 PLpro, 312 res + Zn | MCV1900210 | 6WRH A | 1 µs | a second deposit of the same protein |
-| D03 | SARS-CoV PLpro, 312 res + Zn | MCV1900208 | 4OW0 A | 1 µs | the orthologue, and non-default protonation |
+| D01 | SARS-CoV-2 PLpro, 312 res + Zn | mmb:MCV1900209 | 6W9C C | 1 µs | the baseline: prep and 1 ns MD |
+| D02 | SARS-CoV-2 PLpro, 312 res + Zn | mmb:MCV1900210 | 6WRH A | 1 µs | the deposit carries C111S; simulate wild type |
+| D03 | SARS-CoV PLpro, 312 res + Zn | mmb:MCV1900208 | 4OW0 A | 1 µs | residue 112 is deposited as OCS, an oxidised cysteine |
 
-The cast was re-selected on 2026-08-22 by sequence alignment: every reference
-monomer is aligned against the RCSB polymer entities of its deposit
-(Biopython global alignment, ≥90% coverage and ≥95% identity required), and
-every non-polymer component of the reference must also exist in the deposit.
-The second condition is what rules out the DE Shaw Anton entries, whose docked
-`LIG` / `RT` / `ATP` / `MG` are absent from the deposited structures.
+### The hundred
 
-All three references are 1 µs, which is the point: a 1 ns submission is
-compared against many independent 1 ns windows of the reference rather than
-against a single trajectory, so the reference supplies its own spread and the
-agent still only runs 1 ns.
+Surveying every node directly gives **35602 projects**, of which **4036** can
+supply a calibrated window. The cast is stratified over nine axes and split
+**70 train / 30 evaluation**:
 
-The eligible pool deliberately overlaps MDPrepBench. 1934 of MDDB's 4554 projects are
-eligible — CC licensed, classical MD, a full analysis set, and a PDB entry —
-and they cover most of MDPrepBench's capability axes:
+| axis | tasks (train/eval) | source | force field | window |
+|---|---|---|---|---|
+| membrane proteins | 14 (11/3) | ebrains/mcns (mmb) | CHARMM36 | 1 ns |
+| antibody-antigen | 10 (7/3) | Dynabench (inr) | CHARMM36m | 2.5 ns |
+| protein-protein | 6 (4/2) | Dynarepo (inr) | CHARMM36m | 2.5 ns |
+| VHH nanobodies | 5 (3/2) | nanobodies (mmb) | ff99SB-ILDN | 1 ns |
+| protein-ligand | 10 (7/3) | ligate (cin) | ff99SB-ILDN | 1 ns |
+| nucleic acids, incl. the nucleosome | 14 (10/4) | bigna (mmb) | ParmBSC1 etc. | 1 ns |
+| metal sites | 4 (3/1) | cv19 (mmb) | ff14SB | 1 ns |
+| single chains | 24 (16/8) | ATLAS (bsc) | CHARMM36m | 1 ns |
+| single chains | 13 (9/4) | MoDEL (mmb) | Parm99 | 1 ns |
 
-| axis | eligible entries | example |
-|---|---|---|
-| disulfides | 677 | `A00EC` 1EDN (D03) |
-| terminal caps | 144 | `A007Z` 1CCR |
-| selenomethionine | 31 | `A015F` 1WHZ |
-| zinc, with the metal retained | 139 | `MCV1900209` PLpro 6W9C |
-| ligand bound | 78 | `MCV1900211` PLpro + 3k |
-| glycosylation (NAG) | 79 | `MCV1900112` 6VW1 |
-| DNA duplex, counterions retained | 126 | `A01MQ` 1ICK |
-| RNA | 10 | `A01AU` 1Q9A |
-| protein-DNA, with Mg | 26 | `A01FH` 1VTN |
-| multimer | 254 | `A007P` 1CDL calmodulin |
+Fifty-six deposits are multi-chain and thirty-nine projects carry two or more
+replicas. Six force fields are represented on purpose: the md checks are built
+to be force-field independent, and a cast that used one would not test that.
 
-Metadata alone is not enough to pick from this. `OTHRATS > 0` together with
-`PTM: Acetylation` reads like a metalloprotein but is an ACE cap: 1CCR and
-1JEB both come with their haem stripped, as 2CBA comes without its zinc, so
-MoDEL cannot supply a metal task at all. The composition that matters is in
-`RSNAME`, and the entries above were each confirmed by fetching the deposited
-structure. 2CBA is held back for that reason — making it a task would reward
-stripping the catalytic metal that MDPrepBench P26 exists to test.
+The split is by **homology cluster**, not by task: reference sequences are
+clustered on 3-mer containment and whole clusters go to one side. The threshold
+was measured rather than chosen. At 0.30 all ten VHH domains collapse into one
+cluster and the evaluation set loses the nanobody axis entirely; at 0.70 they
+separate and only genuinely repeated systems stay together. What must not leak
+is the same system, not the same fold — splitting folds would stop the
+evaluation measuring generalisation at all.
 
-Four axes have no eligible entry: membranes (the only CC bilayers are ten
-SARS-CoV-2 viral membranes), implicit solvent, mutants, and phosphorylation.
+### What could not be built
+
+Membrane proteins were twice declared impossible here. That was wrong, and the
+reason is worth keeping: the survey had read one node of eight.
+`mmb.mddbr.eu` serves 4554 of the registered mmb node's 9062 projects, and the
+nanobody and membrane collections are only in the difference.
+
+What genuinely cannot be built, measured across all eight nodes:
+
+- **MemProtMD** (oxf, 9007 projects) is MARTINI coarse-grained. One bead is
+  about four heavy atoms, so it cannot be an all-atom reference.
+- **mdCATH** (jsc, 5398) records one frame per nanosecond and ships no topology
+  file. A 1 ns window would hold a single frame. The temperature, 320 K, is not
+  the problem.
+- **MDBind** (cin, 4960 projects over 4099 distinct PDB entries) has no
+  recorded temperature or ensemble.
+- **dynamicPDB** (bsc, 3336) ships no topology file.
+- The **spike glycoprotein** references model in the loops the deposit does not
+  resolve — 3857 residues against 3195 observed — so they cannot be rebuilt
+  from the deposit.
 
 ## Prompts are minimal
 
@@ -117,7 +152,7 @@ the PDB entry, the chain and residue range, the force field and water model,
 the temperature and ensemble, and a minimum production length. Protonation, box
 geometry, side-chain completion and how to reach the stated range are left to
 the agent, and the reference bundle is never staged into the solver workspace —
-the evaluator fetches it at scoring time and computes both subspaces itself, so
+the evaluator fetches it at scoring time and recomputes every comparison, so
 numbers the agent reports are never used and the reference cannot leak.
 
 The residue range is there because it is exactly what a deposit cannot tell
@@ -345,138 +380,75 @@ scored, like the force field: comparable, but not worth grading.
 
 ## What a submission has to clear on the md side
 
-Rejecting the random-subspace null turned out to be necessary but far from
-sufficient. Measured on 2026-08-19 with that null alone, three submissions that
-should have failed passed:
+The gates are the six listed above, conjoined and equally weighted.
 
-| baseline | RMSIP | rejects random null | verdict then |
-|---|---|---|---|
-| elastic-network ensemble, **no MD at all** | 0.515 | yes, z = 46 | passed |
-| real MD truncated to **100 ps** | 0.627 | yes, z = 60 | passed |
-| real MD truncated to **10 ps** | 0.420 | yes, z = 36 | passed |
+**The subspace test was retired on 2026-08-22.** It was the centre of the md
+side and it decided nothing: an elastic-network ensemble with no dynamics at
+all reached RMSIP 0.749 where a real 1 ns run reached 0.704. It was ranking a
+fake above the truth, and the negative controls it was judged by only failed
+because of the solvent clock. The measurement is in `docs/memo.md`.
 
-Two further checks close both holes.
+**Radius of gyration is back**, having been removed on 2026-08-21 for a reason
+that was correct about a different design. It was dropped as a property of the
+prepared structure rather than of the simulation when it was graded against a
+fixed band; graded against the reference's own window-to-window spread it
+measures whether the simulation stayed the size the reference stayed, which a
+collapsed or expanded run does not.
 
-**A better null.** The random-subspace null is replaced outright rather than
-supplemented. Anisotropic network models of the deposited structure, swept over
-cutoff 7.0-20.0 A, give a null of 0.517 +/- 0.048 with a maximum of 0.588; a run
-passes when its RMSIP exceeds every draw. This null subsumes the random one --
-anything that cannot beat noise cannot beat the fold -- so it is the only
-subspace gate. Against it a real 1 ns run reaches z = 4.4 while the
-elastic-network ensemble lands at z = -0.05, dead centre, which is exactly
-where a structure-only submission belongs.
+### The bands are measured, and pooled across replicas
 
-**A physical clock.** The recorded `simulation_time_ns` is the runner's own
-claim. The self-diffusion coefficient cannot check it — it is intensive and
-reads 3.7e-5 cm^2/s whether you take 1 ns or 100 ps of the same trajectory. The
-*accumulated* solvent displacement is extensive and does: continuously
-unwrapping the frame-to-frame minimum image recovers 989 ps from a 999 ps run,
-98 ps from 99 ps, and 15 ps from 9 ps. A submission with no bulk solvent cannot
-be clocked at all, which is the right verdict for an ensemble made without
-dynamics.
+A submission is an **independent run**: same system, same conditions, different
+velocities. Windows taken inside one reference trajectory share that
+trajectory's history, so their spread is narrower than the spread between runs.
+Measured on 20 ATLAS systems, the pooled standard deviation is **1.21x** the
+within-replica one at the median and **1.82x** at the worst, so a band built
+from a single trajectory is about a fifth too narrow, and a too-narrow band
+rejects correct submissions.
 
-With both in place every adversarial baseline fails and the real runs pass. The
-100 ps truncation still clears the structure-only null and is caught only by the
-clock, which is why both checks are kept.
+`mddatabench/calibration.py` therefore pools windows across every replica a
+project has. Fifty-three per cent of eligible projects have two or more, and
+MDDB addresses them as `ACCESSION.N`. With replicas the false-rejection rate can
+also be measured honestly instead of by cross-validation inside one run:
+calibrate on all but one replica, then score every window of the held-out one.
+On ATLAS 16pk_A, **30 per cent** of the held-out replica's windows fall outside
+the unwidened band and **none** outside the band widened by the measured two
+window standard deviations.
 
-**Nothing constrains the overall scale of the trajectory.** Radius of gyration
-used to, and was removed on 2026-08-21 because it is a property of the prepared
-structure rather than of the simulation: measured that day it is 1.1616 /
-1.1031 / 0.8549 nm as built against 1.1784 / 1.1224 / 0.8223 nm averaged over
-production, while the within-trajectory SD is only 0.007-0.012 nm against bands
-that were 0.2-0.4 nm wide. A nanosecond does not move it, so grading it on the
-md side attributed a preparation property to the simulation.
-
-The cost is real and is recorded rather than papered over. RMSIP is invariant to
-the overall scale of the fluctuations, because canonical correlations see only
-the direction of a subspace: measured on D01, scaling the trajectory by 0.8,
-1.3 or 1.5 leaves RMSIP at exactly 0.700 and H0 rejected in every case, while Rg
-moves to 0.943, 1.532 and 1.768 nm. The solvent clock is scale-invariant too, as
-a ratio of accumulated displacement to a diffusion coefficient fitted from the
-same trajectory. A uniform scaling error -- a unit mistake, say -- is therefore
-caught by nothing. `rg_mean_nm` is still reported as a diagnostic.
-
-Run `mddatabench run_benchmark_negative_controls` whenever an md-side threshold changes.
-
-## The subspace test
-
-`mddatabench/subspace.py` implements one contract and one test.
-
-`pca_backbone_subspace@1` pins the atom selection, the superposition, the mode
-count, and the units. MDDB publishes PCA eigenvalues and projections but not
-eigenvectors, so the reference subspace must be recomputed; the pinned contract
-reproduces MDDB's published eigenvalues to within -2.6% to +3.4%.
-
-`subspace_unrelated@1` tests H0 = *the two essential subspaces are unrelated*,
-using RMSIP against a Monte Carlo null over random orthonormal frames. The null
-mean matches the analytic `sqrt(D / 3M)`. Rejecting H0 certifies that the
-submitted trajectory explores the same collective directions as the reference.
-
-Measured on the D01 reference (2026-08-19, D = 10, 3M = 684; D02's reference
-gives 0.687 +/- 0.035 window-to-window against a 0.129 null at 3M = 603):
-
-| comparison | RMSIP | z | H0 rejected |
-|---|---|---|---|
-| random subspaces (negative control) | 0.121 | 0.0 | no |
-| elastic network model, structure only | 0.47 - 0.62 | ~60 | yes |
-| coordinate-frame mismatch | 0.652 | 64 | yes |
-| 1 ns window vs 1 ns window | 0.760 | 82 | yes |
-| 1 ns window vs full 10 ns | 0.794 | 85 | yes |
-| 500 frames spread over 10 ns | 0.969 | - | yes |
-
-The test is a **validity gate, not a quality score**: an elastic network model
-built from the fold alone also rejects H0. It certifies that a submission is a
-simulation of the right molecule analysed under the right contract. It does not
-certify converged sampling — at 1 ns the reference's own leading modes carry
-less than one independent sample.
+Run `mddatabench run_benchmark_negative_controls` whenever an md-side threshold
+or a band changes. The baselines that must fail are isotropic noise, a
+duplicated minimum, an elastic-network ensemble, a frozen first frame, shuffled
+per-atom amplitudes, motion scaled fivefold, and truncations to 10 and 100 ps.
+The report names which gate caught each, and any gate no baseline exercised.
 
 ## Reference solves
 
-All three tasks were solved with MDClaw 0.6.6 on one RTX A6000 (ff14SB + TIP3P,
-cubic 15 A, HMR 4 fs, NVT 100 ps + NPT 200 ps, 1 ns NPT production). The prep
-counts below are the 7-and-8-check block these solves were graded against; the
-current block is 11 checks on every task.
+All three tasks were solved with MDClaw on one NVIDIA GB200 (ff14SB + TIP3P,
+cubic 15 A, HMR 4 fs, NVT 100 ps + NPT 200 ps, 1 ns NPT production).
 
-| task | atoms | RMSIP | structure-only null (max) | margin | clock | prep | md |
-|---|---|---|---|---|---|---|---|
-| D01 | 31355 | 0.717 | 0.588 | +0.129 | 1000 ps / 1000 | 7/7 | 5/5 |
-| D02 | 35466 | 0.703 | 0.637 | +0.066 | 1013 ps / 1000 | 8/8 | 5/5 |
-| D03 | 21656 | 0.828 | 0.766 | +0.062 | 1016 ps / 1000 | 8/8 | 5/5 |
+Graded against the current block, measured 2026-08-22:
 
-Re-solved 2026-08-21 with MDClaw 0.6.8 on one NVIDIA GB200, same protocol,
-graded against the current block:
+| task | atoms | prep | md | rank correlation | total RMSF | Rg |
+|---|---|---|---|---|---|---|
+| D01 | 31355 | 1.000 (12/12) | 1.000 (7/7) | 0.870 | in band | in band |
+| D02 | 35469 | 1.000 (12/12) | 1.000 (7/7) | in band | in band | in band |
+| D03 | 21656 | 1.000 (12/12) | 1.000 (7/7) | in band | in band | in band |
 
-| task | atoms | RMSIP | null (max) | margin | clock | prep | md |
-|---|---|---|---|---|---|---|---|
-| D01 | 31355 | 0.700 | 0.588 | +0.112 | 989 ps / 1000 | 12/12 | 5/5 |
-| D02 | 35469 | 0.707 | 0.637 | +0.070 | 981 ps / 1000 | 12/12 | 5/5 |
-| D03 | 21656 | 0.779 | 0.766 | +0.013 | 1017 ps / 1000 | 12/12 | 5/5 |
+Two estimator faults were found getting there, and neither was a threshold:
 
-D03's margin of +0.013 is the narrowest measurement in the suite and is close
-enough to the null's maximum that a different seed could cross it. A one-run
-D03 verdict should not be treated as stable.
+- Fitting each window to **frame 0** instead of to the window's own mean
+  structure put the window's drift into every atom's deviation.
+- A **crystal-started nanosecond drifts**, and the drift dominated the RMSF.
+  Removing a per-atom linear trend in time before computing RMSF took D03's
+  rank correlation from 0.803, below the band, to 0.870, inside it.
 
-Both nulls climb as the system shrinks — D03 has 3M = 189, so even the random
-null is sqrt(10/189) = 0.230 — which is why the smallest system has the
-narrowest margin rather than the widest.
-
-Three D01 replicas (different seeds) give RMSIP 0.729 / 0.743 / 0.717, so a
-single 1 ns measurement is reproducible to **SD 0.010**. Differences below about
-0.03 between agents are noise. Pooling the three raises RMSIP to 0.764 while an
-attacker pooling three elastic-network ensembles gains only 0.022, so replicas
-widen the margin -- but the reference-free replica-to-replica agreement (0.801)
-is the more useful thing they buy.
+The slack the bands carry was measured too, not chosen. Held-out reference
+windows fall outside the range of the rest 16 / 7 / 9 per cent of the time on
+D01 / D02 / D03 with no slack, and 0 per cent at two window standard
+deviations; every negative control still fails at three.
 
 ## Running the scorer
 
 Always give the container a thread limit. Its OpenBLAS is built
-`DYNAMIC_ARCH NO_AFFINITY MAX_THREADS=64` and collapses on the 684x684
-eigendecomposition without one: measured 16.3 s per call unlimited against
-0.07 s at eight threads, which is the difference between ten minutes and seven
-seconds for one task. `mddatabench/_threads.py` sets a default before numpy
-loads, so this only matters if you import the modules some other way.
-
-In both, subspace **directions** are recovered while **amplitudes** are 2-6x
-too small — exactly what the effective-sample-size diagnostic predicts for
-1 ns, and the reason the task scores the H0 rejection rather than quantitative
-agreement.
+`DYNAMIC_ARCH NO_AFFINITY MAX_THREADS=64` and collapses on the superposition and
+correlation work without one. `mddatabench/_threads.py` sets a default before
+numpy loads, so this only matters if you import the modules some other way.

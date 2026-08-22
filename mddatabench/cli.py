@@ -65,9 +65,29 @@ def run_benchmark_negative_controls(job_dir: str, bundle: str, task_file: str) -
     return {"success": report["all_correct"], **report}
 
 
+def calibrate_benchmark_task(accession: str, bundle: str, node: str = "mmb",
+                             window_ns: float = None, slack_window_sd: float = 2.0,
+                             target_windows: int = 100, out: str = None) -> dict:
+    """Measure the md bands for one project from its own windows.
+
+    Windows are pooled across every replica the project has, because a band
+    measured inside one trajectory is narrower than the spread between
+    independent runs -- and a submission is an independent run.  Where there are
+    at least two replicas the result also carries a held-out false-rejection
+    rate: calibrate without one replica, score every window of it.
+    """
+    from mddatabench.calibration import calibrate
+    block = calibrate(accession, bundle, node=node, window_ns=window_ns,
+                      slack_window_sd=slack_window_sd, target_windows=target_windows)
+    if out:
+        Path(out).write_text(json.dumps(block, indent=2))
+    return {"success": True, **block}
+
+
 TOOLS = {
     "list_benchmark_tasks": list_benchmark_tasks,
     "fetch_benchmark_reference": fetch_benchmark_reference,
+    "calibrate_benchmark_task": calibrate_benchmark_task,
     "score_benchmark_submission": score_benchmark_submission,
     "run_benchmark_negative_controls": run_benchmark_negative_controls,
 }

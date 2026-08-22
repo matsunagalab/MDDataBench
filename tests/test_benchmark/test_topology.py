@@ -110,3 +110,4 @@ def test_a_ligand_does_not_shift_the_polymer_positions():
     positions = tp.protein_residue_positions(structure)
     assert sorted(positions.values()) == [1, 2]
     assert positions[2] == 2, "the glycine is the second polymer residue, not the third"
+
