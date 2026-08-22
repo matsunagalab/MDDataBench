@@ -1,0 +1,341 @@
+"""Read what a topology actually says, on both sides, instead of inferring it.
+
+Until 2026-08-22 the prep checks read chemistry out of text: disulfides from
+CONECT columns of the submitted PDB, protonation from residue names, the
+expected bonding from the reference's CYX labels plus an SG-SG distance.  Two
+better sources were available the whole time.
+
+The submission ships ``system.xml``, which is the thing that exerts force.  A
+CONECT record is metadata and can disagree with it; the bond that moved D01's
+two zinc-ligating sulfurs from 3.00 to 2.04 A was a HarmonicBondForce term.
+
+The reference ships ``topology.prmtop``.  MDDB serves it for every project and
+this repository was not fetching it.  It states the bond list, the residue
+names and the atom types outright, so nothing has to be guessed:
+
+    MCV1900208  4862 atoms, 313 residues, net charge -2.0
+                CYM 3, HIP 1, HIE 10, CYS 5, no S-S bond
+                ZN  type Zn2+, charge +2.0, rmin 1.271 A, zero bonds
+
+That last line is the one worth keeping in view.  The reference holds its
+structural zinc with a bare 12-6 ion carrying the same parameters our own
+submissions build, so the difference between 2 of 4 ligands retained and 1 of 4
+is protonation, not force field.
+"""
+
+from __future__ import annotations
+
+from mddatabench import _threads  # noqa: F401  must precede numpy
+
+import collections
+
+import numpy as np
+
+# Metals whose sulfur or nitrogen coordination shapes the protonation a
+# preparation has to choose.  Same set MDClaw guards its disulfide detection
+# with, for the same reason.
+METAL_ELEMENTS = frozenset({
+    "ZN", "FE", "CU", "NI", "CO", "MN", "CD", "HG", "PT", "AU", "AG", "MO", "W",
+    "MG", "CA",
+})
+
+# Longest metal-ligand separation that still counts as coordination.  Zn-S is
+# 2.3 A; measured across 6W9C's three copies the same Cys4 site runs 2.19 to
+# 3.21 A, so a tighter limit splits one site into coordinated and not.
+METAL_LIGAND_ANGSTROM = 3.5
+
+# Backbone atoms are never metal ligands in a protein; counting them turns one
+# zinc into a dozen "ligands" made of nearby amide nitrogens.
+BACKBONE_ATOMS = frozenset({"N", "CA", "C", "O", "OXT", "H", "HA", "HA2", "HA3",
+                            "H1", "H2", "H3", "HN"})
+
+# Which side-chain atoms can donate to a metal, by residue.  Selecting on
+# "any S, N or O that is not a backbone atom" instead lets a water, a hydroxide
+# or a ligand atom into the coordination shell, and the carve-out then exempts
+# residues whose protonation had nothing to do with the metal.
+SIDECHAIN_DONORS = {
+    "CYS": ("SG",), "CYM": ("SG",), "CYX": ("SG",),
+    "HIS": ("ND1", "NE2"), "HID": ("ND1", "NE2"), "HIE": ("ND1", "NE2"),
+    "HIP": ("ND1", "NE2"), "HSD": ("ND1", "NE2"), "HSE": ("ND1", "NE2"),
+    "HSP": ("ND1", "NE2"),
+    "ASP": ("OD1", "OD2"), "ASH": ("OD1", "OD2"),
+    "GLU": ("OE1", "OE2"), "GLH": ("OE1", "OE2"),
+    "MET": ("SD",), "SER": ("OG",), "THR": ("OG1",), "TYR": ("OH",),
+    "ASN": ("OD1",), "GLN": ("OE1",), "LYS": ("NZ",), "LYN": ("NZ",),
+}
+
+
+def _donor_atoms(residue):
+    """The side-chain atoms of this residue that can ligate a metal."""
+    names = SIDECHAIN_DONORS.get(residue.name.strip().upper())
+    if not names:
+        return ()
+    return tuple(atom for atom in residue.atoms if atom.name in names)
+
+
+def load_reference(prmtop_path, pdb_path):
+    """The reference's own Amber topology, carrying its structure's coordinates.
+
+    The two files are separate downloads and nothing in the format ties them
+    together, so the correspondence is checked rather than assumed: transplanting
+    coordinates onto a topology whose atoms are in a different order would put a
+    metal on the wrong residue and be visible nowhere in the report.  Verified
+    2026-08-22 across all three references -- 4897/4897/4862 atoms, no atom-name
+    and no residue-name mismatch.
+    """
+    import parmed
+    structure = parmed.load_file(str(prmtop_path))
+    coordinates = parmed.load_file(str(pdb_path))
+    if len(coordinates.atoms) != len(structure.atoms):
+        raise SystemExit(
+            f"{prmtop_path.name} has {len(structure.atoms)} atoms and "
+            f"{pdb_path.name} has {len(coordinates.atoms)}; the bundle is inconsistent")
+    mismatched = [i for i, (a, b) in enumerate(zip(structure.atoms, coordinates.atoms))
+                  if a.name != b.name]
+    if mismatched:
+        raise SystemExit(
+            f"{prmtop_path.name} and {pdb_path.name} disagree on atom order at "
+            f"{len(mismatched)} position(s), first at index {mismatched[0]}")
+    structure.coordinates = coordinates.coordinates
+    return structure
+
+
+def load_submission(system_xml_path, topology_pdb_path):
+    """The submitted System, as a structure with bonds, charges and coordinates.
+
+    Bonds come from the OpenMM topology; the System supplies the parameters.
+    Reading it here rather than parsing CONECT also removes the PDB serial
+    problem entirely -- past 99999 the column is hybrid-36 and 64544 of a 141k
+    atom topology's CONECT records hold no decimal field at all.
+
+    Returns (structure, force-bearing bonds, error_message).  It must not raise:
+    this runs before the
+    check that reports an unloadable System, so a truncated or empty file used to
+    crash the scorer here instead of being scored as a failed submission.
+    """
+    import openmm as mm
+    import parmed
+    from openmm.app import PDBFile
+    try:
+        system = mm.XmlSerializer.deserialize(open(system_xml_path).read())
+        pdb = PDBFile(str(topology_pdb_path))
+        structure = parmed.openmm.load_topology(pdb.topology, system,
+                                                xyz=pdb.positions)
+    except Exception as exc:                                        # noqa: BLE001
+        return None, None, (f"the submitted topology could not be read: "
+                            f"{type(exc).__name__}: {exc}")
+    return structure, force_bearing_bonds(system, structure), None
+
+
+
+# Polymer residues, named positively.  Positions used to be "everything that is
+# not a metal and not solvent", which counts a bound ligand as a residue of the
+# chain: one GOL in the submission and not in the reference shifts every later
+# position by one and makes two identical bond sets compare unequal.  The
+# variants are here because a topology names them: CYM, CYX, HID/HIE/HIP, ASH,
+# GLH, LYN, and the 5' / 3' nucleic forms.
+PROTEIN_RESIDUES = frozenset({
+    "ALA", "ARG", "ASN", "ASP", "CYS", "GLN", "GLU", "GLY", "HIS", "ILE", "LEU",
+    "LYS", "MET", "PHE", "PRO", "SER", "THR", "TRP", "TYR", "VAL",
+    "CYM", "CYX", "HID", "HIE", "HIP", "HSD", "HSE", "HSP", "ASH", "GLH", "LYN",
+    "ARN", "TYM", "ACE", "NME", "NHE", "NMA",
+})
+NUCLEIC_RESIDUES = frozenset(
+    [base + suffix for base in ("DA", "DC", "DG", "DT", "DU", "A", "C", "G", "U")
+     for suffix in ("", "5", "3", "N")]
+)
+POLYMER_RESIDUES = PROTEIN_RESIDUES | NUCLEIC_RESIDUES
+
+
+def force_bearing_bonds(system, structure):
+    """Atom-index pairs the System actually constrains or bonds.
+
+    ``parmed.openmm.load_topology`` takes its bond list from the OpenMM topology,
+    which is CONECT plus template inference -- so a structure's ``bonds`` are the
+    PDB's connectivity, not the force field's.  The two can disagree in both
+    directions: a bond only in ``system.xml`` is invisible to a CONECT-derived
+    list, and a CONECT record with no force term behind it looks like a bond.
+    The claim these checks rest on is about what exerts force, so read it from
+    the System: HarmonicBondForce for the bonds that keep a potential, and the
+    constraint list for the ones that were turned rigid (with HBonds and rigid
+    water, that is most of them -- 21451 constraints against 177 bond terms in
+    one measured task).
+    """
+    import openmm as mm
+    pairs = set()
+    for force in system.getForces():
+        if isinstance(force, mm.HarmonicBondForce):
+            for index in range(force.getNumBonds()):
+                one, two, _, _ = force.getBondParameters(index)
+                pairs.add(frozenset((one, two)))
+    for index in range(system.getNumConstraints()):
+        one, two, _ = system.getConstraintParameters(index)
+        pairs.add(frozenset((one, two)))
+    return pairs
+
+
+def sulfur_bonds(structure, bonds=None):
+    """Every S-S bond, as a set of residue-index pairs.  Zero is a real answer.
+
+    ``bonds`` is a set of atom-index pairs; when given it replaces the
+    structure's own connectivity, which is how a submission is read from the
+    force field rather than from CONECT.  A reference prmtop has no separate
+    force list -- its bonds are the force field -- so it passes None.
+    """
+    atoms = structure.atoms
+    if bonds is None:
+        bonds = {frozenset((bond.atom1.idx, bond.atom2.idx))
+                 for bond in structure.bonds}
+    pairs = set()
+    for bond in bonds:
+        one, two = sorted(bond)
+        if atoms[one].element_name == "S" and atoms[two].element_name == "S":
+            pairs.add(frozenset((atoms[one].residue.idx, atoms[two].residue.idx)))
+    return pairs
+
+
+def metal_atoms(structure):
+    """(atom index, residue index, label, position) for every metal ion."""
+    out = []
+    for residue in structure.residues:
+        if residue.name.strip().upper() not in METAL_ELEMENTS:
+            continue
+        for atom in residue.atoms:
+            out.append((atom.idx, residue.idx,
+                        f"{residue.name}{residue.number}"
+                        f"{(residue.insertion_code or '').strip()}"
+                        f"{('/' + residue.chain) if residue.chain else ''}",
+                        np.array([atom.xx, atom.xy, atom.xz])))
+    return out
+
+
+def duplicate_atom_names(structure):
+    """Residues carrying the same atom name twice, as (label, [names]).
+
+    An atom name never repeats inside a residue, so a repeat means a rebuild
+    added hydrogens on top of hydrogens that were already there.
+    """
+    out = []
+    for residue in structure.residues:
+        names = [atom.name for atom in residue.atoms]
+        repeated = sorted({n for n in names if names.count(n) > 1})
+        if repeated:
+            out.append((f"{residue.name}{residue.number}", repeated))
+    return out
+
+
+def valence_problems(structure):
+    """Atoms carrying more bonds than the element can hold."""
+    # Only limits nothing legitimate exceeds.  Sulfur is not among them: a
+    # sulfonamide, a sulfate and DMSO all carry four bonds on S, so the earlier
+    # limit of 2 would have failed a correct system for being correct.
+    limits = {"H": 1, "O": 2, "N": 4, "C": 4}
+    degree = collections.Counter()
+    for bond in structure.bonds:
+        degree[bond.atom1.idx] += 1
+        degree[bond.atom2.idx] += 1
+    out = []
+    for atom in structure.atoms:
+        limit = limits.get(atom.element_name)
+        if limit is not None and degree[atom.idx] > limit:
+            out.append((f"{atom.residue.name}{atom.residue.number}:{atom.name}",
+                        atom.element_name, degree[atom.idx], limit))
+    return out
+
+
+def protein_residue_positions(structure):
+    """{residue index: 1-based position among polymer residues}."""
+    positions, count = {}, 0
+    for residue in structure.residues:
+        if residue.name.strip().upper() not in POLYMER_RESIDUES:
+            continue
+        count += 1
+        positions[residue.idx] = count
+    return positions
+
+
+def sulfur_bond_positions(structure, bonds=None):
+    """S-S bonds as pairs of 1-based polymer positions, plus what was dropped.
+
+    Residue numbering is not comparable -- a reference numbers from 1 and a
+    submission carries author numbering -- but position within the polymer is.
+    That frame is re-derived on each side independently, so it only lines up
+    while the two sides contain the same polymer residues: a terminal cap on one
+    side shifts every later position by one and makes two identical bond sets
+    compare unequal.  The caller is handed the residue count so it can say that
+    rather than blaming the bonds.
+
+    Returns (pairs, polymer_residue_count, dropped), where ``dropped`` names S-S
+    bonds touching a residue outside the polymer -- a modified residue or a
+    ligand sulfur -- which are excluded from the comparison and would otherwise
+    vanish silently.
+    """
+    positions = protein_residue_positions(structure)
+    pairs, dropped = set(), []
+    for pair in sulfur_bonds(structure, bonds):
+        mapped = tuple(sorted((positions.get(index) for index in pair),
+                              key=lambda value: (value is None, value)))
+        if all(value is not None for value in mapped):
+            pairs.add(frozenset(mapped))
+        else:
+            dropped.append("-".join(
+                f"{structure.residues[index].name}{structure.residues[index].number}"
+                for index in sorted(pair)))
+    return pairs, len(positions), sorted(dropped)
+
+
+def describe_position_pairs(pairs):
+    return sorted("-".join(str(x) for x in sorted(pair)) for pair in pairs)
+
+
+def metal_bridging_bonds(structure, cutoff=METAL_LIGAND_ANGSTROM):
+    """Covalent bonds joining two ligands of one metal, as printable labels.
+
+    Two side chains that both reach the same metal are ligands of it, not
+    partners of each other, however close their donor atoms happen to be.
+    """
+    metals = metal_atoms(structure)
+    if not metals:
+        return []
+    out = []
+    for bond in structure.bonds:
+        one, two = bond.atom1, bond.atom2
+        if one.residue.idx == two.residue.idx:
+            continue
+        if not (_donor_atoms(one.residue) and _donor_atoms(two.residue)):
+            continue
+        if one not in _donor_atoms(one.residue) or two not in _donor_atoms(two.residue):
+            continue
+        first = np.array([one.xx, one.xy, one.xz])
+        second = np.array([two.xx, two.xy, two.xz])
+        for _, _, label, position in metals:
+            if (np.linalg.norm(first - position) <= cutoff
+                    and np.linalg.norm(second - position) <= cutoff):
+                out.append(f"{one.residue.name}{one.residue.number}:{one.name}-"
+                           f"{two.residue.name}{two.residue.number}:{two.name} "
+                           f"bridging {label}")
+                break
+    return out
+
+
+def coordination_shell(structure, cutoff=METAL_LIGAND_ANGSTROM):
+    """{metal label: [(atom index, residue label, distance)]} for side-chain donors."""
+    shells = {}
+    for metal_atom, metal_index, label, position in metal_atoms(structure):
+        donors = []
+        for residue in structure.residues:
+            if residue.idx == metal_index:
+                continue
+            for atom in _donor_atoms(residue):
+                distance = float(np.linalg.norm(
+                    np.array([atom.xx, atom.xy, atom.xz]) - position))
+                if distance <= cutoff:
+                    donors.append((atom.idx,
+                                   f"{residue.name}{residue.number}:{atom.name}",
+                                   round(distance, 2)))
+        # Keyed by the metal's own atom index, never by its printed label: two
+        # copies of a homo-oligomer carry the same residue number, and a
+        # label-keyed dict silently drops one whole site.  Reproduced on a
+        # two-chain synthetic with ZN301 in each: one of the two shells vanished.
+        shells[metal_atom] = (label, sorted(donors, key=lambda d: d[2]))
+    return shells

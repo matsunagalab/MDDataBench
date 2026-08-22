@@ -28,14 +28,17 @@ from mddatabench import subspace as st
 from mddatabench.scoring import find_node
 
 
-def load_reference(bundle: pathlib.Path, n_atoms: int):
+def load_reference(bundle: pathlib.Path):
     indices = json.loads((bundle / "pca_atom_indices.json").read_text())["atom_indices"]
     rows = [line for line in open(bundle / "reference.pdb")
             if line.startswith(("ATOM", "HETATM"))]
     coords = np.array([[float(rows[i][30:38]), float(rows[i][38:46]), float(rows[i][46:54])]
                        for i in indices])
+    # One entry per atom of reference.pdb, which is the whole deposited system.
+    # MDDB's PROTATS counts the protein only, so a task with a structural metal
+    # reshapes 4862 atoms into 4861 and dies -- the same fault the scorer had.
     frames = np.fromfile(bundle / "reference_frames.f32", dtype="<f4")
-    frames = frames.reshape(-1, n_atoms, 3).astype(np.float64)[:, indices, :]
+    frames = frames.reshape(-1, len(rows), 3).astype(np.float64)[:, indices, :]
     _, subspace = st.essential_subspace(frames, coords)
     return indices, rows, coords, subspace
 
@@ -44,15 +47,15 @@ def run_negative_controls(job_dir: str, bundle: str, task_file: str) -> dict:
     """Score the baselines that must fail, plus the real run that must pass."""
     job_dir, bundle = pathlib.Path(job_dir), pathlib.Path(bundle)
     task = json.loads(pathlib.Path(task_file).read_text())
-    n_atoms = task["reference"]["reference_system"]["PROTATS"]
-    indices, rows, coords, reference = load_reference(bundle, n_atoms)
+    indices, rows, coords, reference = load_reference(bundle)
     null = st.anm_null_distribution(coords, reference)
     fraction = next(c for c in task["scoring"]["deterministic_checks"]
                     if c["check_id"] == "elapsed_simulated_time_is_physical"
                     )["minimum_measured_fraction_of_claim"]
 
-    # Same node-selection rule as the scorer: the latest COMPLETED node. Globbing
-    # instead picked up an abandoned run left in `running`, and the two tools then
+    # Same node-selection rule as the scorer, which now walks parent_node_ids back
+    # from the production node. Globbing instead picked up an abandoned run left
+    # in `running`, and the two tools then
     # silently graded different trajectories (0.818 against 0.828).
     topology = find_node(job_dir, "topo") / "artifacts" / "system.topology.pdb"
     traj_path = next((find_node(job_dir, "prod") / "artifacts").glob("*.dcd"))

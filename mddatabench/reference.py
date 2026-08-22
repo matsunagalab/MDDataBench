@@ -52,6 +52,14 @@ def fetch_reference(accession: str, out: str, n_frames: int = 500,
     pca = get_json(f"{API}/{accession}/analyses/pca")["data"]
 
     download(f"{API}/{accession}/structure", out / "reference.pdb")
+    # The project's own Amber topology. Every prep expectation that used to be
+    # inferred -- disulfides from CYX names and SG-SG distance, protonation from
+    # residue names in a PDB -- is stated outright here, as a bond list and a
+    # residue table. It also settles what the reference did with a metal:
+    # MCV1900208 carries the zinc as type Zn2+, charge +2.0, rmin 1.271 A and
+    # zero bonds, which is the same 12-6 nonbonded model, with the same
+    # parameters, that our own submissions build.
+    download(f"{API}/{accession}/files/topology.prmtop", out / "reference.prmtop")
     trajectory = download(f"{API}/{accession}/trajectory?frames={frames}",
                           out / "reference_frames.f32")
     (out / "pca_atom_indices.json").write_text(
