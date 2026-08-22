@@ -25,6 +25,7 @@ import numpy as np
 import openmm as mm
 
 from mddatabench import composition as cp
+from mddatabench import topology as tp
 from mddatabench import energetics as en
 from mddatabench import execution as ex
 from mddatabench import subspace as st
@@ -53,9 +54,14 @@ def _read_nodes(job_dir: pathlib.Path) -> dict:
 
 def _production_lineage(nodes: dict) -> list:
     """Node ids the latest completed production node descends from, it first."""
-    completed_prod = sorted(name for name, (_, data) in nodes.items()
-                            if data.get("node_type") == "prod"
-                            and data.get("status") == "completed")
+    def _order(name):
+        """prod_9 before prod_10: node ids are not zero-padded forever."""
+        digits = "".join(character for character in name if character.isdigit())
+        return (int(digits) if digits else 0, name)
+
+    completed_prod = sorted((name for name, (_, data) in nodes.items()
+                             if data.get("node_type") == "prod"
+                             and data.get("status") == "completed"), key=_order)
     if not completed_prod:
         return []
     order, queue, seen = [], [completed_prod[-1]], set()
@@ -118,6 +124,56 @@ def _minimized_state(job_dir: pathlib.Path):
                      or sorted(artifacts.glob("*.xml"))), None)
 
 
+def _check_topology_chemistry(check, submitted, submitted_bonds, reference,
+                              spec_valid):
+    """Faults that are wrong on their own terms, then the disulfide comparison.
+
+    The two are separate on purpose and one fault can cost both.  A bond between
+    two ligands of one metal is wrong whatever the reference contains, and a
+    disulfide set that differs from the reference is wrong whether or not a metal
+    is nearby; they coincide on D01 and do not in general.
+    """
+    duplicated = tp.duplicate_atom_names(submitted)
+    valence = tp.valence_problems(submitted)
+    bridged = tp.metal_bridging_bonds(
+        submitted, cutoff=spec_valid["metal_ligand_angstrom"])
+    faults = []
+    if duplicated:
+        faults.append(f"{len(duplicated)} residue(s) with a repeated atom name: "
+                      f"{duplicated[:3]}")
+    if valence:
+        faults.append(f"{len(valence)} atom(s) over their valence: {valence[:3]}")
+    if bridged:
+        faults.append(f"{len(bridged)} covalent bond(s) between ligands of one metal: "
+                      f"{bridged}")
+    check("topology_is_chemically_valid", not faults,
+          "; ".join(faults) if faults else
+          f"no repeated atom names, no valence violations, and no covalent bond "
+          f"between two ligands of the same metal across {len(submitted.atoms)} atoms")
+
+    expected, reference_count, reference_dropped = tp.sulfur_bond_positions(reference)
+    observed, submitted_count, submitted_dropped = tp.sulfur_bond_positions(
+        submitted, submitted_bonds)
+    detail = (f"reference topology has {len(expected)} S-S bond(s) "
+              f"{tp.describe_position_pairs(expected)}; the submitted System has "
+              f"{len(observed)} {tp.describe_position_pairs(observed)}")
+    if expected != observed:
+        detail += "; sets differ"
+        # Positions are re-derived on each side, so they only line up while the
+        # two contain the same polymer residues. Say which it is rather than
+        # blaming the bonds for a residue-count difference.
+        if reference_count != submitted_count:
+            detail += (f" -- but the polymer residue counts differ "
+                       f"({submitted_count} vs {reference_count}), so the "
+                       "positions are not aligned and the comparison is unsafe")
+    for label, dropped in (("reference", reference_dropped),
+                           ("submission", submitted_dropped)):
+        if dropped:
+            detail += (f"; {len(dropped)} {label} S-S bond(s) touch a residue "
+                       f"outside the polymer and were not compared: {dropped[:3]}")
+    check("disulfide_bonds_match_reference", expected == observed, detail)
+
+
 def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     prep, topo, prod = (find_node(job_dir, t) for t in ("prep", "topo", "prod"))
     amber = json.loads((topo / "artifacts" / "amber_metadata.json").read_text())
@@ -144,14 +200,47 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     reference_monomers = cp.split_monomers(cp.read_residues(bundle / "reference.pdb"))
     submitted_monomers = cp.split_monomers(cp.read_residues(prepared))
 
+    # Both topologies, read rather than inferred. The reference ships its own
+    # topology.prmtop and the submission ships the System that exerts force.
+    reference_topology = tp.load_reference(bundle / "reference.prmtop",
+                                           bundle / "reference.pdb")
+    submitted_topology, submitted_bonds, topology_error = tp.load_submission(
+        topo / "artifacts" / "system.system.xml", topology_pdb)
+
     pairs, mismatches = cp.match_monomers(reference_monomers, submitted_monomers)
     check("monomer_count_matches_reference", not mismatches,
           f"{len(reference_monomers)} reference monomer(s), {len(submitted_monomers)} submitted"
           + ("; " + "; ".join(mismatches) if mismatches else "; all sequences pair up"))
 
+    # Positions whose protonation is a metal-site modelling decision. Taken from
+    # the built structures, which still carry the deposit's coordinates, and
+    # unioned across the two sides: the reference has already lost ligands by the
+    # time its structure file is written, and a set derived from the trajectory
+    # would exempt residues that were never ligands -- 6WRH's zinc reaches
+    # GLN191:OE1 at 1.75 A once its thiolates leave.
+    submitted_metals = cp.read_metals(prepared)
+    reference_metals = cp.read_metals(bundle / "reference.pdb")
+    submitted_ligands = cp.metal_ligand_positions(submitted_monomers, submitted_metals)
+    reference_ligands = cp.metal_ligand_positions(reference_monomers, reference_metals)
+    # A catalytic cysteine-histidine pair is exempted for the same reason the
+    # metal ligands are: there is no settled target. The literature disagrees
+    # with itself about whether such a pair is a thiolate-imidazolium ion pair
+    # or neutral, and the disagreement is between experiments on the same
+    # enzyme, so a benchmark that scores one answer scores a coin flip.
+    submitted_dyads = cp.catalytic_dyad_positions(submitted_monomers, submitted_metals)
+    reference_dyads = cp.catalytic_dyad_positions(reference_monomers, reference_metals)
+
     findings = {"sequence": [], "atom_counts": [], "elements": []}
+    exempt_total = 0
     for reference_monomer, submitted_monomer in pairs:
-        for key, value in cp.compare_monomer(reference_monomer, submitted_monomer).items():
+        exempt = (submitted_ligands.get(id(submitted_monomer), set())
+                  | reference_ligands.get(id(reference_monomer), set())
+                  | submitted_dyads.get(id(submitted_monomer), set())
+                  | reference_dyads.get(id(reference_monomer), set()))
+        exempt_total += len(exempt)
+        comparison = cp.compare_monomer(reference_monomer, submitted_monomer,
+                                        exempt=exempt)
+        for key, value in comparison.items():
             findings[key].extend(value)
 
     residue_total = sum(len(m) for m in reference_monomers)
@@ -168,6 +257,8 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     # through: one HIP costs exactly one hydrogen.
     check("residue_atom_counts_match_reference", not mismatches and not findings["atom_counts"],
           f"{residue_total} residues compared per monomer"
+          + (f", {exempt_total} exempt as metal ligands or a catalytic dyad"
+             if exempt_total else "")
           + ("; not compared: no monomer pairing" if mismatches else
              f"; {len(findings['atom_counts'])} differ: {findings['atom_counts'][:4]}"
              if findings["atom_counts"] else "; every residue matches, tautomers tolerated"))
@@ -185,21 +276,16 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
           f"total {submitted_atoms}/{expect['PROTATS']} atoms "
           f"(exact: an ionisation error is one hydrogen)")
 
-    # --- disulfides, always, zero included ------------------------------------
-    spec_ss = next(c for c in task["scoring"]["deterministic_checks"]
-                   if c["check_id"] == "disulfide_bonds_match_reference")
-    expected_ss, cyx = cp.reference_disulfides(
-        reference_monomers, cutoff=spec_ss["maximum_sg_distance_angstrom"])
-    observed_ss, unusable = cp.submitted_disulfides(topology_pdb, submitted_monomers)
-    if unusable:
-        check("disulfide_bonds_match_reference", False, unusable)
+    # --- chemistry that is wrong on its own terms ------------------------------
+    spec_valid = spec["topology_is_chemically_valid"]
+    if topology_error:
+        check("topology_is_chemically_valid", False, topology_error)
+        check("disulfide_bonds_match_reference", False, topology_error)
     else:
-        check("disulfide_bonds_match_reference", expected_ss == observed_ss,
-              f"reference has {cyx} CYX -> {len(expected_ss)} pair(s) "
-              f"{cp.describe_pairs(expected_ss)}; submitted topology CONECT gives "
-              f"{len(observed_ss)} {cp.describe_pairs(observed_ss)}"
-              + ("" if expected_ss == observed_ss else "; sets differ"))
+        _check_topology_chemistry(check, submitted_topology, submitted_bonds,
+                                  reference_topology, spec_valid)
 
+    # --- the force field, from the System itself ------------------------------
     # Reading the System is a precondition, not an achievement: a file that will
     # not deserialise leaves the scorer unable to look at the force field at all.
     # It used to raise straight out of the scorer, so a broken submission crashed
@@ -343,6 +429,31 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
               f"RMSIP={test['rmsip']:.3f} vs structure-only null "
               f"{test['null_mean']:.3f}+/-{test['null_sd']:.3f} (max {test['null_max']:.3f}), "
               f"z={test['z_score']:.2f}, p<={test['p_value_upper_bound']:.2f}")
+
+    # --- metal sites: reported, never scored ----------------------------------
+    spec_metal = spec["metal_site_coordination_retained"]
+    shells = ({} if topology_error else
+              tp.coordination_shell(submitted_topology,
+                                    cutoff=spec_metal["metal_ligand_angstrom"]))
+    metal_report = [] if not topology_error else [topology_error]
+    for metal_atom, (label, donors) in sorted(shells.items()):
+        if not donors:
+            metal_report.append(f"{label}: no side-chain donor within "
+                                f"{spec_metal['metal_ligand_angstrom']} A as built")
+            continue
+        indices = np.array([[metal_atom, atom] for atom, _, _ in donors])
+        distances = md.compute_distances(traj, indices) * 10.0
+        occupancy = (distances <= spec_metal["metal_ligand_angstrom"]).mean(axis=0)
+        retained = int((occupancy >= spec_metal["occupancy_fraction"]).sum())
+        detail = ", ".join(
+            f"{name} {built} A built -> {column.mean():.2f}+/-{column.std():.2f} A, "
+            f"{share * 100:.0f}% bound"
+            for (_, name, built), column, share
+            in zip(donors, distances.T, occupancy))
+        metal_report.append(f"{label}: {retained}/{len(donors)} retained; {detail}")
+    check("metal_site_coordination_retained", True,
+          " | ".join(metal_report) if metal_report
+          else "no metal ion in the submitted topology")
 
     # Radius of gyration is recorded and not scored. It is a property of the
     # prepared structure rather than of the simulation: measured 2026-08-21 it

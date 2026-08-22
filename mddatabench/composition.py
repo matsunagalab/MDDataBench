@@ -60,9 +60,6 @@ SOLVENT_RESIDUES = {
 # and a phosphodiester O3'-P is 1.60 A; 2.0 A separates them from the 3-4 A gap
 # left by a chain break without admitting a non-bonded contact.
 POLYMER_LINK_ANGSTROM = 2.0
-# SG-SG is 2.04 A in both D03 artifacts; 2.5 A is the same limit the earlier
-# per-task check used.
-DISULFIDE_ANGSTROM = 2.5
 
 _HY36_UPPER = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 _HY36_LOWER = _HY36_UPPER.lower()
@@ -229,12 +226,142 @@ def match_monomers(reference, submission):
     return pairs, problems
 
 
-def compare_monomer(reference, submission):
-    """Per-residue comparison inside one matched monomer."""
+# Metals whose coordination decides the protonation of the side chains around
+# them.  Same list MDClaw guards its disulfide detection with.
+METAL_RESIDUES = frozenset({
+    "ZN", "FE", "CU", "NI", "CO", "MN", "CD", "HG", "PT", "AU", "AG", "MO", "W",
+    "MG", "CA",
+})
+
+# Backbone atoms are never metal ligands in a protein.  Including them turns a
+# single zinc into a dozen "ligands": measured on the reference trajectories, a
+# 4.5 A cutoff over all atoms picks up every amide nitrogen in the loop.
+BACKBONE_ATOMS = frozenset({"N", "CA", "C", "O", "OXT", "H", "HA", "HA2", "HA3",
+                            "H1", "H2", "H3", "HN"})
+
+# Longest metal-ligand separation that still counts as coordination.  Zn-S is
+# 2.3 A; across 6W9C's three copies the same site measures 2.19 to 3.21 A.
+METAL_LIGAND_ANGSTROM = 3.5
+
+
+def read_metals(path):
+    """(label, xyz) for every metal ion in a structure file."""
+    metals = []
+    for line in open(path):
+        if not line.startswith(("ATOM", "HETATM")):
+            continue
+        name = line[17:20].strip().upper()
+        if name not in METAL_RESIDUES:
+            continue
+        metals.append((f"{name}{line[22:27].strip()}",
+                       np.array([float(line[30 + 8 * i:38 + 8 * i]) for i in range(3)])))
+    return metals
+
+
+def metal_ligand_positions(monomers, metals, cutoff=METAL_LIGAND_ANGSTROM):
+    """{id(monomer): {1-based position, ...}} for side chains ligating a metal.
+
+    Keyed by the monomer object rather than by its index, because
+    ``match_monomers`` groups monomers by canonical sequence and the pairs it
+    returns are not in input order: for anything but a single chain, an
+    index-keyed result would exempt positions in the wrong monomer.
+
+    Taken from the built structure, which still carries the deposit's
+    coordinates, not from the trajectory.  The reference trajectories show why:
+    once two thiolates leave, the zinc is chelated by whatever oxygen is near --
+    measured 1.75 A to GLN191:OE1 in 6WRH -- and a set derived from the run
+    would exempt a glutamine that was never a ligand.
+    """
+    positions = {}
+    for monomer in monomers:
+        found = set()
+        for position, residue in enumerate(monomer, start=1):
+            for _, atom_name, element, xyz in residue.atoms:
+                if atom_name in BACKBONE_ATOMS or element not in ("S", "N", "O"):
+                    continue
+                if any(float(np.linalg.norm(xyz - metal)) <= cutoff
+                       for _, metal in metals):
+                    found.add(position)
+                    break
+        if found:
+            positions[id(monomer)] = found
+    return positions
+
+
+# Longest Cys-SG to His-N separation that still reads as a catalytic dyad.
+# Measured on the three references: the dyad sits at 2.98, 3.08 and 3.11 A and
+# the next closest Cys/His pair in the same structure is 4.08, 4.63 and 4.08 A,
+# so 3.5 A isolates one pair per structure with most of an angstrom to spare.
+CATALYTIC_DYAD_ANGSTROM = 3.5
+
+# The His nitrogens that can carry the proton of the pair.
+HIS_DONORS = ("ND1", "NE2")
+
+
+def catalytic_dyad_positions(monomers, metals, cutoff=CATALYTIC_DYAD_ANGSTROM):
+    """{id(monomer): {1-based position, ...}} for a cysteine-histidine dyad.
+
+    Found by geometry rather than by residue name, so it reads the same on a
+    reference that wrote CYM/HIP and on a submission that wrote CYS/HIE: the
+    heavy atoms do not move when the proton does.
+
+    Whether such a pair is a thiolate-imidazolium ion pair or a neutral
+    thiol-imidazole is not settled.  Neutron crystallography of SARS-CoV-2 Mpro
+    reports the zwitterion, room-temperature X-ray of the same enzyme reports
+    the neutral form, MD of cruzain reports neutral, and for 3CL-PR the
+    dominant species reportedly differs between H2O and D2O.  A benchmark
+    cannot score a contested choice, so the pair is exempted from the
+    protonation comparison and recorded instead -- the same treatment the metal
+    sites get, for the same reason.
+
+    Residues ligating a metal are excluded: a Cys and a His on one zinc are
+    close to each other through the metal, not to each other.
+    """
+    ligands = metal_ligand_positions(monomers, metals, cutoff=METAL_LIGAND_ANGSTROM)
+    positions = {}
+    for monomer in monomers:
+        bound = ligands.get(id(monomer), set())
+        cysteines = [(index, residue) for index, residue in enumerate(monomer, start=1)
+                     if residue.canonical == "CYS" and residue.atom("SG") is not None]
+        histidines = [(index, residue) for index, residue in enumerate(monomer, start=1)
+                      if residue.canonical == "HIS"]
+        found = set()
+        for cys_index, cys in cysteines:
+            if cys_index in bound:
+                continue
+            sulfur = cys.atom("SG")[3]
+            for his_index, his in histidines:
+                if his_index in bound:
+                    continue
+                distances = [float(np.linalg.norm(sulfur - his.atom(name)[3]))
+                             for name in HIS_DONORS if his.atom(name) is not None]
+                if distances and min(distances) <= cutoff:
+                    found.update((cys_index, his_index))
+        if found:
+            positions[id(monomer)] = found
+    return positions
+
+
+def compare_monomer(reference, submission, exempt=()):
+    """Per-residue comparison inside one matched monomer.
+
+    ``exempt`` holds 1-based positions whose protonation is a metal-site
+    modelling decision rather than a preparation error.  Their identity is
+    still compared -- a cysteine that became an alanine is a mutation and has
+    nothing to do with the metal -- but their atom counts and element counts
+    are not, because there is no defensible target to compare them against:
+    measured 2026-08-22, all three references hold a four-cysteine structural
+    zinc with a bare 12-6 ion and deprotonate two of the four ligands, so a
+    submission that deprotonates all four is further from the reference and
+    closer to right.
+    """
     findings = {"sequence": [], "atom_counts": [], "elements": []}
+    exempt = set(exempt)
     for index, (r, s) in enumerate(zip(reference, submission), start=1):
         if r.canonical != s.canonical:
             findings["sequence"].append(f"#{index} {r.label()} vs {s.label()}")
+            continue
+        if index in exempt:
             continue
         if r.n_atoms != s.n_atoms:
             findings["atom_counts"].append(
@@ -256,78 +383,3 @@ def element_totals(monomers):
 
 def atom_totals(monomers):
     return sum(r.n_atoms for m in monomers for r in m)
-
-
-def reference_disulfides(monomers, cutoff=DISULFIDE_ANGSTROM):
-    """Expected S-S pairs, taken from the reference's own CYX residues.
-
-    The reference names disulfide-bonded cysteines CYX and carries coordinates,
-    so the pairing is data, not a curator's list.  Zero CYX means zero pairs,
-    which is a real expectation and is checked like any other.
-    """
-    sulfurs = []
-    for chain_index, monomer in enumerate(monomers):
-        for residue in monomer:
-            if residue.canonical == "CYS" and residue.name.upper() == "CYX":
-                atom = residue.atom("SG")
-                if atom is not None:
-                    sulfurs.append(((chain_index, residue.resseq), atom[3]))
-    pairs = set()
-    for (left, x), (right, y) in itertools.combinations(sulfurs, 2):
-        if float(np.linalg.norm(x - y)) <= cutoff:
-            pairs.add(frozenset((left, right)))
-    return pairs, len(sulfurs)
-
-
-def submitted_disulfides(path, monomers):
-    """Observed S-S pairs, from the CONECT records of the submitted topology.
-
-    CONECT is where the bond actually lives: ``system.system.xml`` is a compiled
-    force-field object with no atom names and, once HBonds and rigid water turn
-    most bonds into constraints, no bond list either -- D03's System keeps 177
-    HarmonicBondForce terms against 21451 constraints.  Returns
-    (pairs, unusable_reason).
-    """
-    located = {}
-    for chain_index, monomer in enumerate(monomers):
-        for residue in monomer:
-            if residue.canonical != "CYS":
-                continue
-            atom = residue.atom("SG")
-            if atom is not None:
-                located[atom[0]] = (chain_index, residue.resseq)
-    if any(serial < 0 for serial in located):
-        return set(), ("an SG atom carries an unreadable serial number; "
-                       "disulfide bonding cannot be read from this topology")
-
-    pairs = set()
-    for line in open(path):
-        if not line.startswith("CONECT"):
-            continue
-        fields = []
-        for i in range(5):
-            chunk = line[6 + 5 * i:11 + 5 * i]
-            if chunk.strip():
-                serial = hy36decode(chunk)
-                if serial is None:
-                    return set(), "malformed CONECT record in the submitted topology"
-                fields.append(serial)
-        for partner in fields[1:]:
-            if fields[0] in located and partner in located and fields[0] != partner:
-                pairs.add(frozenset((located[fields[0]], located[partner])))
-    return pairs, None
-
-
-def _residue_order(item):
-    """Sort key for (chain_index, resseq): numeric, so 3 precedes 11."""
-    chain, resseq = item
-    digits = "".join(itertools.takewhile(str.isdigit, resseq))
-    return chain, int(digits) if digits else 0, resseq
-
-
-def describe_pairs(pairs):
-    out = []
-    for pair in sorted(pairs, key=lambda p: sorted(p, key=_residue_order)[0]):
-        (c1, r1), (c2, r2) = sorted(pair, key=_residue_order)
-        out.append(f"{r1}-{r2}" if c1 == c2 else f"{c1}:{r1}-{c2}:{r2}")
-    return out

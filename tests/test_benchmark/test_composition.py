@@ -87,29 +87,6 @@ def test_element_swap_that_preserves_the_total_is_detected(tmp_path):
     assert cp.atom_totals(ref) == cp.atom_totals(sub)
     assert cp.element_totals(ref) != cp.element_totals(sub)
 
-
-def test_disulfides_come_from_conect_and_zero_is_an_expectation(tmp_path):
-    # Two cysteines linked head-to-tail, with their SG atoms placed 2.04 A apart
-    # -- the distance measured in both of D03's artifacts.
-    rows = (glycine(1, 1, (0.0, 0.0, 0.0), "CYX")
-            + [atom(5, "SG", "CYX", 1, (1.4, 2.0, 0.0), "S")]
-            + glycine(6, 2, (3.8, 0.0, 0.0), "CYX")
-            + [atom(10, "SG", "CYX", 2, (1.4, 4.04, 0.0), "S")])
-    reference = write(tmp_path, "ss_ref.pdb", rows)
-    monomers = cp.split_monomers(cp.read_residues(reference))
-    expected, cyx = cp.reference_disulfides(monomers)
-    assert cyx == 2 and len(expected) == 1
-
-    without = write(tmp_path, "ss_none.pdb", rows)
-    observed, unusable = cp.submitted_disulfides(without, monomers)
-    assert unusable is None and observed == set(), "no CONECT means no bond"
-
-    with_conect = tmp_path / "ss_bonded.pdb"
-    with_conect.write_text("".join(rows) + "CONECT    5   10\nEND\n")
-    observed, unusable = cp.submitted_disulfides(str(with_conect), monomers)
-    assert unusable is None and len(observed) == 1
-
-
 def test_solvent_and_ions_are_not_part_of_the_solute(tmp_path):
     rows = glycine(1, 1, (0.0, 0.0, 0.0)) + [
         atom(9, "O", "HOH", 2, (10.0, 0.0, 0.0), "O", chain="B"),
@@ -141,22 +118,58 @@ def test_unreadable_serials_are_none_not_an_exception(field):
     assert cp.hy36decode(field) is None
 
 
-def test_disulfides_survive_a_hybrid36_conect_record(tmp_path):
-    """A CONECT line whose partners are past 99999 must not void the whole read."""
-    rows = (glycine(1, 1, (0.0, 0.0, 0.0), "CYX", extra=[("SG", "S")])
-            + glycine(6, 2, (3.8, 0.0, 0.0), "CYX", extra=[("SG", "S")]))
-    # SG of residue 1 is serial 5, SG of residue 2 is serial 10; place them
-    # within the 2.5 A disulfide cutoff of each other.
-    rows[4] = atom(5, "SG", "CYX", 1, (1.4, 1.0, 0.0), "S")
-    rows[9] = atom(10, "SG", "CYX", 2, (1.4, 3.0, 0.0), "S")
-    path = tmp_path / "ss.pdb"
-    # The bonding a solvated topology actually carries: 64544 of D02's CONECT
-    # records hold no decimal field at all.
-    path.write_text("".join(rows)
-                    + "CONECT    5   10\n"
-                    + "CONECTA0000A0001A0002\n"
-                    + "CONECTA0001A0000\nEND\n")
+# --- what is exempt from the protonation comparison, and why -----------------
+# Two kinds of residue have no defensible target to compare against, and both
+# are found by geometry so the answer is the same on a reference that wrote
+# CYM/HIP and a submission that wrote CYS/HIE.
+
+def metal(serial, resname, resnum, xyz, element="ZN", chain="A"):
+    x, y, z = xyz
+    return (f"HETATM{serial:5d} {element:<4}{resname:>4} {chain}{resnum:4d}    "
+            f"{x:8.3f}{y:8.3f}{z:8.3f}{1.0:6.2f}{0.0:6.2f}          {element:>2}\n")
+
+
+def test_a_catalytic_pair_is_found_by_geometry_not_by_residue_name(tmp_path):
+    """CYS/HIE and CYM/HIP give the same answer: heavy atoms do not move."""
+    def build(cys_name, his_name):
+        # One monomer: backbones 3.8 A apart so the peptide link is found, and
+        # the two side-chain donors 3.0 A from each other.
+        rows = glycine(1, 10, (0.0, 0.0, 0.0), cys_name, extra=[("SG", "S")])
+        rows += glycine(6, 20, (3.8, 0.0, 0.0), his_name,
+                        extra=[("ND1", "N"), ("NE2", "N")])
+        rows[4] = atom(5, "SG", cys_name, 10, (0.0, 5.0, 0.0), "S")
+        rows[9] = atom(10, "ND1", his_name, 20, (0.0, 8.0, 0.0), "N")
+        return rows
+
+    for cys_name, his_name in (("CYS", "HIE"), ("CYM", "HIP")):
+        path = write(tmp_path, f"{cys_name}{his_name}.pdb", build(cys_name, his_name))
+        monomers = cp.split_monomers(cp.read_residues(path))
+        found = cp.catalytic_dyad_positions(monomers, cp.read_metals(path))
+        assert [sorted(v) for v in found.values()] == [[1, 2]], \
+            f"{cys_name}/{his_name} must give the same pair"
+
+
+def test_a_cysteine_and_histidine_on_one_metal_are_not_a_catalytic_pair(tmp_path):
+    """They are close through the metal, not to each other."""
+    rows = glycine(1, 10, (0.0, 0.0, 0.0), "CYS", extra=[("SG", "S")])
+    rows += glycine(6, 20, (3.8, 0.0, 0.0), "HIS", extra=[("ND1", "N"), ("NE2", "N")])
+    rows[4] = atom(5, "SG", "CYS", 10, (0.0, 2.3, 0.0), "S")
+    rows[9] = atom(10, "ND1", "HIS", 20, (0.0, -2.1, 0.0), "N")
+    rows.append(metal(11, "ZN", 900, (0.0, 0.0, 0.0)))
+    path = write(tmp_path, "znsite.pdb", rows)
     monomers = cp.split_monomers(cp.read_residues(path))
-    pairs, unusable = cp.submitted_disulfides(path, monomers)
-    assert unusable is None
-    assert cp.describe_pairs(pairs) == ["1-2"]
+    metals = cp.read_metals(path)
+    assert cp.catalytic_dyad_positions(monomers, metals) == {}, \
+        "both ligate the zinc, so neither is exempt as a catalytic pair"
+    assert [sorted(v) for v in cp.metal_ligand_positions(monomers, metals).values()] == [[1, 2]]
+
+
+def test_a_distant_cysteine_histidine_pair_is_not_exempt(tmp_path):
+    """The nearest non-catalytic pair measured in a real reference is 4.08 A."""
+    rows = glycine(1, 10, (0.0, 0.0, 0.0), "CYS", extra=[("SG", "S")])
+    rows += glycine(6, 20, (3.8, 0.0, 0.0), "HIS", extra=[("ND1", "N"), ("NE2", "N")])
+    rows[4] = atom(5, "SG", "CYS", 10, (0.0, 5.0, 0.0), "S")
+    rows[9] = atom(10, "ND1", "HIS", 20, (0.0, 9.1, 0.0), "N")
+    path = write(tmp_path, "far.pdb", rows)
+    monomers = cp.split_monomers(cp.read_residues(path))
+    assert cp.catalytic_dyad_positions(monomers, cp.read_metals(path)) == {}

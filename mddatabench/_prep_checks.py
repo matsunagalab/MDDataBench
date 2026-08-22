@@ -43,6 +43,24 @@ PREP_CHECKS = [
                 "alone would miss a wrong chain of the right length."
     },
     {
+        "check_id": "topology_is_chemically_valid",
+        "check_type": "topology_chemistry_rescan@1",
+        "capability": "physical_validity",
+        "weight": 1.0,
+        "category": "prep",
+        "metal_ligand_angstrom": 3.5,
+        "note": "Three faults that are wrong on their own terms, with no reference to "
+                "compare against: an atom name appearing twice inside a residue (a rebuild "
+                "that added hydrogens on top of hydrogens already there), an atom carrying "
+                "more bonds than its element can hold, and a covalent bond between two "
+                "ligands of the same metal. The last is what MDClaw did on 6W9C: SG(192) and "
+                "SG(224) sit 3.00 A apart with the zinc 2.85 and 2.57 A from them, distance "
+                "detection called that a disulfide, and the built system carried a real "
+                "0.2038 nm bond term that pulled the two sulfurs to 2.04 A during production "
+                "and destroyed the site. Read from the submitted System, which is what "
+                "exerts force, rather than from CONECT, which is metadata."
+    },
+    {
         "check_id": "residue_atom_counts_match_reference",
         "check_type": "residue_composition_rescan@1",
         "capability": "composition_fidelity",
@@ -85,15 +103,14 @@ PREP_CHECKS = [
         "capability": "composition_fidelity",
         "weight": 1.0,
         "category": "prep",
-        "maximum_sg_distance_angstrom": 2.5,
-        "note": "Runs on every task; zero expected pairs is a real expectation. Expected pairs "
-                "come from the reference's own CYX residues and coordinates, not from a curator "
-                "list. Observed pairs come from the CONECT records of the submitted topology, "
-                "because system.system.xml is a compiled force-field object with no atom names "
-                "and, once HBonds and rigid water turn bonds into constraints, no usable bond "
-                "list either: D03's System keeps 177 HarmonicBondForce terms against 21451 "
-                "constraints. Comparing the whole pair set also catches a spurious disulfide, "
-                "which the earlier per-task check could not."
+        "note": "Runs on every task; zero expected pairs is a real expectation, and comparing "
+                "whole sets rejects a spurious bond as readily as a missing one. Both sides "
+                "are read from a topology rather than inferred. The reference ships its own "
+                "topology.prmtop -- MDDB serves one for every project -- so the expected bonds "
+                "are a bond list, not CYX names plus an SG-SG distance. The submitted bonds "
+                "come from system.xml, which is what exerts force; CONECT is metadata and can "
+                "disagree with it. Pairs are compared as positions within the protein, because "
+                "residue numbering is not comparable across the two files."
     },
     {
         "check_id": "topology_loads_and_is_parameterized",
@@ -172,32 +189,35 @@ PREP_CHECKS = [
 
 
 def apply() -> list[str]:
-    """Replace the prep block of every task contract; leave md checks untouched.
+    """Rewrite the whole deterministic block of every task contract.
 
-    The block carries no per-system expectations. Residue, atom and element
+    Both halves come from source: ``PREP_CHECKS`` here and ``MD_CHECKS`` in
+    ``_md_checks``.  It used to rewrite only the prep half and carry the md half
+    forward from whatever was already in the file, which meant a task generated
+    without an md block never grew one and a new md check reached no contract at
+    all -- adding ``metal_site_coordination_retained`` to the source list left
+    the scorer raising ``KeyError`` on every task.
+
+    Neither block carries per-system expectations.  Residue, atom and element
     counts come from the reference bundle at scoring time, which is already the
-    authority for them -- copying them here as well would leave two numbers to
-    keep in step, and `reference.reference_system` is the one the scorer reads.
+    authority for them; copying them here would leave two numbers to keep in
+    step.  The one exception is the reference temperature, which ``MD_CHECKS``
+    reads from the task's own ``reference_conditions``.
     """
+    from mddatabench._md_checks import MD_CHECKS
+
     touched = []
     for path in sorted(TASKS.glob("*/task.json")):
         task = json.loads(path.read_text())
-        checks = task["scoring"]["deterministic_checks"]
         block = [dict(c) for c in PREP_CHECKS]
-        keep = [c for c in checks
-                if c["check_id"] != "radius_of_gyration_is_physical"
-                and (c.get("category") in ("md", "precondition")
-                     or c["check_id"] == "contract_atoms_resolvable")]
-        for check in keep:
-            if check["check_id"] == "contract_atoms_resolvable":
-                check["category"] = "precondition"
-                check["weight"] = 0.0
-                check["note"] = (
-                    "Scorer-side precondition, reported and not scored: the reference's contract "
-                    "atoms must resolve onto the submitted topology before either subspace can "
-                    "be computed. It measures the scorer's ability to line the two systems up, "
-                    "not the agent's preparation, so it does not belong in the prep total.")
-        task["scoring"]["deterministic_checks"] = block + keep
+        for check in (dict(c) for c in MD_CHECKS):
+            if check["check_id"] == "thermodynamic_conditions_match_reference":
+                check["reference_temperature_k"] = (
+                    task["reference"]["reference_conditions"]["TEMP"])
+                check["reference_ensemble"] = (
+                    task["reference"]["reference_conditions"]["ENSEMBLE"])
+            block.append(check)
+        task["scoring"]["deterministic_checks"] = block
         path.write_text(json.dumps(task, indent=2) + "\n")
         touched.append(path.name)
     return touched

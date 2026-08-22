@@ -28,7 +28,8 @@ def test_reference_is_cc_licensed_and_pinned(path):
     assert CC.search(reference["license"]), "only CC BY / CC0 projects are eligible"
     assert reference["accession"] and reference["retrieved"] and reference["pdb_ids"]
     assert set(reference["bundle"]["sha256"]) == {
-        "reference.pdb", "reference_frames.f32", "pca_atom_indices.json"}
+        "reference.pdb", "reference.prmtop", "reference_frames.f32",
+        "pca_atom_indices.json"}
     for digest in reference["bundle"]["sha256"].values():
         assert re.fullmatch(r"[0-9a-f]{64}", digest)
 
@@ -38,7 +39,8 @@ def test_every_check_is_categorised_and_versioned(path):
     checks = load(path)["scoring"]["deterministic_checks"]
     assert checks
     for check in checks:
-        assert check["category"] in ("prep", "md", "precondition"), check["check_id"]
+        assert check["category"] in ("prep", "md", "precondition", "diagnostic"), \
+            check["check_id"]
         assert check["check_type"].endswith("@1"), (
             f"{check['check_id']}: check types are versioned so a scorer fix "
             "does not silently rescore old submissions")
@@ -49,6 +51,10 @@ def test_every_check_is_categorised_and_versioned(path):
             assert check["weight"] == 0.0, (
                 f"{check['check_id']}: a precondition measures the scorer, not the "
                 "agent, so it is reported and never scored")
+        if check["category"] == "diagnostic":
+            assert check["weight"] == 0.0, (
+                f"{check['check_id']}: a diagnostic is recorded until its threshold has "
+                "been measured, and this suite does not score uncalibrated thresholds")
 
 
 @pytest.mark.parametrize("path", TASKS, ids=lambda p: p.parent.name)

@@ -16,7 +16,7 @@
     "database": "MDDB",
     "api": "https://mmb.mddbr.eu/api/rest/v1/projects",
     "accession": "MCV1900210",
-    "retrieved": "2026-08-21",
+    "retrieved": "2026-08-22",
     "license": "This trajectory dataset is released under a Creative Commons Attribution 4.0 International Public License",
     "license_url": "https://creativecommons.org/licenses/by/4.0/",
     "citation": null,
@@ -59,13 +59,16 @@
       "sha256": {
         "pca_atom_indices.json": "a8be0e58a172e48e45f9aade82e23d914ccaaa013b899f599f8923953524beeb",
         "reference.pdb": "69a9767d4ce0f3310bd001c8ead3c560a3e34d2232105baa5bd07b090275c888",
+        "reference.prmtop": "56357515755c2e8e6c21dbc879dc03c8e9f15880f029c14a141249abd1f1cb6a",
         "reference_frames.f32": "406ff85e14b6e606e0e9660deba11dd76dc5af143163edd69f7a1965ffab7490"
       },
       "policy": "Fetched at scoring time and verified against these digests. Never staged into the solver workspace."
     },
     "windows": {
-      "non_overlapping_1ns": null,
-      "note": "Reference frame spacing is 1 ps, established by matching adjacent-frame backbone RMSD against a trajectory of known spacing (2026-08-21)."
+      "frame_selector": "1:100000:200",
+      "reference_frame_interval_ps": 10.0,
+      "non_overlapping_1ns_windows": 1000,
+      "note": "The project holds 100002 frames over 1 us, so the reference is sampled every 10 ps and a 1 ns window is 100 frames. Windows are not independent: slow motions correlate across them, so a spread estimated from them needs an effective sample size, not a count."
     },
     "solve_time_network_policy": {
       "allow": [
@@ -111,6 +114,15 @@
         "note": "Residue-by-residue, after collapsing every protonation and bonding variant onto its parent (HID/HIE/HIP -> HIS, CYX/CYM -> CYS, ...). Comparing counts alone would miss a wrong chain of the right length."
       },
       {
+        "check_id": "topology_is_chemically_valid",
+        "check_type": "topology_chemistry_rescan@1",
+        "capability": "physical_validity",
+        "weight": 1.0,
+        "category": "prep",
+        "metal_ligand_angstrom": 3.5,
+        "note": "Three faults that are wrong on their own terms, with no reference to compare against: an atom name appearing twice inside a residue (a rebuild that added hydrogens on top of hydrogens already there), an atom carrying more bonds than its element can hold, and a covalent bond between two ligands of the same metal. The last is what MDClaw did on 6W9C: SG(192) and SG(224) sit 3.00 A apart with the zinc 2.85 and 2.57 A from them, distance detection called that a disulfide, and the built system carried a real 0.2038 nm bond term that pulled the two sulfurs to 2.04 A during production and destroyed the site. Read from the submitted System, which is what exerts force, rather than from CONECT, which is metadata."
+      },
+      {
         "check_id": "residue_atom_counts_match_reference",
         "check_type": "residue_composition_rescan@1",
         "capability": "composition_fidelity",
@@ -140,8 +152,7 @@
         "capability": "composition_fidelity",
         "weight": 1.0,
         "category": "prep",
-        "maximum_sg_distance_angstrom": 2.5,
-        "note": "Runs on every task; zero expected pairs is a real expectation. Expected pairs come from the reference's own CYX residues and coordinates, not from a curator list. Observed pairs come from the CONECT records of the submitted topology, because system.system.xml is a compiled force-field object with no atom names and, once HBonds and rigid water turn bonds into constraints, no usable bond list either: D03's System keeps 177 HarmonicBondForce terms against 21451 constraints. Comparing the whole pair set also catches a spurious disulfide, which the earlier per-task check could not."
+        "note": "Runs on every task; zero expected pairs is a real expectation, and comparing whole sets rejects a spurious bond as readily as a missing one. Both sides are read from a topology rather than inferred. The reference ships its own topology.prmtop -- MDDB serves one for every project -- so the expected bonds are a bond list, not CYX names plus an SG-SG distance. The submitted bonds come from system.xml, which is what exerts force; CONECT is metadata and can disagree with it. Pairs are compared as positions within the protein, because residue numbering is not comparable across the two files."
       },
       {
         "check_id": "topology_loads_and_is_parameterized",
@@ -193,14 +204,24 @@
         "note": "MDDB records WAT for 96.5% of eligible projects, so the model name is a database-backed expectation. The amount of water is not: SOL is empty everywhere. MDClaw defaults to opc; TIP3P must be requested explicitly."
       },
       {
+        "check_id": "metal_site_coordination_retained",
+        "check_type": "metal_coordination_rescan@1",
+        "capability": "observable_fidelity",
+        "weight": 0.0,
+        "category": "diagnostic",
+        "metal_ligand_angstrom": 3.5,
+        "occupancy_fraction": 0.9,
+        "note": "Reported, never scored, until it has been measured on more than three systems. Counts the side chains coordinating each metal in the built structure and how many of them are still coordinating for most of production. It is not a comparison with the reference and cannot be: measured 2026-08-22, all three references hold a four-cysteine structural zinc with a bare 12-6 ion, deprotonate two of the four ligands, lose the other two to 5-13 A, and let the zinc be chelated by a glutamine oxygen at 1.75 A instead. Our own submissions use the same ion with the same parameters and one thiolate, and retain one ligand. When this is eventually scored it must also read the spread, because a bonded metal model satisfies a distance test by construction and an over-restrained site would pass."
+      },
+      {
         "check_id": "thermodynamic_conditions_match_reference",
         "check_type": "ensemble_conditions_rescan@1",
         "capability": "composition_fidelity",
         "weight": 1.0,
         "category": "md",
         "temperature_tolerance_k": 1.0,
-        "expected_temperature_k": 298.0,
-        "expected_ensemble": "NPT"
+        "reference_temperature_k": 298,
+        "reference_ensemble": "NPT"
       },
       {
         "check_id": "production_ran_for_one_nanosecond",
@@ -228,7 +249,7 @@
         "contract_id": "pca_backbone_subspace@1",
         "weight": 0.0,
         "category": "precondition",
-        "note": "Scorer-side precondition, reported and not scored: the reference's contract atoms must resolve onto the submitted topology before either subspace can be computed. It measures the scorer's ability to line the two systems up, not the agent's preparation, so it does not belong in the prep total."
+        "note": "Scorer-side precondition, reported and not scored: the reference's contract atoms must resolve onto the submitted topology before either subspace can be computed."
       },
       {
         "check_id": "subspace_beyond_structure_only_model",

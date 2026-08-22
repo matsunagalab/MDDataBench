@@ -14,6 +14,26 @@ from __future__ import annotations
 
 MD_CHECKS = [
     {
+        "check_id": "metal_site_coordination_retained",
+        "check_type": "metal_coordination_rescan@1",
+        "capability": "observable_fidelity",
+        "weight": 0.0,
+        "category": "diagnostic",
+        "metal_ligand_angstrom": 3.5,
+        "occupancy_fraction": 0.9,
+        "note": "Reported, never scored, until it has been measured on more than three "
+                "systems. Counts the side chains coordinating each metal in the built "
+                "structure and how many of them are still coordinating for most of "
+                "production. It is not a comparison with the reference and cannot be: "
+                "measured 2026-08-22, all three references hold a four-cysteine structural "
+                "zinc with a bare 12-6 ion, deprotonate two of the four ligands, lose the "
+                "other two to 5-13 A, and let the zinc be chelated by a glutamine oxygen at "
+                "1.75 A instead. Our own submissions use the same ion with the same "
+                "parameters and one thiolate, and retain one ligand. When this is eventually "
+                "scored it must also read the spread, because a bonded metal model satisfies "
+                "a distance test by construction and an over-restrained site would pass."
+    },
+    {
         "check_id": "thermodynamic_conditions_match_reference",
         "check_type": "ensemble_conditions_rescan@1",
         "capability": "composition_fidelity",
