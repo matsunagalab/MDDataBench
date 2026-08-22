@@ -60,10 +60,10 @@
       "sha256": {
         "pca_atom_indices.json": "58caaf195ba74738faa8b5e98360fccd3ff6e753d632cc57eecb27fe15543a8f",
         "reference.pdb": "c88888bd67408783ffcd2606695339295091115e494a3f19cb51571a35ff9b52",
-        "reference.prmtop": "a8fbca58c2a71946415c958cc5abca06fd4188d280d3638583d08dee6f91cebb",
-        "reference_frames.f32": "9b3f7f688179479e47b96d2acd87a7960d73c6c96db71c7d2cfac67a5e456040"
+        "reference.prmtop": "a8fbca58c2a71946415c958cc5abca06fd4188d280d3638583d08dee6f91cebb"
       },
-      "policy": "Fetched at scoring time and verified against these digests. Never staged into the solver workspace."
+      "policy": "Fetched at scoring time and verified against these digests. Never staged into the solver workspace.",
+      "note": "reference_frames.f32 was dropped on 2026-08-23: it was the subspace test's input and nothing has read it since that test was retired."
     },
     "windows": {
       "frame_selector": "1:100002:200",

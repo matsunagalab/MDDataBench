@@ -31,7 +31,7 @@ def list_benchmark_tasks(dataset_dir: str = "benchmarks/mddatabench") -> dict:
     return {"success": True, "version": __version__, "total": len(tasks), "tasks": tasks}
 
 
-def fetch_benchmark_reference(accession: str, out: str, n_frames: int = 500,
+def fetch_benchmark_reference(accession: str, out: str, n_frames: int = 0,
                               frames: str = None, node: str = "mmb",
                               replica: int = None) -> dict:
     """Download one MDDB reference bundle and record its provenance.

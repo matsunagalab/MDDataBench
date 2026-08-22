@@ -92,7 +92,7 @@ def frame_count(project: dict, base: str, target: str) -> int:
     raise SystemExit(f"{target}: cannot determine the frame count")
 
 
-def fetch_reference(accession: str, out: str, n_frames: int = 500,
+def fetch_reference(accession: str, out: str, n_frames: int = 0,
                     frames: str = None, node: str = "mmb",
                     replica: int | None = None) -> dict:
     """Fetch one project's reference bundle and write its provenance record."""
@@ -132,16 +132,24 @@ def fetch_reference(accession: str, out: str, n_frames: int = 500,
     # the rank comparison, and the per-frame radius of gyration supplies the
     # window band without downloading a single coordinate -- 952 non-overlapping
     # one-nanosecond windows out of a series that is already there.
+    # ``rgyr`` is kept because a task's radius-of-gyration band can be measured
+    # from it without downloading a coordinate, ``fluctuation`` because it is the
+    # profile the rank comparison is against.
     for name in ("fluctuation", "rgyr"):
         (out / f"reference_{name}.json").write_text(
             json.dumps(get_json(f"{base}/{target}/analyses/{name}"), indent=2))
-    trajectory = download(f"{base}/{target}/trajectory?frames={frames}",
-                          out / "reference_frames.f32")
+    # Frames are downloaded only when asked for. Nothing reads them: they were
+    # the subspace test's input, and that was retired on 2026-08-22. Fetching
+    # 500 frames of a hundred references would be gigabytes nothing opens.
+    trajectory = None
+    if n_frames:
+        trajectory = download(f"{base}/{target}/trajectory?frames={frames}",
+                              out / "reference_frames.f32")
     (out / "pca_atom_indices.json").write_text(
         json.dumps({"atom_indices": pca["atoms"],
                     "published_eigenvalues": pca["eigenvalues"][:20]}, indent=2))
 
-    frame_bytes = 3 * metadata.get("SYSTATS") * 4
+    frame_bytes = 3 * (metadata.get("SYSTATS") or 0) * 4
     provenance = {
         "database": "MDDB",
         "api": base,
@@ -160,9 +168,9 @@ def fetch_reference(accession: str, out: str, n_frames: int = 500,
                         "LENGTH", "PROGRAM", "METHOD")},
         "system": {k: metadata.get(k) for k in
                    ("PROTRES", "PROTATS", "SYSTATS", "SOL", "NA", "CL")},
-        "frame_selector": frames,
+        "frame_selector": frames if trajectory else None,
         "frame_bytes": frame_bytes,
-        "n_frames": trajectory.stat().st_size // frame_bytes,
+        "n_frames": (trajectory.stat().st_size // frame_bytes) if trajectory else 0,
         "sha256": {p.name: sha256(p) for p in sorted(out.glob("*"))
                    if p.name != "provenance.json"},
     }

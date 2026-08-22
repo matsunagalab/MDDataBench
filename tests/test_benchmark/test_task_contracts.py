@@ -28,7 +28,7 @@ def test_reference_is_cc_licensed_and_pinned(path):
     assert CC.search(reference["license"]), "only CC BY / CC0 projects are eligible"
     assert reference["accession"] and reference["retrieved"] and reference["pdb_ids"]
     assert set(reference["bundle"]["sha256"]) == {
-        "reference.pdb", "reference.prmtop", "reference_frames.f32",
+        "reference.pdb", "reference.prmtop",
         "pca_atom_indices.json"}
     for digest in reference["bundle"]["sha256"].values():
         assert re.fullmatch(r"[0-9a-f]{64}", digest)

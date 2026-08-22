@@ -1,0 +1,12 @@
+# Task 009_membrane_6jzh
+
+Simulate Adenosine receptor A2a, PDB entry **6JZH**, chain **A** residues **-1–308**, in explicit solvent.
+
+- **CHARMM36** protein force field, **TIP3P** water, neutralised
+- **310 K**, **NPT**
+- at least **1 ns** of production MD
+
+Residue 209–218 of chain A is not part of the reference. Leave it out.
+
+Leave the prepared structure, the topology, the minimised state and the production
+trajectory as artifacts. The evaluator recomputes everything it needs from them.
