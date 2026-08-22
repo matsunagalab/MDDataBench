@@ -60,6 +60,15 @@ def fetch_reference(accession: str, out: str, n_frames: int = 500,
     # zero bonds, which is the same 12-6 nonbonded model, with the same
     # parameters, that our own submissions build.
     download(f"{API}/{accession}/files/topology.prmtop", out / "reference.prmtop")
+    # Two of the project's own analyses, computed over its whole trajectory.
+    # They are what the md side compares against, and they arrive as numbers
+    # rather than frames: the per-atom fluctuation profile is the reference for
+    # the rank comparison, and the per-frame radius of gyration supplies the
+    # window band without downloading a single coordinate -- 952 non-overlapping
+    # one-nanosecond windows out of a series that is already there.
+    for name in ("fluctuation", "rgyr"):
+        (out / f"reference_{name}.json").write_text(
+            json.dumps(get_json(f"{API}/{accession}/analyses/{name}"), indent=2))
     trajectory = download(f"{API}/{accession}/trajectory?frames={frames}",
                           out / "reference_frames.f32")
     (out / "pca_atom_indices.json").write_text(

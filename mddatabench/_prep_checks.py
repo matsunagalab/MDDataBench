@@ -198,12 +198,23 @@ def apply() -> list[str]:
     for path in sorted(TASKS.glob("*/task.json")):
         task = json.loads(path.read_text())
         block = [dict(c) for c in PREP_CHECKS]
+        calibration = task["reference"].get("md_calibration") or {}
         for check in (dict(c) for c in MD_CHECKS):
-            if check["check_id"] == "thermodynamic_conditions_match_reference":
+            if check["check_id"] in ("thermodynamic_conditions_match_reference",
+                                     "measured_temperature_matches_reference"):
                 check["reference_temperature_k"] = (
                     task["reference"]["reference_conditions"]["TEMP"])
                 check["reference_ensemble"] = (
                     task["reference"]["reference_conditions"]["ENSEMBLE"])
+            # The three window bands are per task and measured, so they live in
+            # the contract with the recipe that produced them rather than in the
+            # scorer. Copied in here so a task file is self-contained.
+            band = {"fluctuation_profile_matches_reference": "rank_correlation",
+                    "fluctuation_magnitude_is_physical": "total_fluctuation_angstrom",
+                    "radius_of_gyration_matches_reference": "radius_of_gyration_angstrom",
+                    }.get(check["check_id"])
+            if band and calibration.get(band):
+                check["reference_window_range"] = calibration[band]
             block.append(check)
         task["scoring"]["deterministic_checks"] = block
         path.write_text(json.dumps(task, indent=2) + "\n")

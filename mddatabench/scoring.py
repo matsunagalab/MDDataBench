@@ -25,6 +25,7 @@ import numpy as np
 import openmm as mm
 
 from mddatabench import composition as cp
+from mddatabench import dynamics as dy
 from mddatabench import topology as tp
 from mddatabench import energetics as en
 from mddatabench import execution as ex
@@ -391,35 +392,13 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
           f"(HMR={prod_meta.get('hmr')})")
 
     traj_path = next((prod / "artifacts").glob("*.dcd"))
+    traj = md.load(str(traj_path), top=str(topo / "artifacts" / "system.topology.pdb"))
 
-    # --- essential subspace, both sides recomputed under the pinned contract ---
-    reference_atoms = pdb_atoms(bundle / "reference.pdb")
-    indices = json.loads((bundle / "pca_atom_indices.json").read_text())["atom_indices"]
-    keys = [(reference_atoms[i][1], reference_atoms[i][2]) for i in indices]
-    reference_xyz = np.array([reference_atoms[i][3] for i in indices])
-
-    topology_pdb = topo / "artifacts" / "system.topology.pdb"
-    lookup = {}
-    for n, row in enumerate(pdb_atoms(topology_pdb)):
-        lookup.setdefault((row[1], row[2]), n)
-    missing = [k for k in keys if k not in lookup]
-    own_indices = np.array([lookup[k] for k in keys if k in lookup])
-
-    # One entry per atom of reference.pdb, which is the whole deposited system and
-    # not just its protein: MDDB's PROTATS excludes structural metals, so a task
-    # with a zinc reshapes 4897 atoms into 4896 and dies. Take the count from the
-    # file the frames actually accompany.
-    frames = np.fromfile(bundle / "reference_frames.f32", dtype="<f4")
-    frames = frames.reshape(-1, len(reference_atoms), 3).astype(np.float64)[:, indices, :]
-    _, reference_subspace = st.essential_subspace(frames, reference_xyz)
-
-    traj = md.load(str(traj_path), top=str(topology_pdb))
-
+    # --- the clock: reference-independent evidence that time passed -----------
     claimed = float(prod_meta.get("simulation_time_ns", 0.0)) * 1000.0
     interval = ex.dcd_frame_interval_ps(traj_path)
     clock = ex.elapsed_time_ps(traj, dt_ps=interval)
-    spec_time = next(c for c in task["scoring"]["deterministic_checks"]
-                     if c["check_id"] == "elapsed_simulated_time_is_physical")
+    spec_time = spec["elapsed_simulated_time_is_physical"]
     if interval is None:
         check("elapsed_simulated_time_is_physical", False,
               f"no frame interval in the DCD header of {traj_path.name}; "
@@ -435,31 +414,120 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
               f"{claimed:.0f} ps (ratio {ratio:.2f}), "
               f"D={clock['diffusion_1e5_cm2_s']:.2f}e-5 cm2/s, "
               f"frame interval {interval:.3f} ps from the DCD header")
+
+    # --- what a nanosecond can honestly be asked to reproduce -----------------
+    reference_atoms = pdb_atoms(bundle / "reference.pdb")
+    indices = json.loads((bundle / "pca_atom_indices.json").read_text())["atom_indices"]
+    keys = [(reference_atoms[i][1], reference_atoms[i][2]) for i in indices]
+
+    topology_pdb = topo / "artifacts" / "system.topology.pdb"
+    lookup = {}
+    for n, row in enumerate(pdb_atoms(topology_pdb)):
+        lookup.setdefault((row[1], row[2]), n)
+    missing = [k for k in keys if k not in lookup]
+    own_indices = np.array([lookup[k] for k in keys if k in lookup])
     check("contract_atoms_resolvable", not missing,
           f"{len(own_indices)}/{len(keys)} contract atoms matched by (residue, atom name)"
           + (f"; missing {missing[:4]}" if missing else ""))
 
-    # Two subspaces can only be compared when the same atoms span them.  A
-    # submission missing a contract atom used to reach `kabsch` with a 933x3
-    # frame against a 936x3 target and die on the matmul; the check that was
-    # meant to prevent that is a precondition, and a precondition that only
-    # reports is not a guard.  Missing atoms are the submission's own doing --
-    # D01 built 311 residues where the reference has 312 -- so the check fails
-    # rather than being skipped.
+    # Thinned to the reference windows' 10 ps so both sides carry the same number
+    # of samples; measured, the statistics move by less than 0.02 across strides
+    # of 1, 10 and 20 ps, but matching them costs nothing.
+    stride = max(1, int(round(10.0 / (interval or 10.0))))
+    own_xyz = traj.xyz[::stride][:, own_indices, :] * 10.0
+
+    calibration = task["reference"].get("md_calibration") or {}
+    reference_profile = np.array(json.loads(
+        (bundle / "reference_fluctuation.json").read_text())["y"]["rmsf"]["data"]) * 10.0
+
+    # A range over a hundred windows is not the range of the population, and the
+    # difference is measurable: held-out reference windows fall outside the range
+    # of the rest 7 to 16 per cent of the time. Widening it by twice the window
+    # spread takes that to zero on all three tasks, and the negative controls are
+    # separated by so much more than that -- they still all fail at three times
+    # the spread -- that the room costs nothing.
+    slack = float(calibration.get("slack_window_sd", 0.0))
+    spread = calibration.get("observed_window_sd") or {}
+
+    def widened(band, key):
+        if not band:
+            return None
+        margin = slack * float(spread.get(key, 0.0))
+        return [band[0] - margin, band[1] + margin]
+
+    def banded(check_id, value, band, key, unit=""):
+        """Inside the range the reference's own windows span, plus the slack."""
+        band = widened(band, key)
+        if value is None or not band:
+            check(check_id, False, "not measurable: no value or no calibrated band")
+            return
+        low, high = band
+        check(check_id, low <= value <= high,
+              f"{value:.4f}{unit} against the reference's own 1 ns windows "
+              f"[{low:.4f}, {high:.4f}]{unit} "
+              f"(n={calibration.get('windows')}, widened by {slack} window SD)")
+
     if missing:
-        test = None
-        check("subspace_beyond_structure_only_model", False,
-              f"not evaluable: {len(missing)} of {len(keys)} reference contract "
-              "atoms are absent from the submitted topology, so no common set of "
-              "atoms spans both subspaces")
+        for check_id in ("fluctuation_profile_matches_reference",
+                         "fluctuation_magnitude_is_physical",
+                         "radius_of_gyration_matches_reference"):
+            check(check_id, False,
+                  f"not evaluable: {len(missing)} of {len(keys)} reference contract "
+                  "atoms are absent from the submitted topology")
+        agreement = None
     else:
-        own = traj.xyz[:, own_indices, :] * 10.0
-        _, own_subspace = st.essential_subspace(own, reference_xyz)
-        test = st.test_beyond_structure(own_subspace, reference_subspace, reference_xyz)
-        check("subspace_beyond_structure_only_model", test["h0_rejected"],
-              f"RMSIP={test['rmsip']:.3f} vs structure-only null "
-              f"{test['null_mean']:.3f}+/-{test['null_sd']:.3f} (max {test['null_max']:.3f}), "
-              f"z={test['z_score']:.2f}, p<={test['p_value_upper_bound']:.2f}")
+        agreement = dy.profile_agreement(dy.atom_fluctuations(own_xyz),
+                                         reference_profile[indices])
+        # One-sided: agreement above the floor is agreement, and a profile that
+        # matched better than any reference window would be no complaint.
+        floor = (widened(calibration.get("rank_correlation"),
+                         "rank_correlation") or [None])[0]
+        check("fluctuation_profile_matches_reference",
+              agreement is not None and floor is not None and agreement >= floor,
+              f"rank correlation {agreement:.4f} against a floor of {floor:.4f} taken "
+              f"from the reference's own 1 ns windows "
+              f"(n={calibration.get('windows')}, widened by {slack} window SD)"
+              if agreement is not None and floor is not None else
+              "not measurable: the profiles could not be compared")
+        banded("fluctuation_magnitude_is_physical", dy.total_fluctuation(own_xyz),
+               calibration.get("total_fluctuation_angstrom"),
+               "total_fluctuation_angstrom", " A")
+        banded("radius_of_gyration_matches_reference",
+               float(dy.radius_of_gyration(own_xyz).mean()),
+               calibration.get("radius_of_gyration_angstrom"),
+               "radius_of_gyration_angstrom", " A")
+
+    # --- what the run reported about itself, measured rather than declared ----
+    log = dy.energy_series(next(iter((prod / "artifacts").glob("energy.dat")), None)) \
+        if any((prod / "artifacts").glob("energy.dat")) else {}
+    spec_temperature = spec["measured_temperature_matches_reference"]
+    wanted = float(task["reference"]["reference_conditions"]["TEMP"])
+    measured = log.get("Temperature (K)")
+    if measured is None or not len(measured):
+        check("measured_temperature_matches_reference", False,
+              "no state log to read a temperature from")
+    else:
+        mean = float(measured.mean())
+        check("measured_temperature_matches_reference",
+              abs(mean - wanted) <= spec_temperature["tolerance_kelvin"],
+              f"mean {mean:.3f} K against {wanted:.0f} K asked for, tolerance "
+              f"{spec_temperature['tolerance_kelvin']:.0f} K "
+              f"(spread {measured.std():.3f} K, not graded)")
+
+    spec_box = spec["solvent_box_is_physical"]
+    density = log.get("Density (g/mL)")
+    volume = log.get("Box Volume (nm^3)")
+    low, high = spec_box["density_range_g_per_ml"]
+    if density is None or volume is None or not len(density):
+        check("solvent_box_is_physical", False,
+              "no state log to read a density or a box volume from")
+    else:
+        mean = float(density.mean())
+        moved = float(volume.std()) > 0.0
+        check("solvent_box_is_physical", low <= mean <= high and moved,
+              f"mean density {mean:.4f} g/mL in [{low}, {high}], box volume "
+              f"{volume.mean():.1f} nm3 with spread {volume.std():.3f} "
+              f"({'a barostat moved it' if moved else 'it never moved'})")
 
     # --- metal sites: reported, never scored ----------------------------------
     spec_metal = spec["metal_site_coordination_retained"]
@@ -486,13 +554,6 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
           " | ".join(metal_report) if metal_report
           else "no metal ion in the submitted topology")
 
-    # Radius of gyration is recorded and not scored. It is a property of the
-    # prepared structure rather than of the simulation: measured 2026-08-21 it
-    # is 1.1616 / 1.1031 / 0.8549 nm as built against 1.1784 / 1.1224 / 0.8223
-    # averaged over production, and the within-trajectory SD is 0.007-0.012 nm
-    # against bands that were 0.2-0.4 nm wide.
-    rg = md.compute_rg(traj.atom_slice(traj.topology.select("protein")))
-
     by_category = {}
     for row in results:
         bucket = by_category.setdefault(row["category"], {"passed": 0, "total": 0,
@@ -512,11 +573,8 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     return {"task_id": task["task_id"], "checks": results, "by_category": by_category,
             "scores": scores,
             "passed": sum(1 for r in scored if r["passed"]), "total": len(scored),
-            "diagnostics": {"rmsip": test["rmsip"] if test else None,
-                            "z_score": test["z_score"] if test else None,
-                            "canonical_correlations":
-                                (test["canonical_correlations"] if test else None),
-                            "rg_mean_nm": float(rg.mean()), "n_frames": int(traj.n_frames),
+            "diagnostics": {"fluctuation_rank_correlation": agreement,
+                            "n_frames": int(traj.n_frames),
                             "built_energy_per_atom_kj_mol":
                                 built.get("energy_per_particle_kj_mol"),
                             "minimized_energy_per_atom_kj_mol":

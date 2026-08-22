@@ -113,11 +113,23 @@ SARS-CoV-2 viral membranes), implicit solvent, mutants, and phosphorylation.
 ## Prompts are minimal
 
 A prompt states only what cannot be inferred, and says nothing about analysis:
-the PDB entry, TIP3P, neutralised, 300 K, NPT, at least 1 ns. Chain selection,
-protonation, box geometry and side-chain completion are left to the agent, and
-the reference bundle is never staged into the solver workspace — the evaluator
-fetches it at scoring time and computes both subspaces itself, so numbers the
-agent reports are never used and the reference cannot leak.
+the PDB entry, the chain and residue range, the force field and water model,
+the temperature and ensemble, and a minimum production length. Protonation, box
+geometry, side-chain completion and how to reach the stated range are left to
+the agent, and the reference bundle is never staged into the solver workspace —
+the evaluator fetches it at scoring time and computes both subspaces itself, so
+numbers the agent reports are never used and the reference cannot leak.
+
+The residue range is there because it is exactly what a deposit cannot tell
+you. Measured 2026-08-22, the three deposits resolve three different ranges and
+every reference simulates the same one: 6W9C chain C stops one residue short of
+it, 6WRH chain A runs four past it and carries the C111S substitution that
+inactivates the enzyme for crystallography, 4OW0 chain A matches. Keeping every
+resolved residue is a defensible default and so is leaving an unresolved
+terminus alone, yet without the range either choice cost five checks — monomers
+are paired by exact sequence, and a range difference blocks the per-residue
+comparison the rest depend on. D02's prompt says the deposit carries C111S and
+the reference does not; neither prompt says how to act on any of it.
 
 Verified on 2026-08-19 against the earlier task cast: with no protonation
 guidance at all, MDClaw landed on 602/1231 atoms for 1UBQ and 521/1014 for
@@ -158,10 +170,67 @@ number cannot say whether a submission failed at building the system or at
 simulating it. The adversarial baselines make the point: an elastic-network
 ensemble and a 10 ps run both score full marks on prep and must fail on md.
 
-A third category, **precondition**, is reported and not scored. It holds
-`contract_atoms_resolvable`, which asks whether the reference's contract atoms
-land on the submitted topology at all. That measures the scorer's ability to
-line two systems up, not the agent's preparation.
+## What the md side may and may not see
+
+Three things are deliberately free, and each rules out a family of
+observables.
+
+**The force field.** Requiring the reference's would empty the eligible pool,
+and running under a different one is a thing to be able to do. So nothing may
+key on rotamer or salt-bridge propensities, which are the most systematically
+force-field-dependent quantities available. Verified by running one task under
+ff99SBildn against a reference built with ff14SB: every md check passes.
+
+**The protonation of ambiguous residues**, which is already exempt on the prep
+side and so cannot be graded here by a back door — the maximum RMSD over a
+window is one such door, since a metal site given a defensible different
+protonation dominates it, and that is why the RMSD statistics are recorded and
+not scored.
+
+**The thermostat.** Friction sets relaxation times, so every time-correlation
+statistic is out. Measured, a lag-dependent MSD separates real runs (2.9–4.5)
+from shuffled frames (0.97–1.08) with no overlap at all, and is still not
+usable: it would fail a correct run for its integrator.
+
+Equilibrium properties are what survive, and the md side is five of them
+plus the clock, conjoined — a weighted sum would let one complete failure be
+paid for elsewhere, and "it ran as asked" is not that kind of claim.
+
+| gate | statistic | band | catches |
+|---|---|---|---|
+| clock | elapsed time from solvent diffusion | reference-free | truncation, an ensemble, duplicated frames, never having run |
+| temperature | mean of the state log | asked-for ±3 K | a different setpoint. The *spread* is never graded: the thermostat sets it |
+| solvent box | mean density, and box volume that moved | [0.95, 1.10] g/mL, spread > 0 | vacuum, a bubble, a barostat that was never connected |
+| fluctuation shape | rank correlation with the reference's own per-atom profile | one-sided floor | shuffled frames, freezing, noise |
+| fluctuation size | total RMSF | two-sided | over-restraint, expansion |
+| global shape | mean radius of gyration | two-sided | collapse, coming apart |
+
+The last three are calibrated against the reference's **own one-nanosecond
+windows** — the same estimator applied to the same length of the same
+trajectory — so the question is not "does a nanosecond reproduce a
+microsecond", which it cannot, but "is this distinguishable from a nanosecond
+of the reference".
+
+Two of the pairs are there because neither half catches what the other does.
+An over-restrained run keeps a rank correlation of 0.872 with a tenth of the
+motion, and a threefold expansion keeps 0.867; both are caught only by the
+magnitude. Shuffled frames keep the magnitude exactly and lose the ranks.
+
+The bands are widened by twice the window spread, and that number is measured
+rather than chosen: five-fold block cross-validation over 100 windows rejects
+held-out reference windows 16, 7 and 9 per cent of the time with no slack, and
+0 per cent at two. Every negative control still fails at three.
+
+Two further categories are reported and never scored. **precondition** holds
+`contract_atoms_resolvable` and `topology_loads_and_is_parameterized`, which
+ask whether the scorer can line two systems up at all — that measures the
+scorer, not the agent. **diagnostic** holds
+`metal_site_coordination_retained`, which counts the side chains coordinating
+each metal in the built structure and how many still are for most of
+production. It is not a comparison with the reference and cannot be one; it
+stays unscored until it has been measured on more than three systems, and when
+it is scored it will have to read the spread as well, because a bonded metal
+model satisfies a distance test by construction.
 
 ## What a submission has to clear on the prep side
 
@@ -193,18 +262,52 @@ in D01 (HIE vs HID) and D02 (HID vs HIE) and agree on every per-residue count:
 | LYN, CYM | −1 | yes |
 | CYX, from a disulfide | −1 | yes |
 
-This is why the total atom count is now **exact**. The earlier `±2` tolerance
-was believed to be needed for tautomers; it protected nothing, because HID and
-HIE have the same formula, and it admitted up to two ionisation errors.
+There is no separate total-atom check. It was the sum of this comparison and
+added nothing: a matching sequence with matching per-residue counts cannot have
+a different total, and where the monomers do not pair the monomer, sequence and
+element checks already say so. It had also stopped being harmless, because the
+per-residue comparison exempts the residues below and the total did not.
 
-**Disulfides are read from CONECT, on every task.** The expected pairs come
-from the reference's own CYX residues and coordinates. The observed pairs come
-from the CONECT records of the submitted topology, because `system.system.xml`
-is a compiled force-field object with no atom names and, once HBonds and rigid
-water turn bonds into constraints, no usable bond list either — D03's System
-keeps 177 `HarmonicBondForce` terms against 21451 constraints. Comparing the
-whole pair set also rejects a *spurious* disulfide, which the earlier per-task
-check could not.
+**Two kinds of residue are exempt from the protonation comparison**, and both
+are found by geometry, so the answer is the same whether a file wrote CYM/HIP
+or CYS/HIE. Their identity is still compared: a cysteine that became an alanine
+is a mutation and has nothing to do with either.
+
+*Metal ligands.* All three references hold a four-cysteine structural zinc with
+a bare 12-6 ion — `type Zn2+, charge +2.0, rmin 1.271 A, zero bonds`, the same
+parameters our own submissions build — deprotonate two of the four, lose the
+other two to 5–13 Å over a microsecond, and let the zinc be chelated by a
+glutamine oxygen at 1.75 Å instead. Grading against that rewards copying a
+half-open site: a submission that deprotonates all four is further from the
+reference and closer to right. Measured, it retains 4 of 4 ligands at
+1.97–1.99 Å where the reference retains 2.
+
+*Catalytic pairs.* A cysteine–histidine dyad is exempt because the field does
+not agree with itself. Neutron crystallography of SARS-CoV-2 Mpro reports the
+thiolate–imidazolium zwitterion, room-temperature X-ray of the same enzyme
+reports the neutral form, MD of cruzain reports neutral, and for 3CL-PR the
+dominant species reportedly differs between H₂O and D₂O. The cutoff is 3.5 Å:
+measured, the dyad sits at 2.98, 3.08 and 3.11 Å and the next closest Cys/His
+pair in the same structure is 4.08, 4.63 and 4.08 Å.
+
+**Both sides are read from a topology, on every task.** MDDB serves a
+`topology.prmtop` for every project, so the expected bonds are a bond list
+rather than CYX names plus a distance, and the expected protonation is a
+residue table. The submitted bonds come from the System — `HarmonicBondForce`
+together with the constraint list, because with HBonds and rigid water most
+bonds are constrained (21451 constraints against 177 bond terms in one measured
+task). A CONECT record is metadata and can disagree with what exerts force.
+Comparing whole sets rejects a *spurious* disulfide as readily as a missing
+one, and zero expected pairs is a real expectation.
+
+**`topology_is_chemically_valid` fails three faults with no reference to
+consult**: an atom name repeated inside a residue, an atom over its valence, and
+a covalent bond between two ligands of one metal. The last is what MDClaw did
+on 6W9C — SG(192) and SG(224) sit 3.00 Å apart with the zinc 2.85 and 2.57 Å
+from them, distance detection called that a disulfide, and the built system
+carried a real 0.2038 nm bond term that pulled the sulfurs to 2.04 Å during
+production. Sulfur is absent from the valence table on purpose: a sulfonamide,
+a sulfate and DMSO all carry four bonds on S.
 
 **Energies are recomputed, never read.** The runner's own
 `minimization_report.json` is the same class of claim as `simulation_time_ns`,

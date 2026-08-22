@@ -58,11 +58,40 @@ def test_every_check_is_categorised_and_versioned(path):
 
 
 @pytest.mark.parametrize("path", TASKS, ids=lambda p: p.parent.name)
-def test_md_side_keeps_both_gates(path):
-    """The structure-only test and the clock caught different baselines."""
-    ids = {c["check_id"] for c in load(path)["scoring"]["deterministic_checks"]}
-    assert "subspace_beyond_structure_only_model" in ids
-    assert "elapsed_simulated_time_is_physical" in ids
+def test_md_side_keeps_the_gates_that_catch_different_things(path):
+    """No one of these catches what the others do.
+
+    Measured 2026-08-22 against the negative controls: shuffled frames keep the
+    right magnitude and lose the ranks, an over-restrained run keeps the ranks
+    (rho 0.872 at a tenth of the motion) and loses the magnitude, a threefold
+    expansion keeps the ranks too, and the clock is the only reference-free
+    evidence that time passed at all.
+    """
+    checks = load(path)["scoring"]["deterministic_checks"]
+    ids = {c["check_id"] for c in checks}
+    for required in ("elapsed_simulated_time_is_physical",
+                     "fluctuation_profile_matches_reference",
+                     "fluctuation_magnitude_is_physical",
+                     "radius_of_gyration_matches_reference",
+                     "measured_temperature_matches_reference",
+                     "solvent_box_is_physical"):
+        assert required in ids, required
+    assert "subspace_beyond_structure_only_model" not in ids, (
+        "the structure-only test decided nothing: an elastic-network ensemble "
+        "scored RMSIP 0.749 against the real run's 0.704")
+
+
+@pytest.mark.parametrize("path", TASKS, ids=lambda p: p.parent.name)
+def test_window_bands_are_measured_and_recorded(path):
+    """A band is a measurement, and it travels with the numbers behind it."""
+    calibration = load(path)["reference"]["md_calibration"]
+    assert calibration["windows"] >= 50, "a range needs windows to be a range"
+    for name in ("rank_correlation", "total_fluctuation_angstrom",
+                 "radius_of_gyration_angstrom"):
+        low, high = calibration[name]
+        assert low < high, name
+    assert calibration["estimator"] and calibration["window_fetch"], (
+        "the recipe that produced the band belongs with it")
 
 
 @pytest.mark.parametrize("path", TASKS, ids=lambda p: p.parent.name)
