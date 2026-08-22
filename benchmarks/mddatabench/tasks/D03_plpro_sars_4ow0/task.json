@@ -332,10 +332,6 @@
     ],
     "diagnostics": [
       {
-        "diagnostic_id": "subspace_rmsip_value",
-        "note": "Continuous RMSIP against the reference. Recorded, not scored."
-      },
-      {
         "diagnostic_id": "reference_forcefield_match",
         "note": "The prompt names ['Amber ff14SB'] so the submission and the reference share a force field; this removes the Parm99-versus-modern-field confound that made RMSIP uncalibratable in the earlier task cast."
       }

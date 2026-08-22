@@ -227,9 +227,10 @@ statistic is out. Measured, a lag-dependent MSD separates real runs (2.9–4.5)
 from shuffled frames (0.97–1.08) with no overlap at all, and is still not
 usable: it would fail a correct run for its integrator.
 
-Equilibrium properties are what survive, and the md side is five of them
-plus the clock, conjoined — a weighted sum would let one complete failure be
-paid for elsewhere, and "it ran as asked" is not that kind of claim.
+Equilibrium properties are what survive, and the md side is five of them plus
+the clock. Each carries the same weight, so no check can be paid for by
+another being especially good — there is nothing to be especially good at, only
+inside or outside.
 
 | gate | statistic | band | catches |
 |---|---|---|---|
@@ -380,7 +381,13 @@ scored, like the force field: comparable, but not worth grading.
 
 ## What a submission has to clear on the md side
 
-The gates are the six listed above, conjoined and equally weighted.
+Eight checks, each weight 1.0, so the md score is the fraction of them a
+submission passes. Six are the gates listed above; the other two are
+`thermodynamic_conditions_match_reference`, which asks whether the run was set
+up at the temperature and ensemble the prompt named, and
+`production_ran_for_one_nanosecond`, which asks whether it claims to have run
+that long at all. The measured temperature check is the one that decides
+whether the claim was true.
 
 **The subspace test was retired on 2026-08-22.** It was the centre of the md
 side and it decided nothing: an elastic-network ensemble with no dynamics at
