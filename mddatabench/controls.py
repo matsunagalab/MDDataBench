@@ -55,8 +55,12 @@ def run_negative_controls(job_dir: str, bundle: str, task_file: str) -> dict:
     # instead picked up an abandoned run left in `running`, and the two tools then
     # silently graded different trajectories (0.818 against 0.828).
     topology = find_node(job_dir, "topo") / "artifacts" / "system.topology.pdb"
-    traj = md.load(str(next((find_node(job_dir, "prod") / "artifacts").glob("*.dcd"))),
-                   top=str(topology))
+    traj_path = next((find_node(job_dir, "prod") / "artifacts").glob("*.dcd"))
+    traj = md.load(str(traj_path), top=str(topology))
+    # Frame interval from the header, as the scorer does. Slicing a loaded
+    # trajectory keeps `traj.time` as a frame count, so the truncations would
+    # otherwise be clocked in the wrong unit and could pass.
+    interval = ex.dcd_frame_interval_ps(traj_path)
     lookup = {}
     n = 0
     for line in open(topology):
@@ -74,7 +78,7 @@ def run_negative_controls(job_dir: str, bundle: str, task_file: str) -> dict:
             timed = False
             clock = {"measurable": False, "reason": "no solvent"}
         else:
-            clock = ex.elapsed_time_ps(sub_traj)
+            clock = ex.elapsed_time_ps(sub_traj, dt_ps=interval)
             timed = (clock["measurable"]
                      and clock["elapsed_ps"] / (claimed_ns * 1000.0) >= fraction)
         passed = bool(test["h0_rejected"] and timed)
