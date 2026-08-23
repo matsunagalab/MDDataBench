@@ -289,3 +289,34 @@ def test_a_moved_two_piece_entry_keeps_both_pieces(tmp_path):
     assert len(moved["ranges"]) == 2
     (_, first_end), (second_start, _) = moved["ranges"]
     assert int(second_start) > int(first_end) + 1, "the removed part stays removed"
+
+
+# --- what the prompt does not name is standard --------------------------------
+# A pKa predictor disagrees with the reference somewhere. MDClaw runs
+# pdb2pqr+propka at pH 7.4 and neutralised two aspartates of 5ZK8 that the
+# reference kept charged; the atom-count check then reported a composition
+# difference for a decision the prompt never asked about. Every reference in the
+# cast carries hydrogens, so "standard except where stated" is measured.
+
+def _prompt(protonation):
+    metadata = {"WAT": "TIP3P", "TEMP": 300, "ENSEMBLE": "NPT", "FF": ["Amber ff14SB"]}
+    chains = [{"deposit_chain": "A", "ranges": [["1", "100"]]}]
+    return tb.build_prompt("t", "Protein", "1ABC", metadata, chains, {},
+                           protonation, 1.0)
+
+
+def test_the_standard_state_is_stated():
+    assert "standard state at pH 7" in _prompt([])
+
+
+def test_it_says_every_when_nothing_else_was_named():
+    text = _prompt([])
+    assert "Simulate every ionisable side chain" in text
+    assert "every other" not in text
+
+
+def test_it_says_every_other_when_something_was_named():
+    text = _prompt([{"chain": "A", "residue": 107,
+                     "meaning": "protonated histidine"}])
+    assert "Residue 107 of chain A is a protonated histidine." in text
+    assert "Simulate every other ionisable side chain" in text

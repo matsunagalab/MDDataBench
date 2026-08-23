@@ -769,6 +769,17 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
         where = (f"Residue {entry['residue']} of chain {entry['chain']}"
                  if entry.get("chain") else f"Residue {entry['residue']}")
         lines += [f"{where} is a {entry['meaning']}.", ""]
+    # Everything the previous line did not name is standard, and saying so is
+    # the point: a pKa predictor will disagree with the reference somewhere.
+    # MDClaw runs pdb2pqr+propka at pH 7.4 and it neutralised two aspartates of
+    # 5ZK8 that the reference kept charged, which the atom-count check sees as a
+    # composition difference the prompt never asked for. Every reference in the
+    # cast carries hydrogens, so "standard except where stated" is measured
+    # rather than assumed.
+    lines += [("Simulate every other ionisable side chain" if protonation
+               else "Simulate every ionisable side chain")
+              + " in its standard state at pH 7: charged aspartate, glutamate, "
+                "lysine and arginine, and neutral histidine and cysteine.", ""]
     if replicas > 1:
         lines += ["", ]
     lines += ["Leave the prepared structure, the topology, the minimised state and the "

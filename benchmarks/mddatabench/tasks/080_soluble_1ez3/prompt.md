@@ -8,5 +8,7 @@ Simulate SYNTAXIN-1A, PDB entry **1EZ3**, chain **B** residues **26–150**, in 
 
 Chain B does not resolve residues 26, 29, 28; the range runs through them, so build them.
 
+Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
+
 Leave the prepared structure, the topology, the minimised state and the production
 trajectory as artifacts. The evaluator recomputes everything it needs from them.

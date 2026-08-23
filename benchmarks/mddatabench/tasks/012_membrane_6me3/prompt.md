@@ -14,5 +14,7 @@ Residue 1004 is deposited as **YCM**, a modified CYS. Simulate the unmodified re
 
 Embed it in a **DPPC** bilayer.
 
+Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
+
 Leave the prepared structure, the topology, the minimised state and the production
 trajectory as artifacts. The evaluator recomputes everything it needs from them.

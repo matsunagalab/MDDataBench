@@ -10,5 +10,7 @@ Chain D does not resolve residues 135, 136, 137, 138; the range runs through the
 
 Residue 52 is deposited as **ASN**, a modified ASN. Simulate the unmodified residue.
 
+Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
+
 Leave the prepared structure, the topology, the minimised state and the production
 trajectory as artifacts. The evaluator recomputes everything it needs from them.

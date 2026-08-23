@@ -10,5 +10,7 @@ Residue 111 is deposited as **SER**; simulate the **CYS**.
 
 The entry carries a structural zinc. Keep it.
 
+Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
+
 Leave the prepared structure, the topology, the minimised state and the production
 trajectory as artifacts. The evaluator recomputes everything it needs from them.

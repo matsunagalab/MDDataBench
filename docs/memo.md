@@ -121,6 +121,32 @@ Cys3-Cys40 / Cys4-Cys32 / Cys16-Cys26 を全て復元。結合/原子比 1.014�
 あわせて、契約に残っていた診断 `subspace_rmsip_value` を落とした。採点器はもう
 RMSIP を計算しないので、契約が出ないものを宣言していた。
 
+### プロンプトが標準状態を述べていなかった
+
+003 の残った不合格は `ASP52 12 原子 vs ASH52 13 原子` で、MDClaw の pdb2pqr+propka が
+pH 7.4 で寄託の Asp69・Asp103 を中性型と判断したもの。記録が残っている:
+
+    "protonation_method": "pdb2pqr+propka", "protonation_ph": 7.4
+    {"resnum":"69","state":"ASH","default_state":"ASP","source":"auto_detected"}
+
+金属配位の CYM とは経路が違う。あちらは MDClaw の `detect_metal_sites` が
+`"ligates ZN402 at 2.48 A"` という理由つきで割り当てており、pdb2pqr は
+**イオンが別ファイルに出るので金属を見ない**（放っておくと 4 システインの亜鉛のうち
+1 つしか脱プロトン化されず金属が外れる、と `prepare_complex.py:1357` が測定を書いている）。
+
+**参照はイオン化変種を一つも使っていない**。`stated_protonation` は非標準の位置だけを
+返すので、5ZK8 では空になり、プロンプトは何も言わなかった。だが「何も言わない」は
+「標準で作れ」を意味しない。pKa 予測器はどこかで参照と食い違う。
+
+100 件を測ると**参照はすべて水素を持ち**（判定可能）、変種を持つのは 10 件だけ
+（実質 `CYM` 4 件と `HIP` 7 件、`CYX` はジスルフィド）。そこで
+
+    Simulate every [other] ionisable side chain in its standard state at pH 7:
+    charged aspartate, glutamate, lysine and arginine, and neutral histidine
+    and cysteine.
+
+を全件に足した。個別指定を持つ 4 件だけ "every other" になる。
+
 ### contract 原子を番号で引いていた。32 件が黙って誤対応していた
 
 RMSF と Rg のゲートは、参照が `pca_atom_indices.json` で名指しする主鎖原子を提出物の

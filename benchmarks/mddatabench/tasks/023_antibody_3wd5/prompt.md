@@ -10,5 +10,7 @@ Chain A does not resolve residue 6; the range runs through them, so build them.
 
 Chain H does not resolve residues 137, 138, 140, 141, 143; the range runs through them, so build them.
 
+Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
+
 Leave the prepared structure, the topology, the minimised state and the production
 trajectory as artifacts. The evaluator recomputes everything it needs from them.
