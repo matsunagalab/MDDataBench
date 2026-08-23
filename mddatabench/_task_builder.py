@@ -253,6 +253,12 @@ def selection(record, deposit):
             lo, hi = _span(chain["SEQRES位置"])
             entry["ranges"], entry["numbering_certain"] = auth_ranges(mapping, lo, hi)
             entry["seqres_start"] = lo
+            # Kept because a chain may have to be re-measured on a different
+            # deposit chain later: the SEQRES interval is what the match found,
+            # and it is the only form that survives being moved. Reconstructing
+            # it from the auth range does not work -- 6I53's deposit chain E maps
+            # auth 10 to SEQRES 3, and the arithmetic returns -18.
+            entry["seqres_spans"] = [(lo, hi)]
             unresolved = [p for p in range(lo, hi + 1) if p not in mapping]
             entry["build_missing"] = len(unresolved)
             # Name them rather than count them: "build residue 315" is followed,
@@ -260,15 +266,17 @@ def selection(record, deposit):
             named = [auth_number(mapping, p)[0] for p in unresolved]
             entry["build_residues"] = [n for n in named if n]
         elif chain.get("種別", "").startswith("SEQRES に 2 区間"):
-            spans = []
+            spans, seqres_spans = [], []
             for key in ("区間1", "区間2"):
                 lo, hi = _span(chain[key])
+                seqres_spans.append((lo, hi))
                 segment, _ = auth_ranges(mapping, lo, hi)
                 spans.append(segment)
             entry["ranges"] = [span for segment in spans for span in segment]
             entry["removed_residues"] = chain.get("除去長")
             entry["internal_deletion"] = True
             entry["seqres_start"] = _span(chain["区間1"])[0]
+            entry["seqres_spans"] = seqres_spans
             entry["numbering_certain"] = all(x for span in spans for x in span)
         out.append(entry)
     for detail in (record.get("詳細") or []):
@@ -288,41 +296,116 @@ def selection(record, deposit):
         out.append({"reference_chain": detail.get("参照鎖"),
                     "deposit_chain": deposit_chain, "residues": detail.get("長さ"),
                     "ranges": [[a, b]], "differences": differences,
+                    "seqres_spans": [(lo, hi)], "seqres_start": lo,
                     "numbering_certain": bool(a and b)})
     return merge_by_deposit_chain(assign_distinct_chains(out, deposit))
 
 
+def spans_overlap(one, other):
+    """Whether two lists of author ranges cover a residue in common.
+
+    The test that separates the two ways a deposit chain comes to carry several
+    reference chains.  Pieces of one construct are disjoint by construction --
+    the crystallisation partner was cut out from between them -- while two copies
+    of a subunit cover the same residues twice.
+    """
+    def number(value):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    for lo, hi in one:
+        for other_lo, other_hi in other:
+            bounds = [number(v) for v in (lo, hi, other_lo, other_hi)]
+            if None in bounds:
+                # An endpoint that is not a plain number has no arithmetic to
+                # do, so only an identical pair counts as covering the same
+                # residues rather than a guess about which way it sorts.
+                if (lo, hi) == (other_lo, other_hi):
+                    return True
+                continue
+            if bounds[0] <= bounds[3] and bounds[2] <= bounds[1]:
+                return True
+    return False
+
+
+def remeasure_on(entry, deposit, chain):
+    """The entry as it reads on a different deposit chain.
+
+    Measured again from the SEQRES intervals the match found, not from the author
+    range, and one range per interval.  Collapsing a two-interval match into one
+    span is how 6I53 came to ask for deposit chain D residues 10-401: the correct
+    answer is 10-322 and 384-417, the deposit holds nothing between them, and the
+    single span both invents 45 residues and loses the statement that the two
+    pieces are joined.
+    """
+    mapping = seqres_to_auth(deposit, chain)
+    ranges, certain, unresolved = [], True, []
+    for lo, hi in entry["seqres_spans"]:
+        segment, segment_certain = auth_ranges(mapping, lo, hi)
+        ranges.extend(segment)
+        certain = certain and segment_certain
+        unresolved += [p for p in range(lo, hi + 1) if p not in mapping]
+    moved = dict(entry, deposit_chain=chain, ranges=ranges, numbering_certain=certain)
+    if entry.get("build_missing") is not None:
+        named = [auth_number(mapping, p)[0] for p in unresolved]
+        moved["build_missing"] = len(unresolved)
+        moved["build_residues"] = [n for n in named if n]
+    return moved
+
+
 def assign_distinct_chains(entries, deposit):
-    """One deposit chain per reference chain, when the deposit has enough of them.
+    """One deposit chain per construct, when the deposit has enough of them.
 
     The sequence match places each reference chain independently, so identical
     chains all land on the first one that matches: a self-complementary DNA
     duplex put both strands on deposit chain C, and merging then read the two
     identical ranges as a chain with a fusion in the middle.  A deposit with two
     identical chains has two, and saying so is both true and what an agent needs.
+
+    Grouped before claiming, because a deposit chain can collect reference chains
+    for both reasons at once and they need opposite treatment.  6I53 is a GABA-A
+    pentamer whose subunits are each fusion constructs: deposit chain E collects
+    four reference chains, which are two copies of two pieces.  Moving one
+    duplicate per twin, in the order they arrive, left both full-length copies on
+    E -- the only overlapping range pair in the cast -- and stranded a 33-residue
+    piece away from the copy it belongs to.  Pieces of one construct are disjoint
+    and copies overlap, so grouping on that answers both at once.
     """
     full = seqres(deposit)
-    taken, out = set(), []
+    constructs, order = {}, []
     for entry in entries:
+        order.append(entry)
         chain = entry.get("deposit_chain")
-        if chain is None or chain not in taken:
-            taken.add(chain)
-            out.append(entry)
+        if chain is None:
             continue
-        twin = next((other for other, sequence in full.items()
-                     if other not in taken and sequence == full.get(chain)), None)
-        if twin:
-            # Identical SEQRES does not mean identical numbering or identical
-            # observed extent, so the ranges have to be measured again on the
-            # chain they are now claimed to describe.
-            entry = dict(entry, deposit_chain=twin)
-            if entry.get("seqres_start") is not None and entry.get("ranges"):
-                span = entry["seqres_start"], entry["seqres_start"] + (entry.get("residues") or 1) - 1
-                entry["ranges"], entry["numbering_certain"] = auth_ranges(
-                    seqres_to_auth(deposit, twin), span[0], span[1])
+        groups = constructs.setdefault(chain, [])
+        for group in groups:
+            if not spans_overlap(entry.get("ranges") or [],
+                                 [span for member in group
+                                  for span in (member.get("ranges") or [])]):
+                group.append(entry)
+                break
+        else:
+            groups.append([entry])
+
+    taken, moved = set(constructs), {}
+    for chain, groups in constructs.items():
+        for group in groups[1:]:
+            twin = next((other for other, sequence in full.items()
+                         if other not in taken and sequence == full.get(chain)), None)
+            if not twin:
+                continue
             taken.add(twin)
-        out.append(entry)
-    return out
+            for entry in group:
+                # Identical SEQRES does not mean identical numbering or identical
+                # observed extent, so the ranges have to be measured again on the
+                # chain they are now claimed to describe.
+                moved[id(entry)] = (remeasure_on(entry, deposit, twin)
+                                    if entry.get("seqres_spans")
+                                    else dict(entry, deposit_chain=twin))
+    return [moved.get(id(entry), entry) for entry in order]
 
 
 def merge_by_deposit_chain(entries):

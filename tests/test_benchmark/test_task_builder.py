@@ -191,3 +191,101 @@ def test_the_prompt_says_it_only_for_the_chains_that_were_joined():
     assert "single continuous chain" in joined
     assert "single continuous chain" not in apart
     assert "crystallisation partner" in joined and "crystallisation partner" in apart
+
+
+def _deposit(tmp_path, seqres_by_chain, observed=None):
+    """A PDB with SEQRES for each chain and, by default, every residue observed."""
+    rows = []
+    for chain, sequence in seqres_by_chain.items():
+        names = ["ALA" if c == "A" else "GLY" for c in sequence]
+        for i in range(0, len(names), 13):
+            rows.append(f"SEQRES {i // 13 + 1:3d} {chain} {len(names):4d}  "
+                        + " ".join(names[i:i + 13]))
+    serial = 1
+    for chain, sequence in seqres_by_chain.items():
+        numbers = (observed or {}).get(chain, list(range(1, len(sequence) + 1)))
+        for resnum in numbers:
+            for name, element in (("N", "N"), ("CA", "C"), ("C", "C")):
+                rows.append(f"ATOM  {serial:5d}  {name:<3s} ALA {chain}{resnum:4d}    "
+                            f"{serial * 1.0:8.3f}{0.0:8.3f}{0.0:8.3f}"
+                            f"  1.00  0.00          {element:>2s}")
+                serial += 1
+    path = tmp_path / "deposit.pdb"
+    path.write_text("\n".join(rows) + "\nEND\n")
+    return str(path)
+
+
+# --- a deposit chain can collect reference chains for two opposite reasons ----
+# 6I53 is a GABA-A pentamer whose subunits are each fusion constructs, so deposit
+# chain E collects four reference chains: two copies of two pieces. Moving one
+# duplicate per twin, in arrival order, left both full-length copies on E -- the
+# only overlapping range pair in the cast -- and stranded a 33-residue piece away
+# from the copy it belongs to. Pieces of one construct are disjoint and copies
+# overlap, which answers both at once.
+
+def test_disjoint_ranges_are_pieces_and_overlapping_ones_are_copies():
+    assert not tb.spans_overlap([["10", "312"]], [["418", "447"]])
+    assert tb.spans_overlap([["10", "312"]], [["8", "312"]])
+    assert tb.spans_overlap([["10", "312"]], [["312", "400"]]), "touching is covering"
+
+
+def test_an_endpoint_that_is_not_a_number_is_not_guessed_at():
+    """A chain numbered 100, 100A has no arithmetic; only an identical pair counts."""
+    assert tb.spans_overlap([["100", "100A"]], [["100", "100A"]])
+    assert not tb.spans_overlap([["100", "100A"]], [["100", "200"]])
+
+
+def test_two_copies_of_a_subunit_are_given_a_chain_each(tmp_path):
+    """Each construct after the first claims a SEQRES twin."""
+    deposit = _deposit(tmp_path, {"E": "AAAAA", "B": "AAAAA"})
+    entries = [
+        {"reference_chain": "A", "deposit_chain": "E", "ranges": [["1", "3"]],
+         "seqres_spans": [(1, 3)], "residues": 3},
+        {"reference_chain": "D", "deposit_chain": "E", "ranges": [["1", "3"]],
+         "seqres_spans": [(1, 3)], "residues": 3},
+    ]
+    placed = tb.assign_distinct_chains(entries, deposit)
+    assert sorted(e["deposit_chain"] for e in placed) == ["B", "E"]
+
+
+def test_the_pieces_of_one_construct_stay_together(tmp_path):
+    """A 33-mer belongs with the copy whose ranges it does not overlap."""
+    deposit = _deposit(tmp_path, {"E": "A" * 10, "B": "A" * 10})
+    entries = [
+        {"reference_chain": "A", "deposit_chain": "E", "ranges": [["1", "3"]],
+         "seqres_spans": [(1, 3)], "residues": 3},
+        {"reference_chain": "B", "deposit_chain": "E", "ranges": [["8", "10"]],
+         "seqres_spans": [(8, 10)], "residues": 3},
+        {"reference_chain": "D", "deposit_chain": "E", "ranges": [["1", "3"]],
+         "seqres_spans": [(1, 3)], "residues": 3},
+        {"reference_chain": "E", "deposit_chain": "E", "ranges": [["8", "10"]],
+         "seqres_spans": [(8, 10)], "residues": 3},
+    ]
+    placed = {e["reference_chain"]: e["deposit_chain"]
+              for e in tb.assign_distinct_chains(entries, deposit)}
+    assert placed["A"] == placed["B"], "the first copy's two pieces share a chain"
+    assert placed["D"] == placed["E"], "and so do the second copy's"
+    assert placed["A"] != placed["D"], "but the two copies do not"
+
+
+def test_a_moved_two_piece_entry_keeps_both_pieces(tmp_path):
+    """6I53 asked for deposit D 10-401, which spans 45 residues the deposit lacks.
+
+    Collapsing a two-interval match into one span both invents those residues and
+    loses the statement that the two pieces are joined.
+    """
+    deposit = _deposit(tmp_path, {"A": "A" * 20, "D": "A" * 20},
+                       observed={"A": list(range(1, 21)),
+                                 "D": list(range(1, 6)) + list(range(15, 21))})
+    entry = {"reference_chain": "H", "deposit_chain": "A", "residues": 11,
+             "ranges": [["1", "5"], ["15", "20"]], "seqres_spans": [(1, 5), (15, 20)],
+             "internal_deletion": True}
+    moved = tb.remeasure_on(entry, deposit, "D")
+    assert moved["deposit_chain"] == "D"
+    # Two intervals stay two ranges. The numbers themselves come from the
+    # alignment on the chain it moved to, which is the point -- they are measured
+    # there rather than carried over -- so what is pinned is that the pieces stay
+    # apart instead of collapsing into one span across the removed part.
+    assert len(moved["ranges"]) == 2
+    (_, first_end), (second_start, _) = moved["ranges"]
+    assert int(second_start) > int(first_end) + 1, "the removed part stays removed"
