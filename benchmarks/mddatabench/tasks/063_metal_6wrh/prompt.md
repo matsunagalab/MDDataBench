@@ -3,7 +3,7 @@
 Simulate Non-structural protein 3, PDB entry **6WRH**, chain **A** residues **4–315**, in explicit solvent.
 
 - **Amber ff14SB** protein force field, **TIP3P** water, neutralised
-- **298 K**, **NPT**
+- **298 K**, **NPT** at **1 bar**
 - at least **1 ns** of production MD
 
 Residue 111 is deposited as **SER**; simulate the **CYS**.

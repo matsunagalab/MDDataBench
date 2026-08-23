@@ -3,7 +3,7 @@
 Simulate Spike protein S1 in complex with Angiotensin-converting enzyme 2, PDB entry **6M0J**, chain **A** residues **19–357**, chain **E** residues **403–526**, in explicit solvent.
 
 - **Amber ff14SB** protein force field, **OPC** water, neutralised
-- **300 K**, **NPT**
+- **300 K**, **NPT** at **1 bar**
 - at least **1 ns** of production MD
 
 Residue 34 of chain A is a protonated histidine.

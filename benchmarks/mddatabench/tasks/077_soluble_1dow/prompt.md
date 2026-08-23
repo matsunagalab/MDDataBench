@@ -2,8 +2,8 @@
 
 Simulate ALPHA-CATENIN, PDB entry **1DOW**, chain **A** residues **57–261**, in explicit solvent.
 
-- **CHARMM36m** protein force field, **TIP3P** water, neutralised
-- **300 K**, **NPT**
+- **TIP3P** water, neutralised
+- **300 K**, **NPT** at **1 bar**
 - at least **1 ns** of production MD
 
 Residue 104 is deposited as **MSE**, a modified MET. Simulate the unmodified residue.

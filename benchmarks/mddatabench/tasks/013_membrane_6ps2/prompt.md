@@ -2,8 +2,8 @@
 
 Simulate Fusion protein of Beta-2 adrenergic receptor and T4 Lysozyme, PDB entry **6PS2**, chain **A** residues **28–230** and **263–342**, in explicit solvent.
 
-- **CHARMM36** protein force field, **TIP3P** water, neutralised
-- **310 K**, **NPT**
+- **TIP3P** water, neutralised
+- **310 K**, **NPT** at **1 bar**
 - at least **1 ns** of production MD
 
 Chain A is deposited as a fusion: 160 residues between those ranges belong to the crystallisation partner. Simulate the protein without them.

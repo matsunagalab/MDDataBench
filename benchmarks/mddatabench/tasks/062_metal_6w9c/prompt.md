@@ -3,10 +3,10 @@
 Simulate Non-structural protein 3, PDB entry **6W9C**, chain **C** residues **4–315**, in explicit solvent.
 
 - **Amber ff14SB** protein force field, **TIP3P** water, neutralised
-- **298 K**, **NPT**
+- **298 K**, **NPT** at **1 bar**
 - at least **1 ns** of production MD
 
-3 residue(s) of that range are not resolved in the deposit. Build them.
+Chain C does not resolve residues 225, 226, 315; the range runs through them, so build them.
 
 The entry carries a structural zinc. Keep it.
 

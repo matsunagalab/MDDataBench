@@ -2,8 +2,8 @@
 
 Simulate alpha2A adrenergic receptor, PDB entry **6KUX**, chain **A** residues **29–227** and **365–443**, in explicit solvent.
 
-- **CHARMM36** protein force field, **TIP3P** water, neutralised
-- **310 K**, **NPT**
+- **TIP3P** water, neutralised
+- **310 K**, **NPT** at **1 bar**
 - at least **1 ns** of production MD
 
 Residue 174–182 of chain A is not part of the reference. Leave it out.

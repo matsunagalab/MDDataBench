@@ -2,11 +2,11 @@
 
 Simulate INFLUENZA VIRUS HEMAGGLUTININ, PDB entry **2VIS**, chain **A** residues **1–210**, chain **B** residues **1–221**, chain **C** residues **43–309**, in explicit solvent.
 
-- **CHARMM36m** protein force field, **TIP3P** water, neutralised
-- **300 K**, **NPT**
+- **TIP3P** water, neutralised
+- **300 K**, **NPT** at **1 bar**
 - at least **2.5 ns** of production MD
 
-1 residue(s) of that range are not resolved in the deposit. Build them.
+Chain C does not resolve residue 43; the range runs through them, so build them.
 
 Residue 81 is deposited as **ASN**, a modified ASN. Simulate the unmodified residue.
 

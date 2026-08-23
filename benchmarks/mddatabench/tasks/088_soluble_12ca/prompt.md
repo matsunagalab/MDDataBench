@@ -3,7 +3,7 @@
 Simulate CARBONIC ANHYDRASE II, PDB entry **12CA**, chain **A** residues **5–260**, in explicit solvent.
 
 - **TIP3P** water, neutralised
-- **300 K**, **NPT**
+- **300 K**, **NPT** at **1 bar**
 - at least **1 ns** of production MD
 
 Residue 107 of chain A is a protonated histidine.

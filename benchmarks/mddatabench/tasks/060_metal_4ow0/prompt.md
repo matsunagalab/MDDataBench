@@ -3,10 +3,8 @@
 Simulate papain-like protease, PDB entry **4OW0**, chain **A** residues **4–315**, in explicit solvent.
 
 - **Amber ff14SB** protein force field, **TIP3P** water, neutralised
-- **298 K**, **NPT**
+- **298 K**, **NPT** at **1 bar**
 - at least **1 ns** of production MD
-
-1 residue(s) of that range are not resolved in the deposit. Build them.
 
 Residue 112 is deposited as **OCS**, a modified CYS. Simulate the unmodified residue.
 

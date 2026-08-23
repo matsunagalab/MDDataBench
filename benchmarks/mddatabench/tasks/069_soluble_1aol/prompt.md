@@ -2,8 +2,8 @@
 
 Simulate GP70, PDB entry **1AOL**, chain **A** residues **9–236**, in explicit solvent.
 
-- **CHARMM36m** protein force field, **TIP3P** water, neutralised
-- **300 K**, **NPT**
+- **TIP3P** water, neutralised
+- **300 K**, **NPT** at **1 bar**
 - at least **1 ns** of production MD
 
 Residue 168 is deposited as **ASN**, a modified ASN. Simulate the unmodified residue.

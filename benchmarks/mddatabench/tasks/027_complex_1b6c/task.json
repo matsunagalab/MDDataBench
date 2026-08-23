@@ -23,11 +23,14 @@
       ],
       "WAT": "TIP3P",
       "TEMP": 310,
-      "ENSEMBLE": "NPT",
       "TIMESTEP": 2,
       "FRAMESTEP": 0.1,
       "PROGRAM": "GROMACS",
-      "METHOD": "Classical MD"
+      "METHOD": "Classical MD",
+      "ENSEMBLE": "NPT",
+      "ENSEMBLE_recorded_by_reference": "NPT",
+      "PRESSURE_BAR": 1,
+      "PRESSURE_recorded_by_reference": null
     },
     "reference_system": {
       "PROTRES": 433,

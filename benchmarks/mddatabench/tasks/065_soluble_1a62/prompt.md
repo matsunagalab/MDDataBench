@@ -2,11 +2,11 @@
 
 Simulate RHO, PDB entry **1A62**, chain **A** residues **1–130**, in explicit solvent.
 
-- **CHARMM36m** protein force field, **TIP3P** water, neutralised
-- **300 K**, **NPT**
+- **TIP3P** water, neutralised
+- **300 K**, **NPT** at **1 bar**
 - at least **1 ns** of production MD
 
-5 residue(s) of that range are not resolved in the deposit. Build them.
+Chain A does not resolve residues 126, 127, 128, 129, 130; the range runs through them, so build them.
 
 Residue 1 is deposited as **MSE**, a modified MET. Simulate the unmodified residue.
 

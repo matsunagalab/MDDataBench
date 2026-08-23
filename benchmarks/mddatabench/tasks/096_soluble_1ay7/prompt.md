@@ -3,7 +3,7 @@
 Simulate RIBONUCLEASE SA COMPLEX WITH BARSTAR, PDB entry **1AY7**, chain **A** residues **1–96**, chain **B** residues **1–89**, in explicit solvent.
 
 - **TIP3P** water, neutralised
-- **300 K**, **NPT**
+- **300 K**, **NPT** at **1 bar**
 - at least **1 ns** of production MD
 
 Residue 53 of chain A is a protonated histidine.

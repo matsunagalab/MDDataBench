@@ -23,13 +23,14 @@
       ],
       "WAT": "TIP3P",
       "TEMP": 300,
-      "ENSEMBLE": "NPT",
       "TIMESTEP": 2,
       "FRAMESTEP": 0.01,
       "PROGRAM": "GROMACS",
       "METHOD": "Classical MD",
+      "ENSEMBLE": "NPT",
       "ENSEMBLE_recorded_by_reference": null,
-      "ENSEMBLE_note": "The reference records no ensemble. NPT is what the prompt asks for and what the density and box checks assume; the reference's own value is unknown, so the temperature check compares against its recorded TEMP and nothing compares the ensemble itself."
+      "PRESSURE_BAR": 1,
+      "PRESSURE_recorded_by_reference": null
     },
     "reference_system": {
       "PROTRES": 456,

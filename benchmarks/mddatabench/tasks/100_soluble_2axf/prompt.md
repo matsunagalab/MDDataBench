@@ -3,7 +3,7 @@
 Simulate 10-mer peptide from BZLF1 trans-activator protein in complex with Beta-2-microglobulin, PDB entry **2AXF**, chain **A** residues **1–276**, chain **B** residues **1–99**, chain **C** residues **1–10**, in explicit solvent.
 
 - **TIP3P** water, neutralised
-- **300 K**, **NPT**
+- **300 K**, **NPT** at **1 bar**
 - at least **1 ns** of production MD
 
 Residue 3 of chain A is a protonated histidine.

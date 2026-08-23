@@ -495,9 +495,17 @@ def chain_from_name(text):
 # actually build, ambiguous protonation is never named because it is not scored,
 # and the accession is never named because the agent must not fetch the answer.
 
+# Protein force fields a submission can actually be built with, checked against
+# MDClaw's catalogue on 2026-08-23: it is Amber-only, and ff94, ff96 and ff99 are
+# refused outright as obsolete.  CHARMM36 and CHARMM36m are deliberately absent
+# even though 54 of the hundred references use one of them -- naming a field the
+# reference implementation cannot build makes the prompt unfollowable, and the
+# md checks are force-field independent by design precisely so this can be left
+# to the agent.
 FORCE_FIELDS = {"Amber ff14SB": "Amber ff14SB", "Amber ff19SB": "Amber ff19SB",
-                "Amber ff99SB-ILDN": "Amber ff99SB-ILDN", "CHARMM36m": "CHARMM36m",
-                "CHARMM36": "CHARMM36"}
+                "Amber ff99SB-ILDN": "Amber ff99SB-ILDN",
+                "Amber ff99SB": "Amber ff99SB", "Amber ff15ipq": "Amber ff15ipq",
+                "Amber fb15": "Amber fb15", "Amber ff03.r1": "Amber ff03.r1"}
 WATERS = {"TIP3P": "TIP3P", "OPC": "OPC", "OPC3": "OPC3", "TIP4PEW": "TIP4P-Ew",
           "TIP4P-EW": "TIP4P-Ew", "TIP4PEW ": "TIP4P-Ew", "SPCE": "SPC/E",
           "SPC/E": "SPC/E", "SPC-E": "SPC/E"}
