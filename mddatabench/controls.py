@@ -75,14 +75,26 @@ def load_reference(bundle: pathlib.Path):
 def _bands(task):
     """The three bands the md checks use, already widened by the measured slack."""
     calibration = task["reference"].get("md_calibration") or {}
-    slack = float(calibration.get("slack_window_sd", 0.0))
+    # The slack became per check on 2026-08-23; reading it as one float raised
+    # here, which meant the suite that guards every md threshold could not run
+    # against the cast whose thresholds had just changed.
+    slack = calibration.get("slack_window_sd")
     spread = calibration.get("observed_window_sd") or {}
+
+    def slack_for(key):
+        if isinstance(slack, dict):
+            if key not in slack:
+                raise SystemExit(
+                    f"{task['task_id']}: no slack recorded for {key}; scoring it "
+                    "against an unwidened band would reject correct submissions")
+            return float(slack[key])
+        return float(slack or 0.0)
 
     def widened(key):
         band = calibration.get(key)
         if not band:
             return None
-        margin = slack * float(spread.get(key, 0.0))
+        margin = slack_for(key) * float(spread.get(key, 0.0))
         return [band[0] - margin, band[1] + margin]
 
     return {key: widened(key) for key in

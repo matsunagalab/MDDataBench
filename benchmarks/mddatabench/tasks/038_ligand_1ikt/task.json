@@ -278,7 +278,7 @@
         12.919484411636192,
         13.180314795796583
       ],
-      "slack_rationale": "Measured 2026-08-23 by leave-one-replica-out over the 39 references that have replicas: a submission is an independent run, and calibrating inside one trajectory answers a different question. Four window standard deviations takes 37 of 39 to zero on the rank correlation, 37 on the total fluctuation and 38 on the radius of gyration, and 289 of 300 task-by-check pairs keep a band that still excludes the adversarial baseline. Two window SD, the value measured on three PLpro tasks by cross-validation inside one trajectory, leaves a correct submission rejected 10 per cent of the time at the median and 70 at the worst.",
+      "slack_rationale": "Four window standard deviations, chosen empirically. Where a reference has replicas the choice can be checked against an independent run: leave one replica out, calibrate on the rest, score every window of the held-out one. Over the 39 references that allow it, four takes 37, 37 and 38 of them to zero observed rejections on the three checks. Thirty windows per fold bounds the true per-submission rejection rate at roughly one in ten, not at zero, and the same figure cannot be measured at all on the 61 single-replica references, whose bands are built inside one trajectory and are therefore narrower than a between-run band by a median factor of 1.21 and up to 2.84. The value applies to every task alike: demoting a check only where the evidence exists would penalise the references that carry more of it. Two window SD, the value measured on three PLpro tasks by cross-validation inside one trajectory, leaves a correct submission rejected 10 per cent of the time at the median and 70 at the worst.",
       "per_check": {
         "rank_correlation": {
           "adversarial_headroom_window_sd": 20.56,
@@ -298,7 +298,8 @@
           "scored": true,
           "demoted_because": null
         }
-      }
+      },
+      "adversarial_headroom_note": "How far the degenerate baseline for this check lands from the band, in window standard deviations, computed from this task own windows: a shuffled profile scores about zero, a frozen trajectory has no fluctuation, a structure compressed to 85 per cent has that radius. Below the slack the widened band contains it and the check decides nothing here. It says nothing about fakes that are not degenerate."
     },
     "production_window_ns": 1.0
   },

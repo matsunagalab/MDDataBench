@@ -346,13 +346,14 @@
         },
         "note": "leave-one-out over 3 replica(s)"
       },
-      "slack_rationale": "Measured 2026-08-23 by leave-one-replica-out over the 39 references that have replicas: a submission is an independent run, and calibrating inside one trajectory answers a different question. Four window standard deviations takes 37 of 39 to zero on the rank correlation, 37 on the total fluctuation and 38 on the radius of gyration, and 289 of 300 task-by-check pairs keep a band that still excludes the adversarial baseline. Two window SD, the value measured on three PLpro tasks by cross-validation inside one trajectory, leaves a correct submission rejected 10 per cent of the time at the median and 70 at the worst.",
+      "slack_rationale": "Four window standard deviations, chosen empirically. Where a reference has replicas the choice can be checked against an independent run: leave one replica out, calibrate on the rest, score every window of the held-out one. Over the 39 references that allow it, four takes 37, 37 and 38 of them to zero observed rejections on the three checks. Thirty windows per fold bounds the true per-submission rejection rate at roughly one in ten, not at zero, and the same figure cannot be measured at all on the 61 single-replica references, whose bands are built inside one trajectory and are therefore narrower than a between-run band by a median factor of 1.21 and up to 2.84. The value applies to every task alike: demoting a check only where the evidence exists would penalise the references that carry more of it. Two window SD, the value measured on three PLpro tasks by cross-validation inside one trajectory, leaves a correct submission rejected 10 per cent of the time at the median and 70 at the worst.",
       "per_check": {
         "rank_correlation": {
           "adversarial_headroom_window_sd": 28.92,
           "held_out_requirement_window_sd": 8,
-          "scored": false,
-          "demoted_because": "a held-out replica needs 8 window SD to be admitted, more than the cast's 4: independent runs of this system do not land in the same place, so a correct submission could not pass"
+          "scored": true,
+          "demoted_because": null,
+          "held_out_note": "An independent replica of this reference needs more slack than the cast value. Recorded, not acted on: the same fact cannot be measured on the 61 single-replica references, so demoting here would penalise this task for having been measured."
         },
         "total_fluctuation_angstrom": {
           "adversarial_headroom_window_sd": 17.12,
@@ -366,7 +367,8 @@
           "scored": true,
           "demoted_because": null
         }
-      }
+      },
+      "adversarial_headroom_note": "How far the degenerate baseline for this check lands from the band, in window standard deviations, computed from this task own windows: a shuffled profile scores about zero, a frozen trajectory has no fluctuation, a structure compressed to 85 per cent has that radius. Below the slack the widened band contains it and the check decides nothing here. It says nothing about fakes that are not degenerate."
     },
     "production_window_ns": 1.0
   },
@@ -553,10 +555,9 @@
         "check_id": "fluctuation_profile_matches_reference",
         "check_type": "fluctuation_profile_rank@1",
         "capability": "ensemble_reproduction",
-        "weight": 0.0,
-        "category": "diagnostic",
-        "note": "Spearman correlation between the submission's per-atom fluctuation profile and the reference's own, over the contract atoms. Rank-based on purpose: it asks which atoms move more than which and nothing about how much, which is what lets a different force field and a different thermostat pass -- measured, the same system under ff99SBildn scores 0.840 against a band whose floor is 0.840, where ff14SB scores 0.870. It is blind to an over-restrained run (0.872 with a tenth of the motion), which is what the magnitude check is for. The band is the range over the reference's own one-nanosecond windows; the floor is what is graded, since agreement above it is agreement.",
-        "demoted_because": "a held-out replica needs 8 window SD to be admitted, more than the cast's 4: independent runs of this system do not land in the same place, so a correct submission could not pass"
+        "weight": 1.0,
+        "category": "md",
+        "note": "Spearman correlation between the submission's per-atom fluctuation profile and the reference's own, over the contract atoms. Rank-based on purpose: it asks which atoms move more than which and nothing about how much, which is what lets a different force field and a different thermostat pass -- measured, the same system under ff99SBildn scores 0.840 against a band whose floor is 0.840, where ff14SB scores 0.870. It is blind to an over-restrained run (0.872 with a tenth of the motion), which is what the magnitude check is for. The band is the range over the reference's own one-nanosecond windows; the floor is what is graded, since agreement above it is agreement."
       },
       {
         "check_id": "fluctuation_magnitude_is_physical",

@@ -526,15 +526,23 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     # references that have replicas: the rank correlation needs 2 window SD at
     # the median and the radius of gyration 2, while what an adversarial
     # baseline leaves as room varies over two orders of magnitude between tasks.
-    slack_by_check = calibration.get("slack_window_sd")
-    if not isinstance(slack_by_check, dict):
-        slack_by_check = {}
-    default_slack = float(calibration.get("slack_window_sd", 0.0)
-                          if not isinstance(calibration.get("slack_window_sd"), dict) else 0.0)
+    recorded_slack = calibration.get("slack_window_sd")
     spread = calibration.get("observed_window_sd") or {}
 
     def slack_for(key):
-        return float(slack_by_check.get(key, default_slack))
+        """The slack this check was calibrated with.
+
+        Missing is not zero.  Falling back to zero gives an unwidened band, and
+        an unwidened band rejects a correct submission 7 to 16 per cent of the
+        time by this suite's own measurement, so a partial record has to stop
+        the run rather than quietly harden it.
+        """
+        if isinstance(recorded_slack, dict):
+            if key not in recorded_slack:
+                raise SystemExit(
+                    f"{task['task_id']}: md_calibration records no slack for {key}")
+            return float(recorded_slack[key])
+        return float(recorded_slack or 0.0)
 
     def widened(band, key):
         if not band:
