@@ -6,9 +6,7 @@ Simulate Crystal structure of TNFalpha in complex with Adalimumab Fab fragment, 
 - **300 K**, **NPT** at **1 bar**
 - at least **2.5 ns** of production MD
 
-Chain A does not resolve residue 6; the range runs through them, so build them.
-
-Chain H does not resolve residues 137, 138, 140, 141, 143; the range runs through them, so build them.
+Chain H does not resolve residues 137, 138, 139, 140, 141; the range runs through them, so build them.
 
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 

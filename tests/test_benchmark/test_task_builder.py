@@ -320,3 +320,64 @@ def test_it_says_every_other_when_something_was_named():
                      "meaning": "protonated histidine"}])
     assert "Residue 107 of chain A is a protonated histidine." in text
     assert "Simulate every other ionisable side chain" in text
+
+
+# --- a repeated residue used to shift every later anchor -----------------------
+# The mapping walked SEQRES and the observed residues together, advancing past
+# every mismatch. 1AHW chain C is SEQRES "S G T T N T" against an observed
+# "T N T" starting at author 4, so the walk spent SEQRES position 3 on author 4
+# and shifted everything after it: the prompt asked for author 5-211, 207
+# residues where the reference has 208, and named a different set of residues as
+# unresolved than the ones that are.
+
+def _chain_pdb(tmp_path, name, sequence, observed):
+    """SEQRES for the whole chain, ATOM records for the observed part."""
+    three = {"S": "SER", "G": "GLY", "T": "THR", "N": "ASN", "V": "VAL",
+             "A": "ALA", "L": "LEU", "K": "LYS"}
+    rows = []
+    codes = [three[c] for c in sequence]
+    for i in range(0, len(codes), 13):
+        rows.append(f"SEQRES {i // 13 + 1:3d} C {len(codes):4d}  "
+                    + " ".join(codes[i:i + 13]))
+    serial = 1
+    for number, code in observed:
+        for atom, element in (("N", "N"), ("CA", "C"), ("C", "C")):
+            rows.append(f"ATOM  {serial:5d}  {atom:<3s} {three[code]} C{number:4d}    "
+                        f"{serial * 1.4:8.3f}{0.0:8.3f}{0.0:8.3f}"
+                        f"  1.00  0.00          {element:>2s}")
+            serial += 1
+    path = tmp_path / name
+    path.write_text("\n".join(rows) + "\nEND\n")
+    return str(path)
+
+
+def test_a_repeat_before_the_first_observed_residue_does_not_shift_it(tmp_path):
+    """1AHW chain C, reduced: SGTTNT against TNT observed from 4."""
+    deposit = _chain_pdb(tmp_path, "repeat.pdb", "SGTTNT",
+                         [(4, "T"), (5, "N"), (6, "T")])
+    mapping = tb.seqres_to_auth(deposit, "C")
+    assert mapping == {4: "4", 5: "5", 6: "6"}, "the second T, not the first"
+
+
+def test_a_run_is_placed_whole_and_runs_keep_their_order(tmp_path):
+    """Two runs either side of a gap, each landing where its codes fit."""
+    deposit = _chain_pdb(tmp_path, "runs.pdb", "AKLVNTAKL",
+                         [(1, "A"), (2, "K"), (3, "L"), (7, "A"), (8, "K"), (9, "L")])
+    mapping = tb.seqres_to_auth(deposit, "C")
+    assert mapping == {1: "1", 2: "2", 3: "3", 7: "7", 8: "8", 9: "9"}
+    assert 4 not in mapping and 6 not in mapping, "the gap stays unplaced"
+
+
+def test_runs_are_split_on_a_break_in_the_numbering():
+    pairs = [("1", "A"), ("2", "K"), ("5", "L"), ("6", "V")]
+    assert [[n for n, _, _ in run] for run in tb.observed_runs(pairs)] == [[1, 2], [5, 6]]
+
+
+def test_a_run_that_matches_nothing_stops_rather_than_guessing(tmp_path):
+    """A deposit whose residues its own SEQRES does not contain."""
+    deposit = _chain_pdb(tmp_path, "conflict.pdb", "AAAA",
+                         [(1, "A"), (2, "A"), (5, "K"), (6, "L"), (7, "V"), (8, "N")])
+    mapping = tb.seqres_to_auth(deposit, "C")
+    assert mapping == {1: "1", 2: "2"}, "and nothing after the run it cannot place"
+    assert not tb.mapping_is_trustworthy(deposit, "C", mapping), (
+        "too little of the chain placed to state a number from it")

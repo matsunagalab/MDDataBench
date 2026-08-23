@@ -1,12 +1,12 @@
 # Task 076_soluble_1ctf
 
-Simulate RIBOSOMAL PROTEIN L7/L12, PDB entry **1CTF**, chain **A** residues **51–120**, in explicit solvent.
+Simulate RIBOSOMAL PROTEIN L7/L12, PDB entry **1CTF**, chain **A** residues **47–120**, in explicit solvent.
 
 - **TIP3P** water, neutralised
 - **300 K**, **NPT** at **1 bar**
 - at least **1 ns** of production MD
 
-Chain A does not resolve residues 51, 52, 54, 55, 52, 53; the range runs through them, so build them.
+Chain A does not resolve residues 47, 48, 49, 50, 51, 52; the range runs through them, so build them.
 
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 

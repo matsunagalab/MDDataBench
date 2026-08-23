@@ -125,22 +125,70 @@ def observed(path):
     return out
 
 
+def observed_runs(pairs):
+    """Observed residues split into runs of consecutive residue numbers.
+
+    A run is the unit that can be placed in SEQRES with confidence: inside one
+    the numbering is contiguous by construction, so its residue codes are a
+    contiguous stretch of SEQRES and matching them is unambiguous almost always.
+    Between runs anything may have happened -- unresolved residues, a
+    renumbered fusion partner -- and nothing about the gap has to be guessed.
+    """
+    runs = []
+    for number, code in pairs:
+        try:
+            value = int(str(number).strip())
+        except (TypeError, ValueError):
+            value = None
+        previous = runs[-1][-1][0] if runs else None
+        if runs and value is not None and previous is not None and value == previous + 1:
+            runs[-1].append((value, number, code))
+        else:
+            runs.append([(value, number, code)])
+    return runs
+
+
 def seqres_to_auth(deposit, chain):
     """SEQRES position (1-based) -> the deposit's own residue number.
 
-    The observed residues are a subsequence of SEQRES in order, so walking the
-    two together fixes the correspondence without an alignment.  Unobserved
-    positions are absent from the result; ``auth_number`` extrapolates for them.
+    Placed a run at a time rather than residue by residue.  Walking the two
+    sequences together and advancing past every mismatch is what the docstring
+    here used to describe as "without an alignment", and a repeated residue
+    breaks it: 1AHW chain C is SEQRES ``S G T T N T`` against an observed
+    ``T N T`` starting at author 4, so the walk spent SEQRES position 3 on
+    author 4 and shifted every later anchor by one.  The reference covers SEQRES
+    4-211 there, and the prompt came out asking for author 5-211 -- 207 residues
+    where the reference has 208 -- while the residues it named as unresolved
+    were a different set from the ones that are.
+
+    Matching a whole run instead makes the repeat harmless: it is the run's
+    codes that have to sit somewhere in SEQRES, and a run of any length lands in
+    one place.  Runs are placed left to right and may not overlap, which is what
+    being a subsequence means.  Measured across the cast, this takes the chains
+    whose converted length disagrees with the reference from 12 to 5 and the
+    ones resting on an extrapolated endpoint from 16 to 6; the rest are chains
+    whose numbering skips, where the range is right and only its width is not.
+
+    Unobserved positions are absent from the result; ``auth_number``
+    extrapolates for them.
     """
     full = seqres(deposit).get(chain, "")
-    out, index = {}, 0
-    for number, code in observed(deposit).get(chain, []):
-        while index < len(full) and full[index] != code:
-            index += 1
-        if index >= len(full):
+    pairs = observed(deposit).get(chain, [])
+    if not full or not pairs:
+        return {}
+    out, cursor = {}, 0
+    for run in observed_runs(pairs):
+        codes = "".join(code for _, _, code in run)
+        start = full.find(codes, cursor)
+        if start < 0:
+            # A run that matches nowhere left is a sequence the deposit and its
+            # SEQRES disagree about. Placing it anywhere would be a guess, and
+            # everything after it would inherit the guess, so stop: the caller
+            # sees a short mapping and `mapping_is_trustworthy` refuses it.
             break
-        out[index + 1] = number
-        index += 1
+        for offset, (_, number, _) in enumerate(run):
+            out[start + offset + 1] = number
+        cursor = start + len(codes)
     return out
 
 

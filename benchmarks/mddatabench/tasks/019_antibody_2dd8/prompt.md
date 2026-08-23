@@ -6,8 +6,6 @@ Simulate Crystal Structure of SARS-CoV Spike Receptor-Binding Domain Complexed, 
 - **300 K**, **NPT** at **1 bar**
 - at least **2.5 ns** of production MD
 
-Chain S does not resolve residue 321; the range runs through them, so build them.
-
 Residue 330 is deposited as **ASN**, a modified ASN. Simulate the unmodified residue.
 
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
