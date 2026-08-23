@@ -3,6 +3,7 @@
 A benchmark whose floor baselines pass is not measuring anything.  These are
 the submissions that must fail, and the reason each must fail:
 
+    compressed_structure  real motion on a structure scaled to 85 per cent
     isotropic_noise     no dynamics; jitter around the deposited structure
     duplicated_minimum  no dynamics; one structure repeated
     anm_ensemble        no dynamics; sampled along elastic-network modes
@@ -202,6 +203,12 @@ def run_negative_controls(job_dir: str, bundle: str, task_file: str) -> dict:
               mean_structure[None] + (fitted_real - mean_structure) * 5.0, traj),
         judge("shuffled_atoms", False,
               fitted_real[:, rng.permutation(len(own)), :], traj),
+        # The structure compressed, its motion untouched: the only gate that
+        # sees a system the wrong size is the radius of gyration, and until this
+        # baseline existed nothing exercised it.
+        judge("compressed_structure", False,
+              mean_structure[None] * 0.85
+              + (fitted_real - mean_structure), traj),
         # These three have no solvent at all, which is itself the right verdict.
         judge("anm_ensemble", False, anm_ensemble(coords, rng), None),
         judge("isotropic_noise", False,

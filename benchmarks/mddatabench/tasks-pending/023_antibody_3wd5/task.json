@@ -92,10 +92,90 @@
     },
     "bundle": {
       "fetch": "mddatabench fetch_benchmark_reference --node inr --accession A00LF --out <bundle>",
-      "sha256": null,
-      "policy": "Fetched at scoring time. Never staged into the solver workspace."
+      "sha256": {
+        "pca_atom_indices.json": "04e4d21e00f25e9978a5057d469aaf1cdd2afa5757cd31192d0320a7a943b1c0",
+        "reference.pdb": "8c6f765ec461a6d173da8178868a48d3091d45602efecbb2bcea17bf00555ae8",
+        "reference.psf": "2937bd8fbf2dc9b688a5b3676f10c48f97a84428e486145f64530c5a821d79a1",
+        "reference_fluctuation.json": "70e18ed421f488d8e0ab03b3d94ca4e00af79bfe1b713e8b8e23740acd8f4665",
+        "reference_rgyr.json": "7b8f716d530a12d9fd7c2f346c1198065c2695522e2a78c4e125a852b3b6ae59"
+      },
+      "policy": "Fetched at scoring time. Never staged into the solver workspace.",
+      "topology_file": "topology.psf"
     },
-    "md_calibration": null,
+    "md_calibration": {
+      "windows": 30,
+      "window_ns": 2.5,
+      "frames_per_window": 25,
+      "window_frame_stride": 1,
+      "replicas_used": [
+        1,
+        2
+      ],
+      "windows_per_replica": {
+        "1": 15,
+        "2": 15
+      },
+      "frames_per_replica": {
+        "1": 1000,
+        "2": 1000
+      },
+      "window_definition": "non-overlapping 2.5 ns windows, 25 frames at 100 ps, contract atoms only, pooled across 2 replica(s)",
+      "window_fetch": "GET {api}/{accession}[.replica]/trajectory?frames=<start>:<start+frames-1>:1&atoms=<contract ranges, 1-based>; both ends inclusive",
+      "estimator": "frames superposed on their own mean structure, a linear trend in time removed per atom, then per-atom RMSF; the same estimator is applied to the submission",
+      "observed_window_sd": {
+        "rank_correlation": 0.056995634502986225,
+        "total_fluctuation_angstrom": 0.06703561828700211,
+        "radius_of_gyration_angstrom": 0.20006236253564075
+      },
+      "slack_window_sd": 2.0,
+      "rank_correlation": [
+        0.6891722652222324,
+        0.927565079597755
+      ],
+      "total_fluctuation_angstrom": [
+        0.8460656625628691,
+        1.1254012664327382
+      ],
+      "radius_of_gyration_angstrom": [
+        31.17707799530711,
+        31.941936630586447
+      ],
+      "within_replica_window_sd": {
+        "rank_correlation": 0.04499151510904501,
+        "total_fluctuation_angstrom": 0.0750370595300375,
+        "radius_of_gyration_angstrom": 0.23027425340421367
+      },
+      "pooled_over_within_sd_ratio": {
+        "rank_correlation": 1.2668085163357374,
+        "total_fluctuation_angstrom": 0.8933668071063952,
+        "radius_of_gyration_angstrom": 0.8688003959542092
+      },
+      "held_out": {
+        "folds": [
+          {
+            "replica": 1,
+            "windows": 15,
+            "calibrated_on_replicas": [
+              2
+            ],
+            "rejected_fraction": 0.0,
+            "rejected_fraction_without_slack": 0.5333333333333333
+          },
+          {
+            "replica": 2,
+            "windows": 15,
+            "calibrated_on_replicas": [
+              1
+            ],
+            "rejected_fraction": 0.0,
+            "rejected_fraction_without_slack": 0.06666666666666667
+          }
+        ],
+        "rejected_fraction": 0.0,
+        "rejected_fraction_without_slack": 0.5333333333333333,
+        "note": "each fold calibrates on one replica only, so this measures the within-replica band rather than the pooled one"
+      }
+    },
     "production_window_ns": 2.5
   },
   "solve_time_network_policy": {

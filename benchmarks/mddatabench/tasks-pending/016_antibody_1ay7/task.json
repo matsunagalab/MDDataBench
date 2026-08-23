@@ -82,10 +82,105 @@
     },
     "bundle": {
       "fetch": "mddatabench fetch_benchmark_reference --node inr --accession A00MF --out <bundle>",
-      "sha256": null,
-      "policy": "Fetched at scoring time. Never staged into the solver workspace."
+      "sha256": {
+        "pca_atom_indices.json": "638e0ba4b3dce9d1c475be358f0d872e6a12af62c356eaa29c6aacdce51544b0",
+        "reference.pdb": "971668a53e63ac045e59aa9d1adec528402a72ce657f66a441d43fdade454994",
+        "reference.psf": "b8e127c74e0ad3b513fd872cc1567aae0611e345b4e569dda26864e1ebb53049",
+        "reference_fluctuation.json": "d11b8cc5f2e9c5bd31267723c469f478ed44fe8a1c413cffe0d4b11630933009",
+        "reference_rgyr.json": "d0c3bfea7d73895e4153db451c5a5a6003b8023e14d243969f47c8625d649e3f"
+      },
+      "policy": "Fetched at scoring time. Never staged into the solver workspace.",
+      "topology_file": "topology.psf"
     },
-    "md_calibration": null,
+    "md_calibration": {
+      "windows": 30,
+      "window_ns": 2.5,
+      "frames_per_window": 25,
+      "window_frame_stride": 1,
+      "replicas_used": [
+        1,
+        2,
+        3
+      ],
+      "windows_per_replica": {
+        "1": 10,
+        "2": 10,
+        "3": 10
+      },
+      "frames_per_replica": {
+        "1": 1000,
+        "2": 1000,
+        "3": 1000
+      },
+      "window_definition": "non-overlapping 2.5 ns windows, 25 frames at 100 ps, contract atoms only, pooled across 3 replica(s)",
+      "window_fetch": "GET {api}/{accession}[.replica]/trajectory?frames=<start>:<start+frames-1>:1&atoms=<contract ranges, 1-based>; both ends inclusive",
+      "estimator": "frames superposed on their own mean structure, a linear trend in time removed per atom, then per-atom RMSF; the same estimator is applied to the submission",
+      "observed_window_sd": {
+        "rank_correlation": 0.04248797891895246,
+        "total_fluctuation_angstrom": 0.06539397471113415,
+        "radius_of_gyration_angstrom": 0.10306821027999964
+      },
+      "slack_window_sd": 2.0,
+      "rank_correlation": [
+        0.7571088528728193,
+        0.9411044137662841
+      ],
+      "total_fluctuation_angstrom": [
+        0.6210489110126902,
+        0.870471883480481
+      ],
+      "radius_of_gyration_angstrom": [
+        17.435018817476372,
+        17.83819361659005
+      ],
+      "within_replica_window_sd": {
+        "rank_correlation": 0.022830991893232674,
+        "total_fluctuation_angstrom": 0.028200373652957623,
+        "radius_of_gyration_angstrom": 0.09289319834222641
+      },
+      "pooled_over_within_sd_ratio": {
+        "rank_correlation": 1.8609782315916947,
+        "total_fluctuation_angstrom": 2.318904547716009,
+        "radius_of_gyration_angstrom": 1.10953452049619
+      },
+      "held_out": {
+        "folds": [
+          {
+            "replica": 1,
+            "windows": 10,
+            "calibrated_on_replicas": [
+              2,
+              3
+            ],
+            "rejected_fraction": 0.0,
+            "rejected_fraction_without_slack": 0.0
+          },
+          {
+            "replica": 2,
+            "windows": 10,
+            "calibrated_on_replicas": [
+              1,
+              3
+            ],
+            "rejected_fraction": 0.2,
+            "rejected_fraction_without_slack": 0.7
+          },
+          {
+            "replica": 3,
+            "windows": 10,
+            "calibrated_on_replicas": [
+              1,
+              2
+            ],
+            "rejected_fraction": 0.0,
+            "rejected_fraction_without_slack": 0.2
+          }
+        ],
+        "rejected_fraction": 0.2,
+        "rejected_fraction_without_slack": 0.7,
+        "note": "leave-one-out over 3 replica(s)"
+      }
+    },
     "production_window_ns": 2.5
   },
   "solve_time_network_policy": {

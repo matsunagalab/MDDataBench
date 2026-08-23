@@ -82,10 +82,52 @@
     },
     "bundle": {
       "fetch": "mddatabench fetch_benchmark_reference --node inr --accession A000F --out <bundle>",
-      "sha256": null,
-      "policy": "Fetched at scoring time. Never staged into the solver workspace."
+      "sha256": {
+        "pca_atom_indices.json": "4f9a6a58eaae64e3edc1fffd22cca2534b8b100f5faa72258afb69ea2cb38930",
+        "reference.pdb": "11b045b34906309bea8b6eabb9810c75ce940039f90950211c5a1d0d55f41ef8",
+        "reference.tpr": "11351f57960055e4d9703ee1b8c5f65b07c47eb8027a9ca82597e23b085ef480",
+        "reference_fluctuation.json": "f8817a9a4223e44b4ff81221749177661aa7f5542cae39c37bfe26e9e13705be",
+        "reference_rgyr.json": "8559d715b38ce8fc99fb33122f1489adad6f98126337ef58592eac632fc4d1fa"
+      },
+      "policy": "Fetched at scoring time. Never staged into the solver workspace.",
+      "topology_file": "topology.tpr"
     },
-    "md_calibration": null,
+    "md_calibration": {
+      "windows": 30,
+      "window_ns": 2.5,
+      "frames_per_window": 25,
+      "window_frame_stride": 1,
+      "replicas_used": [
+        1
+      ],
+      "windows_per_replica": {
+        "1": 30
+      },
+      "frames_per_replica": {
+        "1": 5001
+      },
+      "window_definition": "non-overlapping 2.5 ns windows, 25 frames at 100 ps, contract atoms only, pooled across 1 replica(s)",
+      "window_fetch": "GET {api}/{accession}[.replica]/trajectory?frames=<start>:<start+frames-1>:1&atoms=<contract ranges, 1-based>; both ends inclusive",
+      "estimator": "frames superposed on their own mean structure, a linear trend in time removed per atom, then per-atom RMSF; the same estimator is applied to the submission",
+      "observed_window_sd": {
+        "rank_correlation": 0.021458818392192342,
+        "total_fluctuation_angstrom": 0.03704914154697512,
+        "radius_of_gyration_angstrom": 0.11350878835371205
+      },
+      "slack_window_sd": 2.0,
+      "rank_correlation": [
+        0.8213711926523555,
+        0.899330750470766
+      ],
+      "total_fluctuation_angstrom": [
+        0.7244533284156818,
+        0.8631552435629868
+      ],
+      "radius_of_gyration_angstrom": [
+        24.360439849148694,
+        24.906889297781817
+      ]
+    },
     "production_window_ns": 2.5
   },
   "solve_time_network_policy": {

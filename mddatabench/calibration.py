@@ -42,10 +42,16 @@ import numpy as np
 from mddatabench import dynamics as dy
 from mddatabench.reference import NODES, replica_id
 
-# Frames an estimator needs inside one window.  Below about this many, a
-# per-atom RMSF is dominated by its own sampling noise: the band widens until it
-# admits everything and the check stops deciding anything.
+# Frames an estimator wants inside one window, and the fewest it will accept.
+# Below about the floor a per-atom RMSF is dominated by its own sampling noise:
+# the band widens until it admits everything and the check stops deciding.
+# The target is what the window is subsampled down to when the reference is
+# written more finely; the floor is what the task cast was selected on, and
+# DynaRepo sits exactly there -- 100 ps frames, so a 2.5 ns window holds 25.
+# Whether 25 is enough is not asserted here: the held-out rejection rate is
+# recorded per task and says so.
 FRAMES_PER_WINDOW = 100
+MINIMUM_FRAMES = 25
 
 # Windows wanted in total, across every replica.  The band is a range, and a
 # range over few windows underestimates the population it is standing for.
@@ -284,10 +290,11 @@ def calibrate(accession, bundle, node="mmb", window_ns=None, slack_window_sd=2.0
         window_ns = frames_per_window * step_ns
     count = int(round(window_ns / step_ns))
     stride = window_stride(count, frames_per_window)
-    if count < frames_per_window:
+    if count < MINIMUM_FRAMES:
         raise SystemExit(
-            f"{accession}: a {window_ns} ns window holds {count} frames at "
-            f"{step_ns * 1000:g} ps; {frames_per_window} are needed")
+            f"{accession}: a {window_ns:g} ns window holds {count} frames at "
+            f"{step_ns * 1000:g} ps; {MINIMUM_FRAMES} are the fewest an RMSF can be "
+            "estimated from")
 
     indices = np.asarray(json.loads(
         (bundle / "pca_atom_indices.json").read_text())["atom_indices"], dtype=int)
@@ -307,7 +314,7 @@ def calibrate(accession, bundle, node="mmb", window_ns=None, slack_window_sd=2.0
         for start in window_starts(frames, count, wanted):
             xyz = window_frames(base, target, indices, start, count,
                                 n_atoms=n_atoms, stride=stride)
-            if xyz.shape[0] < frames_per_window // 2:
+            if xyz.shape[0] < MINIMUM_FRAMES:
                 continue
             per_replica.setdefault(replica, []).append(window_statistics(xyz, profile))
         per_replica.setdefault(replica, [])
@@ -344,6 +351,21 @@ def calibrate(accession, bundle, node="mmb", window_ns=None, slack_window_sd=2.0
             "rejected_fraction": _rejected(per_replica[held], kb, ks, slack_window_sd),
             "rejected_fraction_without_slack": _rejected(per_replica[held], kb, ks, 0.0),
         })
+    # What the held-out folds would reject at a range of slacks, so the value
+    # can be chosen from the cast rather than from three tasks.
+    sweep = {}
+    for slack in (0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0):
+        rates = []
+        for held in sorted(per_replica):
+            if not per_replica[held]:
+                continue
+            kept = [row for r, rows in per_replica.items() if r != held for row in rows]
+            if len(kept) < 10:
+                continue
+            kb, ks = _bands(kept)
+            rates.append(_rejected(per_replica[held], kb, ks, slack))
+        if rates:
+            sweep[f"{slack:g}"] = max(rates)
     held_out = None
     if folds:
         held_out = {
@@ -354,6 +376,7 @@ def calibrate(accession, bundle, node="mmb", window_ns=None, slack_window_sd=2.0
             # With two replicas each fold calibrates on a single one, which is
             # the within-replica band this module exists to widen. The number
             # then describes the old fault, not the band that ships.
+            "slack_sweep": sweep,
             "note": ("each fold calibrates on one replica only, so this measures the "
                      "within-replica band rather than the pooled one"
                      if replicas == 2 else
@@ -361,6 +384,10 @@ def calibrate(accession, bundle, node="mmb", window_ns=None, slack_window_sd=2.0
         }
 
     out = {
+        # The windows themselves, so the band can be re-derived and the slack
+        # swept without fetching a coordinate again. Thirty rows of three
+        # numbers is nothing next to what measuring them cost.
+        "window_statistics": {str(replica): rows for replica, rows in per_replica.items()},
         "windows": len(pooled),
         "window_ns": window_ns,
         "frames_per_window": len(range(0, count, stride)),

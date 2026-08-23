@@ -79,10 +79,206 @@
     },
     "bundle": {
       "fetch": "mddatabench fetch_benchmark_reference --node mmb --accession A01M7 --out <bundle>",
-      "sha256": null,
-      "policy": "Fetched at scoring time. Never staged into the solver workspace."
+      "sha256": {
+        "pca_atom_indices.json": "29b20fe69d0703fb9b9cd38618016e212ec39bc02aa55ea41eaa9f2fbf5994e8",
+        "reference.pdb": "17ddf730fd06f69d11ebcb4ad13d07cb3b6f61b9fb3fb54c354969d8625300e8",
+        "reference.tpr": "ea5ead675b26b391f0915a6dc693ea89af19a8154e65d54e8c6abbce09be883f",
+        "reference_fluctuation.json": "1abf477432bc16693e370fd8b40d36bd3ab8f35db074b9fa04da4f141e84b0ea",
+        "reference_rgyr.json": "01a29f9f54354497783f5e7d5802f77fc48fa5f629e4fbcd821247f1ef891c8c"
+      },
+      "policy": "Fetched at scoring time. Never staged into the solver workspace.",
+      "topology_file": "topology.tpr"
     },
-    "md_calibration": null,
+    "md_calibration": {
+      "window_statistics": {
+        "1": [
+          {
+            "rank_correlation": 0.7037143412818557,
+            "total_fluctuation_angstrom": 0.5999376835926518,
+            "radius_of_gyration_angstrom": 19.983946288113632
+          },
+          {
+            "rank_correlation": 0.593132124251512,
+            "total_fluctuation_angstrom": 0.5629724203119155,
+            "radius_of_gyration_angstrom": 19.942356782899836
+          },
+          {
+            "rank_correlation": 0.6604864451674649,
+            "total_fluctuation_angstrom": 0.5534732045569487,
+            "radius_of_gyration_angstrom": 20.037325346633203
+          },
+          {
+            "rank_correlation": 0.6483625911346818,
+            "total_fluctuation_angstrom": 0.5702514785993396,
+            "radius_of_gyration_angstrom": 20.04674596045122
+          },
+          {
+            "rank_correlation": 0.6847870114329754,
+            "total_fluctuation_angstrom": 0.530925960495235,
+            "radius_of_gyration_angstrom": 19.91242576827624
+          },
+          {
+            "rank_correlation": 0.654300339731217,
+            "total_fluctuation_angstrom": 0.5636549319124412,
+            "radius_of_gyration_angstrom": 20.01282428442792
+          },
+          {
+            "rank_correlation": 0.6027833747498185,
+            "total_fluctuation_angstrom": 0.49600962873126775,
+            "radius_of_gyration_angstrom": 19.886281006567103
+          },
+          {
+            "rank_correlation": 0.6604457293375877,
+            "total_fluctuation_angstrom": 0.5449541208408675,
+            "radius_of_gyration_angstrom": 19.96070487946532
+          },
+          {
+            "rank_correlation": 0.6598805797912822,
+            "total_fluctuation_angstrom": 0.5384594336048079,
+            "radius_of_gyration_angstrom": 20.04560561909065
+          },
+          {
+            "rank_correlation": 0.6488970282627488,
+            "total_fluctuation_angstrom": 0.5087868882666539,
+            "radius_of_gyration_angstrom": 19.98726541566607
+          },
+          {
+            "rank_correlation": 0.6039936795298986,
+            "total_fluctuation_angstrom": 0.5279181714760081,
+            "radius_of_gyration_angstrom": 19.99871166819634
+          },
+          {
+            "rank_correlation": 0.6509318042914963,
+            "total_fluctuation_angstrom": 0.5153207374104304,
+            "radius_of_gyration_angstrom": 19.993374359889597
+          },
+          {
+            "rank_correlation": 0.6536218794023214,
+            "total_fluctuation_angstrom": 0.5324701713304437,
+            "radius_of_gyration_angstrom": 19.95491078008258
+          },
+          {
+            "rank_correlation": 0.7236591131592116,
+            "total_fluctuation_angstrom": 0.5332674839172205,
+            "radius_of_gyration_angstrom": 19.984733825287922
+          },
+          {
+            "rank_correlation": 0.668409103974039,
+            "total_fluctuation_angstrom": 0.5009194398738289,
+            "radius_of_gyration_angstrom": 19.967856490201715
+          },
+          {
+            "rank_correlation": 0.670173679860338,
+            "total_fluctuation_angstrom": 0.5127907675321219,
+            "radius_of_gyration_angstrom": 19.953596120800754
+          },
+          {
+            "rank_correlation": 0.7069731740809814,
+            "total_fluctuation_angstrom": 0.5507500395023526,
+            "radius_of_gyration_angstrom": 19.97769388433096
+          },
+          {
+            "rank_correlation": 0.6534146056883777,
+            "total_fluctuation_angstrom": 0.4931339047067616,
+            "radius_of_gyration_angstrom": 19.987781316954923
+          },
+          {
+            "rank_correlation": 0.6100320996092212,
+            "total_fluctuation_angstrom": 0.48035343009085874,
+            "radius_of_gyration_angstrom": 19.925951828426463
+          },
+          {
+            "rank_correlation": 0.6662264049263187,
+            "total_fluctuation_angstrom": 0.4941794553264056,
+            "radius_of_gyration_angstrom": 19.90590989900422
+          },
+          {
+            "rank_correlation": 0.7098042259972981,
+            "total_fluctuation_angstrom": 0.5092650248244742,
+            "radius_of_gyration_angstrom": 19.962361092677387
+          },
+          {
+            "rank_correlation": 0.6157469320079545,
+            "total_fluctuation_angstrom": 0.5117393703974938,
+            "radius_of_gyration_angstrom": 19.946827318391623
+          },
+          {
+            "rank_correlation": 0.6465200080826774,
+            "total_fluctuation_angstrom": 0.5014036689094938,
+            "radius_of_gyration_angstrom": 19.95168748419877
+          },
+          {
+            "rank_correlation": 0.7137054917194714,
+            "total_fluctuation_angstrom": 0.4924481695206876,
+            "radius_of_gyration_angstrom": 19.975724989738527
+          },
+          {
+            "rank_correlation": 0.7075274559900206,
+            "total_fluctuation_angstrom": 0.48538612540048975,
+            "radius_of_gyration_angstrom": 19.92601005839016
+          },
+          {
+            "rank_correlation": 0.6607895939119633,
+            "total_fluctuation_angstrom": 0.5056362873106861,
+            "radius_of_gyration_angstrom": 19.96524026970388
+          },
+          {
+            "rank_correlation": 0.6870438070254363,
+            "total_fluctuation_angstrom": 0.5058431225068405,
+            "radius_of_gyration_angstrom": 19.90618137159574
+          },
+          {
+            "rank_correlation": 0.612311235434154,
+            "total_fluctuation_angstrom": 0.5099986452460132,
+            "radius_of_gyration_angstrom": 19.91379421508658
+          },
+          {
+            "rank_correlation": 0.6106008789031624,
+            "total_fluctuation_angstrom": 0.49645801116423316,
+            "radius_of_gyration_angstrom": 19.836083245364797
+          },
+          {
+            "rank_correlation": 0.5656010285761776,
+            "total_fluctuation_angstrom": 0.48252044639132335,
+            "radius_of_gyration_angstrom": 19.910362077174597
+          }
+        ]
+      },
+      "windows": 30,
+      "window_ns": 1.0,
+      "frames_per_window": 100,
+      "window_frame_stride": 1,
+      "replicas_used": [
+        1
+      ],
+      "windows_per_replica": {
+        "1": 30
+      },
+      "frames_per_replica": {
+        "1": 10001
+      },
+      "window_definition": "non-overlapping 1 ns windows, 100 frames at 10 ps, contract atoms only, pooled across 1 replica(s)",
+      "window_fetch": "GET {api}/{accession}[.replica]/trajectory?frames=<start>:<start+frames-1>:1&atoms=<contract ranges, 1-based>; both ends inclusive",
+      "estimator": "frames superposed on their own mean structure, a linear trend in time removed per atom, then per-atom RMSF; the same estimator is applied to the submission",
+      "observed_window_sd": {
+        "rank_correlation": 0.039932404279611144,
+        "total_fluctuation_angstrom": 0.029512289817593833,
+        "radius_of_gyration_angstrom": 0.0476872987636382
+      },
+      "slack_window_sd": 2.0,
+      "rank_correlation": [
+        0.5656010285761776,
+        0.7236591131592116
+      ],
+      "total_fluctuation_angstrom": [
+        0.48035343009085874,
+        0.5999376835926518
+      ],
+      "radius_of_gyration_angstrom": [
+        19.836083245364797,
+        20.04674596045122
+      ]
+    },
     "production_window_ns": 1.0
   },
   "solve_time_network_policy": {
