@@ -381,3 +381,59 @@ def test_a_run_that_matches_nothing_stops_rather_than_guessing(tmp_path):
     assert mapping == {1: "1", 2: "2"}, "and nothing after the run it cannot place"
     assert not tb.mapping_is_trustworthy(deposit, "C", mapping), (
         "too little of the chain placed to state a number from it")
+
+
+# --- what a partly placed chain is worth --------------------------------------
+# A share was the wrong test. A chain whose middle disagrees with its own SEQRES
+# placed 60 of 99 residues, passed a half threshold, and produced a prompt saying
+# 40 residues of the range are unresolved when the deposit resolves 39 of them.
+# Which part failed is exactly what is not known, so nothing about it is safe to
+# state.
+
+def test_a_chain_that_places_completely_is_trusted(tmp_path):
+    deposit = _chain_pdb(tmp_path, "whole.pdb", "AKLVNT",
+                         [(1, "A"), (2, "K"), (5, "N"), (6, "T")])
+    mapping = tb.seqres_to_auth(deposit, "C")
+    assert len(mapping) == 4
+    assert tb.mapping_is_trustworthy(deposit, "C", mapping)
+
+
+def test_a_chain_that_places_most_of_itself_is_not(tmp_path):
+    """Sixty of ninety-nine used to pass, and the prompt it made was wrong."""
+    deposit = _chain_pdb(
+        tmp_path, "conflict.pdb", "A" * 40 + "K" + "A" * 59,
+        [(i, "A") for i in range(1, 61)] + [(i, "A") for i in range(62, 101)])
+    mapping = tb.seqres_to_auth(deposit, "C")
+    assert 0 < len(mapping) < 99
+    assert not tb.mapping_is_trustworthy(deposit, "C", mapping)
+
+
+def test_one_free_amino_acid_does_not_condemn_the_chain(tmp_path):
+    """1DTD ends with a GLU 300 that is a ligand beside its zinc, not residue 300."""
+    deposit = _chain_pdb(tmp_path, "ligand.pdb", "AAAA",
+                         [(1, "A"), (2, "A"), (3, "A"), (4, "A"), (300, "K")])
+    mapping = tb.seqres_to_auth(deposit, "C")
+    assert len(mapping) == 4, "the polymer places; the loose residue does not"
+    assert tb.mapping_is_trustworthy(deposit, "C", mapping)
+
+
+def test_an_unplaceable_run_does_not_cost_the_runs_after_it(tmp_path):
+    """Breaking out made one stray record drop the whole rest of the chain."""
+    deposit = _chain_pdb(tmp_path, "stray.pdb", "AAAANNNN",
+                         [(1, "A"), (2, "A"), (10, "K"),
+                          (20, "N"), (21, "N"), (22, "N")])
+    mapping = tb.seqres_to_auth(deposit, "C")
+    assert mapping[1] == "1" and mapping[2] == "2"
+    assert "20" in mapping.values(), "the run after the stray record still places"
+
+
+def test_selection_refuses_a_chain_whose_numbering_is_not_recoverable(tmp_path):
+    """The guard lived beside the mapping and nothing in the library called it."""
+    deposit = _chain_pdb(
+        tmp_path, "unplaceable.pdb", "A" * 40 + "K" + "A" * 59,
+        [(i, "A") for i in range(1, 61)] + [(i, "A") for i in range(62, 101)])
+    record = {"鎖": [{"参照鎖": "A", "寄託鎖": "C", "長さ": 99,
+                     "種別": "SEQRES に連続一致", "SEQRES位置": "1-100"}]}
+    with pytest.raises(SystemExit) as raised:
+        tb.selection(record, deposit)
+    assert "does not place" in str(raised.value)

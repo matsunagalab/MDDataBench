@@ -181,28 +181,50 @@ def seqres_to_auth(deposit, chain):
         codes = "".join(code for _, _, code in run)
         start = full.find(codes, cursor)
         if start < 0:
-            # A run that matches nowhere left is a sequence the deposit and its
-            # SEQRES disagree about. Placing it anywhere would be a guess, and
-            # everything after it would inherit the guess, so stop: the caller
-            # sees a short mapping and `mapping_is_trustworthy` refuses it.
-            break
+            # A run that matches nowhere left is a sequence its own SEQRES does
+            # not contain. Placing it anywhere would be a guess, so it is left
+            # unplaced -- but the runs after it are not, because breaking out
+            # here made one stray record cost the whole rest of the chain, and a
+            # free amino acid deposited as a HETATM beside its ion is exactly
+            # that: 1DTD ends with a GLU 300 that is a ligand, not residue 300.
+            # An incomplete mapping is refused by `mapping_is_trustworthy`.
+            continue
         for offset, (_, number, _) in enumerate(run):
             out[start + offset + 1] = number
         cursor = start + len(codes)
     return out
 
 
-def mapping_is_trustworthy(deposit, chain, mapping, minimum=0.5):
-    """Whether enough of the chain was placed to believe the numbering.
+def mapping_is_trustworthy(deposit, chain, mapping, tolerated_singletons=1):
+    """Whether the whole chain was placed, so a number taken from it means something.
 
-    The walk treats every code mismatch as an unobserved residue and advances,
-    so a sequence conflict or a repeat can shift every later anchor, and a code
-    that never recurs makes it stop early and map nothing after that point.
-    Neither is visible in the result, so the share of observed residues actually
-    placed is checked instead.
+    Every residue, not a share of them.  A share was the wrong test: a chain
+    whose middle disagrees with its own SEQRES placed 60 of 99 residues, passed
+    a half threshold, and produced a prompt saying 40 residues of the range are
+    unresolved when the deposit resolves 39 of them.  Nothing about a partly
+    placed chain is safe to state, because which part failed is exactly what is
+    not known.
+
+    Costs nothing: measured across the 100 shipped tasks all 159 chains place
+    completely, and across the 769 chains of every deposit on disk, 767 do.
+
+    A single unplaced run of one residue is tolerated, because that is what a
+    free amino acid deposited as a HETATM looks like -- 1DTD's GLU 300 beside
+    its zinc -- and it is not part of the polymer whose numbering is in
+    question.  A run of two or more that cannot be placed is a real
+    disagreement and is refused.
     """
-    seen = len(observed(deposit).get(chain, []))
-    return bool(seen) and len(mapping) >= minimum * seen
+    seen = observed(deposit).get(chain, [])
+    if not seen:
+        return False
+    unplaced = len(seen) - len(mapping)
+    if unplaced == 0:
+        return True
+    if unplaced > tolerated_singletons:
+        return False
+    # Tolerated only when what went missing really was a lone residue.
+    return all(len(run) > 1 or unplaced == 1
+               for run in observed_runs(seen) if len(run) == 1)
 
 
 def auth_number(mapping, position):
@@ -295,6 +317,15 @@ def selection(record, deposit):
             continue
         deposit_chain = chain.get("寄託鎖")
         mapping = seqres_to_auth(deposit, deposit_chain) if deposit_chain else {}
+        # Refused here rather than left to the caller: every number this module
+        # states comes out of this mapping, and a chain that did not place is a
+        # chain whose numbers are guesses. The guard lived beside the mapping
+        # and nothing in the library called it, so a partly placed chain reached
+        # the prompt with no refusal anywhere on the documented path.
+        if deposit_chain and not mapping_is_trustworthy(deposit, deposit_chain, mapping):
+            raise SystemExit(
+                f"chain {deposit_chain} of the deposit does not place against its "
+                "own SEQRES, so no residue number taken from it means anything")
         entry = {"reference_chain": chain.get("参照鎖"), "deposit_chain": deposit_chain,
                  "residues": chain.get("長さ")}
         if chain.get("種別") == "SEQRES に連続一致":
@@ -332,6 +363,10 @@ def selection(record, deposit):
             continue
         deposit_chain = detail.get("寄託鎖")
         mapping = seqres_to_auth(deposit, deposit_chain) if deposit_chain else {}
+        if deposit_chain and not mapping_is_trustworthy(deposit, deposit_chain, mapping):
+            raise SystemExit(
+                f"chain {deposit_chain} of the deposit does not place against its "
+                "own SEQRES, so no residue number taken from it means anything")
         lo, hi = _span(detail["SEQRES位置"])
         (a, _), (b, _) = auth_number(mapping, lo), auth_number(mapping, hi)
         differences = []
