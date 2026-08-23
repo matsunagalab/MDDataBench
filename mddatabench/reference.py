@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 import urllib.request
 from pathlib import Path
 
@@ -43,14 +44,37 @@ API = NODES["mmb"]
 TOPOLOGIES = ("topology.prmtop", "topology.tpr", "topology.psf", "topology.top")
 
 
+# Attempts per request.  Fetching a hundred bundles turns a rare dropped
+# connection into a certainty: two of them died on an SSL EOF partway through a
+# topology, and nothing retried because only the window fetches did.
+RETRIES = 4
+
+
+def _with_retries(what, url, timeout):
+    for attempt in range(RETRIES):
+        try:
+            return what(url, timeout)
+        except Exception as exc:                                    # noqa: BLE001
+            if attempt == RETRIES - 1:
+                raise SystemExit(
+                    f"{url} failed after {RETRIES} attempts: "
+                    f"{type(exc).__name__}: {exc}") from exc
+            time.sleep(2 ** attempt)
+    return None
+
+
 def get_json(url: str) -> dict:
-    with urllib.request.urlopen(url, timeout=120) as response:
-        return json.load(response)
+    def once(target, timeout):
+        with urllib.request.urlopen(target, timeout=timeout) as response:
+            return json.load(response)
+    return _with_retries(once, url, 120)
 
 
 def download(url: str, destination: Path) -> Path:
-    with urllib.request.urlopen(url, timeout=1800) as response:
-        destination.write_bytes(response.read())
+    def once(target, timeout):
+        with urllib.request.urlopen(target, timeout=timeout) as response:
+            return response.read()
+    destination.write_bytes(_with_retries(once, url, 1800))
     return destination
 
 

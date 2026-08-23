@@ -64,17 +64,41 @@ def _code(name):
 
 
 def seqres(path):
-    """Chain -> the deposit's full construct sequence."""
+    """Chain -> the deposit's full construct sequence, modified residues included."""
+    parents = modres_parents(path)
     out = collections.OrderedDict()
     for line in open(path, errors="replace"):
         if line.startswith("SEQRES"):
             for name in line[19:].split():
-                out.setdefault(line[11], []).append(_code(name))
+                out.setdefault(line[11], []).append(_code(parents.get(name, name)))
     return {k: "".join(v) for k, v in out.items()}
 
 
+def modres_parents(path):
+    """Residue name -> the standard residue its MODRES record stands for.
+
+    A modified residue is present in the deposit; it is just not spelled with a
+    standard name. Skipping it makes the walk call it unresolved, and the prompt
+    then tells the agent to build a residue that is already there -- 4OW0 asked
+    for residue 112 to be built while also saying it is deposited as OCS.
+
+    Keyed by name rather than by position because both sides of the alignment
+    have to agree: reading OCS as C in the ATOM records while SEQRES still gives
+    X puts the walk one residue out and every later anchor with it.
+    """
+    out = {}
+    for line in open(path, errors="replace"):
+        if line.startswith("MODRES"):
+            out[line[12:15].strip()] = line[24:27].strip()
+    return out
+
+
 def observed(path):
-    """Chain -> [(auth residue number, one-letter code)] in file order."""
+    """Chain -> [(auth residue number, one-letter code)] in file order.
+
+    Modified residues count as observed, under the residue they stand for.
+    """
+    parents = modres_parents(path)
     out, seen = collections.OrderedDict(), set()
     for line in open(path, errors="replace"):
         if line.startswith("ENDMDL"):
@@ -83,6 +107,9 @@ def observed(path):
             continue
         name, chain, number = line[17:20].strip(), line[21], line[22:27].strip()
         code = AMINO.get(name) or NUCLEIC.get(name)
+        if code is None:
+            parent = parents.get(name)
+            code = (AMINO.get(parent) or NUCLEIC.get(parent)) if parent else None
         if not code or (chain, number) in seen:
             continue
         seen.add((chain, number))
@@ -218,7 +245,12 @@ def selection(record, deposit):
             lo, hi = _span(chain["SEQRES位置"])
             entry["ranges"], entry["numbering_certain"] = auth_ranges(mapping, lo, hi)
             entry["seqres_start"] = lo
-            entry["build_missing"] = sum(1 for p in range(lo, hi + 1) if p not in mapping)
+            unresolved = [p for p in range(lo, hi + 1) if p not in mapping]
+            entry["build_missing"] = len(unresolved)
+            # Name them rather than count them: "build residue 315" is followed,
+            # "three residues are not resolved" has to be worked out first.
+            named = [auth_number(mapping, p)[0] for p in unresolved]
+            entry["build_residues"] = [n for n in named if n]
         elif chain.get("種別", "").startswith("SEQRES に 2 区間"):
             spans = []
             for key in ("区間1", "区間2"):
@@ -521,8 +553,18 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
     if temperature is None:
         raise SystemExit("the reference records no temperature, so the prompt cannot "
                          "state one and the measured-temperature check cannot be scored")
+    # 38 of the hundred references record no ensemble. NPT is what the prompt
+    # asks for and what the density and box checks assume, and the contract
+    # records both that and the fact the reference did not say.
+    # The ensemble decides whether there is a pressure at all. NVT has no
+    # barostat, so naming one would be wrong; NPT without a setpoint leaves the
+    # agent to guess a number the density check then grades.
     ensemble = metadata.get("ENSEMBLE") or "NPT"
-    lines.append(f"- **{temperature} K**, **{ensemble}**")
+    if ensemble.upper() == "NVT":
+        lines.append(f"- **{temperature} K**, **NVT** (no barostat)")
+    else:
+        pressure = metadata.get("_pressure_bar") or 1
+        lines.append(f"- **{temperature} K**, **{ensemble}** at **{pressure:g} bar**")
     lines.append(f"- at least **{window_ns:g} ns** of production MD")
     lines.append("")
 
@@ -533,8 +575,15 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
                       f"{removed} residues between those ranges belong to the "
                       "crystallisation partner. Simulate the protein without them.", ""]
         if entry.get("build_missing"):
-            lines += [f"{entry['build_missing']} residue(s) of that range are not "
-                      "resolved in the deposit. Build them.", ""]
+            named = entry.get("build_residues") or []
+            if named and len(named) <= 8:
+                which = ", ".join(str(n) for n in named)
+                lines += [f"Chain {entry['deposit_chain']} does not resolve "
+                          f"residue{'s' if len(named) > 1 else ''} {which}; the range "
+                          "runs through them, so build them.", ""]
+            else:
+                lines += [f"{entry['build_missing']} residues of that range are not "
+                          "resolved in the deposit. Build them.", ""]
         for span in (entry.get("omitted") or []):
             where = span[0] if span[0] == span[1] else f"{span[0]}–{span[1]}"
             lines += [f"Residue {where} of chain {entry['deposit_chain']} is not part of "
@@ -605,6 +654,27 @@ def _short(text, limit=70):
 def deposit_chains(deposit):
     """Chain identifiers the deposit actually has."""
     return set(observed(deposit))
+
+
+def recompute_on_chain(entry, deposit, chain):
+    """Move an entry to another copy of the same chain, and re-measure it.
+
+    Identical SEQRES does not mean identical observed extent: a homotrimer
+    resolves different residues in each copy, so 6W9C chain A is missing 225-227
+    where chain C is missing 315. Naming one chain and listing the other's gaps
+    tells the agent to build residues that are already there.
+    """
+    if chain == entry.get("deposit_chain") or entry.get("seqres_start") is None:
+        return dict(entry, deposit_chain=chain)
+    mapping = seqres_to_auth(deposit, chain)
+    lo = entry["seqres_start"]
+    hi = lo + (entry.get("residues") or 1) - 1
+    ranges, certain = auth_ranges(mapping, lo, hi)
+    unresolved = [p for p in range(lo, hi + 1) if p not in mapping]
+    named = [auth_number(mapping, p)[0] for p in unresolved]
+    return dict(entry, deposit_chain=chain, ranges=ranges, numbering_certain=certain,
+                build_missing=len(unresolved),
+                build_residues=[n for n in named if n])
 
 
 def resolve_chain(named, matched, deposit):

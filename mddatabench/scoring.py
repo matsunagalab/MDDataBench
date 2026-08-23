@@ -521,13 +521,25 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     # spread takes that to zero on all three tasks, and the negative controls are
     # separated by so much more than that -- they still all fail at three times
     # the spread -- that the room costs nothing.
-    slack = float(calibration.get("slack_window_sd", 0.0))
+    # The slack is per check, because what each one needs and what each one can
+    # afford differ. Measured 2026-08-23 by leave-one-replica-out over the 39
+    # references that have replicas: the rank correlation needs 2 window SD at
+    # the median and the radius of gyration 2, while what an adversarial
+    # baseline leaves as room varies over two orders of magnitude between tasks.
+    slack_by_check = calibration.get("slack_window_sd")
+    if not isinstance(slack_by_check, dict):
+        slack_by_check = {}
+    default_slack = float(calibration.get("slack_window_sd", 0.0)
+                          if not isinstance(calibration.get("slack_window_sd"), dict) else 0.0)
     spread = calibration.get("observed_window_sd") or {}
+
+    def slack_for(key):
+        return float(slack_by_check.get(key, default_slack))
 
     def widened(band, key):
         if not band:
             return None
-        margin = slack * float(spread.get(key, 0.0))
+        margin = slack_for(key) * float(spread.get(key, 0.0))
         return [band[0] - margin, band[1] + margin]
 
     def banded(check_id, value, band, key, unit=""):
@@ -540,7 +552,7 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
         check(check_id, low <= value <= high,
               f"{value:.4f}{unit} against the reference's own 1 ns windows "
               f"[{low:.4f}, {high:.4f}]{unit} "
-              f"(n={calibration.get('windows')}, widened by {slack} window SD)")
+              f"(n={calibration.get('windows')}, widened by {slack_for(key)} window SD)")
 
     if missing:
         for check_id in ("fluctuation_profile_matches_reference",
@@ -561,7 +573,8 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
               agreement is not None and floor is not None and agreement >= floor,
               f"rank correlation {agreement:.4f} against a floor of {floor:.4f} taken "
               f"from the reference's own 1 ns windows "
-              f"(n={calibration.get('windows')}, widened by {slack} window SD)"
+              f"(n={calibration.get('windows')}, widened by "
+              f"{slack_for('rank_correlation')} window SD)"
               if agreement is not None and floor is not None else
               "not measurable: the profiles could not be compared")
         banded("fluctuation_magnitude_is_physical", dy.total_fluctuation(own_xyz),

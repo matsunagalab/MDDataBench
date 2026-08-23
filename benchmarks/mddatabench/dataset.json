@@ -1,33 +1,718 @@
 {
-  "dataset_id": "MDDataBench-v0.2",
-  "description": "Short-MD tasks whose reference simulations come from MDDB under CC BY 4.0. Each task is scored on two separate axes: prep (system building, checkable without running MD) and md (the run actually happened and explored the collective directions the reference did).",
+  "dataset_id": "MDDataBench-v0.3",
+  "description": "Short-MD tasks whose reference simulations come from MDDB. Each task is scored on two separate axes: prep (system building, checkable without running MD) and md (the run happened, at the conditions asked for, and its equilibrium statistics are indistinguishable from the reference own windows). Split 70 train / 30 evaluation by homology cluster, so the same system never appears on both sides.",
   "reference_database": {
     "name": "MDDB",
     "url": "https://mddbr.eu/",
-    "api": "https://mmb.mddbr.eu/api/rest/v1/",
-    "licence_policy": "Only CC BY / CC0 projects are eligible. 24 of MDDB's 4554 projects carry other licences and are excluded."
+    "global_api": "https://mdposit.mddbr.eu/api/rest/v1/",
+    "note": "Eight federated nodes; accessions are node-local, so every task carries (node, accession). The global API is not a superset of the nodes.",
+    "licence_policy": "The licence string MDDB returns is recorded verbatim. 86 of the hundred are CC BY 4.0 or CC0, 4 are Apache 2.0, and 12 have none recorded and say so in the contract."
   },
   "tasks": [
     {
-      "task_id": "D01_plpro_sars2_6w9c",
-      "accession": "MCV1900209",
-      "pdb": "6W9C",
-      "chains": "C",
-      "reference_length_ns": 1000
+      "task_id": "001_membrane_5yc8",
+      "split": "train",
+      "axis": "membrane",
+      "path": "tasks/001_membrane_5yc8/task.json",
+      "prompt": "tasks/001_membrane_5yc8/prompt.md"
     },
     {
-      "task_id": "D02_plpro_sars2_6wrh",
-      "accession": "MCV1900210",
-      "pdb": "6WRH",
-      "chains": "A",
-      "reference_length_ns": 1000
+      "task_id": "002_membrane_5zk3",
+      "split": "train",
+      "axis": "membrane",
+      "path": "tasks/002_membrane_5zk3/task.json",
+      "prompt": "tasks/002_membrane_5zk3/prompt.md"
     },
     {
-      "task_id": "D03_plpro_sars_4ow0",
-      "accession": "MCV1900208",
-      "pdb": "4OW0",
-      "chains": "A",
-      "reference_length_ns": 1000
+      "task_id": "003_membrane_5zk8",
+      "split": "train",
+      "axis": "membrane",
+      "path": "tasks/003_membrane_5zk8/task.json",
+      "prompt": "tasks/003_membrane_5zk8/prompt.md"
+    },
+    {
+      "task_id": "004_membrane_5zkb",
+      "split": "train",
+      "axis": "membrane",
+      "path": "tasks/004_membrane_5zkb/task.json",
+      "prompt": "tasks/004_membrane_5zkb/prompt.md"
+    },
+    {
+      "task_id": "005_membrane_6a93",
+      "split": "train",
+      "axis": "membrane",
+      "path": "tasks/005_membrane_6a93/task.json",
+      "prompt": "tasks/005_membrane_6a93/prompt.md"
+    },
+    {
+      "task_id": "006_membrane_6a94",
+      "split": "train",
+      "axis": "membrane",
+      "path": "tasks/006_membrane_6a94/task.json",
+      "prompt": "tasks/006_membrane_6a94/prompt.md"
+    },
+    {
+      "task_id": "007_membrane_6gt3",
+      "split": "train",
+      "axis": "membrane",
+      "path": "tasks/007_membrane_6gt3/task.json",
+      "prompt": "tasks/007_membrane_6gt3/prompt.md"
+    },
+    {
+      "task_id": "008_membrane_6i53",
+      "split": "eval",
+      "axis": "membrane",
+      "path": "tasks/008_membrane_6i53/task.json",
+      "prompt": "tasks/008_membrane_6i53/prompt.md"
+    },
+    {
+      "task_id": "009_membrane_6jzh",
+      "split": "train",
+      "axis": "membrane",
+      "path": "tasks/009_membrane_6jzh/task.json",
+      "prompt": "tasks/009_membrane_6jzh/prompt.md"
+    },
+    {
+      "task_id": "010_membrane_6kux",
+      "split": "train",
+      "axis": "membrane",
+      "path": "tasks/010_membrane_6kux/task.json",
+      "prompt": "tasks/010_membrane_6kux/prompt.md"
+    },
+    {
+      "task_id": "011_membrane_6kuy",
+      "split": "train",
+      "axis": "membrane",
+      "path": "tasks/011_membrane_6kuy/task.json",
+      "prompt": "tasks/011_membrane_6kuy/prompt.md"
+    },
+    {
+      "task_id": "012_membrane_6me3",
+      "split": "eval",
+      "axis": "membrane",
+      "path": "tasks/012_membrane_6me3/task.json",
+      "prompt": "tasks/012_membrane_6me3/prompt.md"
+    },
+    {
+      "task_id": "013_membrane_6ps2",
+      "split": "eval",
+      "axis": "membrane",
+      "path": "tasks/013_membrane_6ps2/task.json",
+      "prompt": "tasks/013_membrane_6ps2/prompt.md"
+    },
+    {
+      "task_id": "014_membrane_6zdv",
+      "split": "train",
+      "axis": "membrane",
+      "path": "tasks/014_membrane_6zdv/task.json",
+      "prompt": "tasks/014_membrane_6zdv/prompt.md"
+    },
+    {
+      "task_id": "015_antibody_1ahw",
+      "split": "eval",
+      "axis": "antibody",
+      "path": "tasks/015_antibody_1ahw/task.json",
+      "prompt": "tasks/015_antibody_1ahw/prompt.md"
+    },
+    {
+      "task_id": "016_antibody_1ay7",
+      "split": "train",
+      "axis": "antibody",
+      "path": "tasks/016_antibody_1ay7/task.json",
+      "prompt": "tasks/016_antibody_1ay7/prompt.md"
+    },
+    {
+      "task_id": "017_antibody_1dqj",
+      "split": "train",
+      "axis": "antibody",
+      "path": "tasks/017_antibody_1dqj/task.json",
+      "prompt": "tasks/017_antibody_1dqj/prompt.md"
+    },
+    {
+      "task_id": "018_antibody_1mlc",
+      "split": "train",
+      "axis": "antibody",
+      "path": "tasks/018_antibody_1mlc/task.json",
+      "prompt": "tasks/018_antibody_1mlc/prompt.md"
+    },
+    {
+      "task_id": "019_antibody_2dd8",
+      "split": "eval",
+      "axis": "antibody",
+      "path": "tasks/019_antibody_2dd8/task.json",
+      "prompt": "tasks/019_antibody_2dd8/prompt.md"
+    },
+    {
+      "task_id": "020_antibody_2vis",
+      "split": "eval",
+      "axis": "antibody",
+      "path": "tasks/020_antibody_2vis/task.json",
+      "prompt": "tasks/020_antibody_2vis/prompt.md"
+    },
+    {
+      "task_id": "021_antibody_3eoa",
+      "split": "train",
+      "axis": "antibody",
+      "path": "tasks/021_antibody_3eoa/task.json",
+      "prompt": "tasks/021_antibody_3eoa/prompt.md"
+    },
+    {
+      "task_id": "022_antibody_3rvw",
+      "split": "train",
+      "axis": "antibody",
+      "path": "tasks/022_antibody_3rvw/task.json",
+      "prompt": "tasks/022_antibody_3rvw/prompt.md"
+    },
+    {
+      "task_id": "023_antibody_3wd5",
+      "split": "train",
+      "axis": "antibody",
+      "path": "tasks/023_antibody_3wd5/task.json",
+      "prompt": "tasks/023_antibody_3wd5/prompt.md"
+    },
+    {
+      "task_id": "024_antibody_5cba",
+      "split": "train",
+      "axis": "antibody",
+      "path": "tasks/024_antibody_5cba/task.json",
+      "prompt": "tasks/024_antibody_5cba/prompt.md"
+    },
+    {
+      "task_id": "025_complex_1akj",
+      "split": "train",
+      "axis": "complex",
+      "path": "tasks/025_complex_1akj/task.json",
+      "prompt": "tasks/025_complex_1akj/prompt.md"
+    },
+    {
+      "task_id": "026_complex_1ava",
+      "split": "eval",
+      "axis": "complex",
+      "path": "tasks/026_complex_1ava/task.json",
+      "prompt": "tasks/026_complex_1ava/prompt.md"
+    },
+    {
+      "task_id": "027_complex_1b6c",
+      "split": "eval",
+      "axis": "complex",
+      "path": "tasks/027_complex_1b6c/task.json",
+      "prompt": "tasks/027_complex_1b6c/prompt.md"
+    },
+    {
+      "task_id": "028_complex_1dfj",
+      "split": "train",
+      "axis": "complex",
+      "path": "tasks/028_complex_1dfj/task.json",
+      "prompt": "tasks/028_complex_1dfj/prompt.md"
+    },
+    {
+      "task_id": "029_complex_1e3u",
+      "split": "train",
+      "axis": "complex",
+      "path": "tasks/029_complex_1e3u/task.json",
+      "prompt": "tasks/029_complex_1e3u/prompt.md"
+    },
+    {
+      "task_id": "030_complex_1ffw",
+      "split": "train",
+      "axis": "complex",
+      "path": "tasks/030_complex_1ffw/task.json",
+      "prompt": "tasks/030_complex_1ffw/prompt.md"
+    },
+    {
+      "task_id": "031_nanobody_1kxv",
+      "split": "eval",
+      "axis": "nanobody",
+      "path": "tasks/031_nanobody_1kxv/task.json",
+      "prompt": "tasks/031_nanobody_1kxv/prompt.md"
+    },
+    {
+      "task_id": "032_nanobody_1xfp",
+      "split": "eval",
+      "axis": "nanobody",
+      "path": "tasks/032_nanobody_1xfp/task.json",
+      "prompt": "tasks/032_nanobody_1xfp/prompt.md"
+    },
+    {
+      "task_id": "033_nanobody_3tpk",
+      "split": "train",
+      "axis": "nanobody",
+      "path": "tasks/033_nanobody_3tpk/task.json",
+      "prompt": "tasks/033_nanobody_3tpk/prompt.md"
+    },
+    {
+      "task_id": "034_nanobody_4kfz",
+      "split": "train",
+      "axis": "nanobody",
+      "path": "tasks/034_nanobody_4kfz/task.json",
+      "prompt": "tasks/034_nanobody_4kfz/prompt.md"
+    },
+    {
+      "task_id": "035_nanobody_6gwn",
+      "split": "train",
+      "axis": "nanobody",
+      "path": "tasks/035_nanobody_6gwn/task.json",
+      "prompt": "tasks/035_nanobody_6gwn/prompt.md"
+    },
+    {
+      "task_id": "036_ligand_1ceb",
+      "split": "eval",
+      "axis": "ligand",
+      "path": "tasks/036_ligand_1ceb/task.json",
+      "prompt": "tasks/036_ligand_1ceb/prompt.md"
+    },
+    {
+      "task_id": "037_ligand_1g74",
+      "split": "eval",
+      "axis": "ligand",
+      "path": "tasks/037_ligand_1g74/task.json",
+      "prompt": "tasks/037_ligand_1g74/prompt.md"
+    },
+    {
+      "task_id": "038_ligand_1ikt",
+      "split": "eval",
+      "axis": "ligand",
+      "path": "tasks/038_ligand_1ikt/task.json",
+      "prompt": "tasks/038_ligand_1ikt/prompt.md"
+    },
+    {
+      "task_id": "039_ligand_3ikd",
+      "split": "train",
+      "axis": "ligand",
+      "path": "tasks/039_ligand_3ikd/task.json",
+      "prompt": "tasks/039_ligand_3ikd/prompt.md"
+    },
+    {
+      "task_id": "040_ligand_3n2u",
+      "split": "train",
+      "axis": "ligand",
+      "path": "tasks/040_ligand_3n2u/task.json",
+      "prompt": "tasks/040_ligand_3n2u/prompt.md"
+    },
+    {
+      "task_id": "041_ligand_4erf",
+      "split": "train",
+      "axis": "ligand",
+      "path": "tasks/041_ligand_4erf/task.json",
+      "prompt": "tasks/041_ligand_4erf/prompt.md"
+    },
+    {
+      "task_id": "042_ligand_4mn3",
+      "split": "train",
+      "axis": "ligand",
+      "path": "tasks/042_ligand_4mn3/task.json",
+      "prompt": "tasks/042_ligand_4mn3/prompt.md"
+    },
+    {
+      "task_id": "043_ligand_5od1",
+      "split": "train",
+      "axis": "ligand",
+      "path": "tasks/043_ligand_5od1/task.json",
+      "prompt": "tasks/043_ligand_5od1/prompt.md"
+    },
+    {
+      "task_id": "044_ligand_5oh3",
+      "split": "train",
+      "axis": "ligand",
+      "path": "tasks/044_ligand_5oh3/task.json",
+      "prompt": "tasks/044_ligand_5oh3/prompt.md"
+    },
+    {
+      "task_id": "045_ligand_6j3o",
+      "split": "train",
+      "axis": "ligand",
+      "path": "tasks/045_ligand_6j3o/task.json",
+      "prompt": "tasks/045_ligand_6j3o/prompt.md"
+    },
+    {
+      "task_id": "046_nucleic_1a66",
+      "split": "eval",
+      "axis": "nucleic",
+      "path": "tasks/046_nucleic_1a66/task.json",
+      "prompt": "tasks/046_nucleic_1a66/prompt.md"
+    },
+    {
+      "task_id": "047_nucleic_1c7u",
+      "split": "train",
+      "axis": "nucleic",
+      "path": "tasks/047_nucleic_1c7u/task.json",
+      "prompt": "tasks/047_nucleic_1c7u/prompt.md"
+    },
+    {
+      "task_id": "048_nucleic_1h9t",
+      "split": "train",
+      "axis": "nucleic",
+      "path": "tasks/048_nucleic_1h9t/task.json",
+      "prompt": "tasks/048_nucleic_1h9t/prompt.md"
+    },
+    {
+      "task_id": "049_nucleic_1iv6",
+      "split": "train",
+      "axis": "nucleic",
+      "path": "tasks/049_nucleic_1iv6/task.json",
+      "prompt": "tasks/049_nucleic_1iv6/prompt.md"
+    },
+    {
+      "task_id": "050_nucleic_1j46",
+      "split": "train",
+      "axis": "nucleic",
+      "path": "tasks/050_nucleic_1j46/task.json",
+      "prompt": "tasks/050_nucleic_1j46/prompt.md"
+    },
+    {
+      "task_id": "051_nucleic_1kx5",
+      "split": "eval",
+      "axis": "nucleic",
+      "path": "tasks/051_nucleic_1kx5/task.json",
+      "prompt": "tasks/051_nucleic_1kx5/prompt.md"
+    },
+    {
+      "task_id": "052_nucleic_1naj",
+      "split": "eval",
+      "axis": "nucleic",
+      "path": "tasks/052_nucleic_1naj/task.json",
+      "prompt": "tasks/052_nucleic_1naj/prompt.md"
+    },
+    {
+      "task_id": "053_nucleic_1qn5",
+      "split": "train",
+      "axis": "nucleic",
+      "path": "tasks/053_nucleic_1qn5/task.json",
+      "prompt": "tasks/053_nucleic_1qn5/prompt.md"
+    },
+    {
+      "task_id": "054_nucleic_1zgw",
+      "split": "train",
+      "axis": "nucleic",
+      "path": "tasks/054_nucleic_1zgw/task.json",
+      "prompt": "tasks/054_nucleic_1zgw/prompt.md"
+    },
+    {
+      "task_id": "055_nucleic_2hdc",
+      "split": "train",
+      "axis": "nucleic",
+      "path": "tasks/055_nucleic_2hdc/task.json",
+      "prompt": "tasks/055_nucleic_2hdc/prompt.md"
+    },
+    {
+      "task_id": "056_nucleic_2l1g",
+      "split": "train",
+      "axis": "nucleic",
+      "path": "tasks/056_nucleic_2l1g/task.json",
+      "prompt": "tasks/056_nucleic_2l1g/prompt.md"
+    },
+    {
+      "task_id": "057_nucleic_2lt7",
+      "split": "train",
+      "axis": "nucleic",
+      "path": "tasks/057_nucleic_2lt7/task.json",
+      "prompt": "tasks/057_nucleic_2lt7/prompt.md"
+    },
+    {
+      "task_id": "058_nucleic_2rn1",
+      "split": "eval",
+      "axis": "nucleic",
+      "path": "tasks/058_nucleic_2rn1/task.json",
+      "prompt": "tasks/058_nucleic_2rn1/prompt.md"
+    },
+    {
+      "task_id": "059_nucleic_3f27",
+      "split": "train",
+      "axis": "nucleic",
+      "path": "tasks/059_nucleic_3f27/task.json",
+      "prompt": "tasks/059_nucleic_3f27/prompt.md"
+    },
+    {
+      "task_id": "060_metal_4ow0",
+      "split": "eval",
+      "axis": "metal",
+      "path": "tasks/060_metal_4ow0/task.json",
+      "prompt": "tasks/060_metal_4ow0/prompt.md"
+    },
+    {
+      "task_id": "061_metal_6m0j",
+      "split": "train",
+      "axis": "metal",
+      "path": "tasks/061_metal_6m0j/task.json",
+      "prompt": "tasks/061_metal_6m0j/prompt.md"
+    },
+    {
+      "task_id": "062_metal_6w9c",
+      "split": "train",
+      "axis": "metal",
+      "path": "tasks/062_metal_6w9c/task.json",
+      "prompt": "tasks/062_metal_6w9c/prompt.md"
+    },
+    {
+      "task_id": "063_metal_6wrh",
+      "split": "train",
+      "axis": "metal",
+      "path": "tasks/063_metal_6wrh/task.json",
+      "prompt": "tasks/063_metal_6wrh/prompt.md"
+    },
+    {
+      "task_id": "064_soluble_16pk",
+      "split": "eval",
+      "axis": "soluble_charmm",
+      "path": "tasks/064_soluble_16pk/task.json",
+      "prompt": "tasks/064_soluble_16pk/prompt.md"
+    },
+    {
+      "task_id": "065_soluble_1a62",
+      "split": "eval",
+      "axis": "soluble_charmm",
+      "path": "tasks/065_soluble_1a62/task.json",
+      "prompt": "tasks/065_soluble_1a62/prompt.md"
+    },
+    {
+      "task_id": "066_soluble_1ab1",
+      "split": "eval",
+      "axis": "soluble_charmm",
+      "path": "tasks/066_soluble_1ab1/task.json",
+      "prompt": "tasks/066_soluble_1ab1/prompt.md"
+    },
+    {
+      "task_id": "067_soluble_1af7",
+      "split": "eval",
+      "axis": "soluble_charmm",
+      "path": "tasks/067_soluble_1af7/task.json",
+      "prompt": "tasks/067_soluble_1af7/prompt.md"
+    },
+    {
+      "task_id": "068_soluble_1ail",
+      "split": "eval",
+      "axis": "soluble_charmm",
+      "path": "tasks/068_soluble_1ail/task.json",
+      "prompt": "tasks/068_soluble_1ail/prompt.md"
+    },
+    {
+      "task_id": "069_soluble_1aol",
+      "split": "eval",
+      "axis": "soluble_charmm",
+      "path": "tasks/069_soluble_1aol/task.json",
+      "prompt": "tasks/069_soluble_1aol/prompt.md"
+    },
+    {
+      "task_id": "070_soluble_1bgf",
+      "split": "eval",
+      "axis": "soluble_charmm",
+      "path": "tasks/070_soluble_1bgf/task.json",
+      "prompt": "tasks/070_soluble_1bgf/prompt.md"
+    },
+    {
+      "task_id": "071_soluble_1bq8",
+      "split": "eval",
+      "axis": "soluble_charmm",
+      "path": "tasks/071_soluble_1bq8/task.json",
+      "prompt": "tasks/071_soluble_1bq8/prompt.md"
+    },
+    {
+      "task_id": "072_soluble_1bxy",
+      "split": "train",
+      "axis": "soluble_charmm",
+      "path": "tasks/072_soluble_1bxy/task.json",
+      "prompt": "tasks/072_soluble_1bxy/prompt.md"
+    },
+    {
+      "task_id": "073_soluble_1c1k",
+      "split": "train",
+      "axis": "soluble_charmm",
+      "path": "tasks/073_soluble_1c1k/task.json",
+      "prompt": "tasks/073_soluble_1c1k/prompt.md"
+    },
+    {
+      "task_id": "074_soluble_1c52",
+      "split": "train",
+      "axis": "soluble_charmm",
+      "path": "tasks/074_soluble_1c52/task.json",
+      "prompt": "tasks/074_soluble_1c52/prompt.md"
+    },
+    {
+      "task_id": "075_soluble_1cpq",
+      "split": "train",
+      "axis": "soluble_charmm",
+      "path": "tasks/075_soluble_1cpq/task.json",
+      "prompt": "tasks/075_soluble_1cpq/prompt.md"
+    },
+    {
+      "task_id": "076_soluble_1ctf",
+      "split": "train",
+      "axis": "soluble_charmm",
+      "path": "tasks/076_soluble_1ctf/task.json",
+      "prompt": "tasks/076_soluble_1ctf/prompt.md"
+    },
+    {
+      "task_id": "077_soluble_1dow",
+      "split": "train",
+      "axis": "soluble_charmm",
+      "path": "tasks/077_soluble_1dow/task.json",
+      "prompt": "tasks/077_soluble_1dow/prompt.md"
+    },
+    {
+      "task_id": "078_soluble_1dpt",
+      "split": "train",
+      "axis": "soluble_charmm",
+      "path": "tasks/078_soluble_1dpt/task.json",
+      "prompt": "tasks/078_soluble_1dpt/prompt.md"
+    },
+    {
+      "task_id": "079_soluble_1ewf",
+      "split": "train",
+      "axis": "soluble_charmm",
+      "path": "tasks/079_soluble_1ewf/task.json",
+      "prompt": "tasks/079_soluble_1ewf/prompt.md"
+    },
+    {
+      "task_id": "080_soluble_1ez3",
+      "split": "train",
+      "axis": "soluble_charmm",
+      "path": "tasks/080_soluble_1ez3/task.json",
+      "prompt": "tasks/080_soluble_1ez3/prompt.md"
+    },
+    {
+      "task_id": "081_soluble_1fcz",
+      "split": "train",
+      "axis": "soluble_charmm",
+      "path": "tasks/081_soluble_1fcz/task.json",
+      "prompt": "tasks/081_soluble_1fcz/prompt.md"
+    },
+    {
+      "task_id": "082_soluble_1fd3",
+      "split": "train",
+      "axis": "soluble_charmm",
+      "path": "tasks/082_soluble_1fd3/task.json",
+      "prompt": "tasks/082_soluble_1fd3/prompt.md"
+    },
+    {
+      "task_id": "083_soluble_1fk5",
+      "split": "train",
+      "axis": "soluble_charmm",
+      "path": "tasks/083_soluble_1fk5/task.json",
+      "prompt": "tasks/083_soluble_1fk5/prompt.md"
+    },
+    {
+      "task_id": "084_soluble_1fm4",
+      "split": "train",
+      "axis": "soluble_charmm",
+      "path": "tasks/084_soluble_1fm4/task.json",
+      "prompt": "tasks/084_soluble_1fm4/prompt.md"
+    },
+    {
+      "task_id": "085_soluble_1g38",
+      "split": "train",
+      "axis": "soluble_charmm",
+      "path": "tasks/085_soluble_1g38/task.json",
+      "prompt": "tasks/085_soluble_1g38/prompt.md"
+    },
+    {
+      "task_id": "086_soluble_1g6g",
+      "split": "train",
+      "axis": "soluble_charmm",
+      "path": "tasks/086_soluble_1g6g/task.json",
+      "prompt": "tasks/086_soluble_1g6g/prompt.md"
+    },
+    {
+      "task_id": "087_soluble_1gqv",
+      "split": "train",
+      "axis": "soluble_charmm",
+      "path": "tasks/087_soluble_1gqv/task.json",
+      "prompt": "tasks/087_soluble_1gqv/prompt.md"
+    },
+    {
+      "task_id": "088_soluble_12ca",
+      "split": "eval",
+      "axis": "soluble_amber",
+      "path": "tasks/088_soluble_12ca/task.json",
+      "prompt": "tasks/088_soluble_12ca/prompt.md"
+    },
+    {
+      "task_id": "089_soluble_1a1w",
+      "split": "eval",
+      "axis": "soluble_amber",
+      "path": "tasks/089_soluble_1a1w/task.json",
+      "prompt": "tasks/089_soluble_1a1w/prompt.md"
+    },
+    {
+      "task_id": "090_soluble_1aa3",
+      "split": "train",
+      "axis": "soluble_amber",
+      "path": "tasks/090_soluble_1aa3/task.json",
+      "prompt": "tasks/090_soluble_1aa3/prompt.md"
+    },
+    {
+      "task_id": "091_soluble_1ag4",
+      "split": "train",
+      "axis": "soluble_amber",
+      "path": "tasks/091_soluble_1ag4/task.json",
+      "prompt": "tasks/091_soluble_1ag4/prompt.md"
+    },
+    {
+      "task_id": "092_soluble_1ah9",
+      "split": "train",
+      "axis": "soluble_amber",
+      "path": "tasks/092_soluble_1ah9/task.json",
+      "prompt": "tasks/092_soluble_1ah9/prompt.md"
+    },
+    {
+      "task_id": "093_soluble_1anx",
+      "split": "eval",
+      "axis": "soluble_amber",
+      "path": "tasks/093_soluble_1anx/task.json",
+      "prompt": "tasks/093_soluble_1anx/prompt.md"
+    },
+    {
+      "task_id": "094_soluble_1apo",
+      "split": "eval",
+      "axis": "soluble_amber",
+      "path": "tasks/094_soluble_1apo/task.json",
+      "prompt": "tasks/094_soluble_1apo/prompt.md"
+    },
+    {
+      "task_id": "095_soluble_1ard",
+      "split": "train",
+      "axis": "soluble_amber",
+      "path": "tasks/095_soluble_1ard/task.json",
+      "prompt": "tasks/095_soluble_1ard/prompt.md"
+    },
+    {
+      "task_id": "096_soluble_1ay7",
+      "split": "train",
+      "axis": "soluble_amber",
+      "path": "tasks/096_soluble_1ay7/task.json",
+      "prompt": "tasks/096_soluble_1ay7/prompt.md"
+    },
+    {
+      "task_id": "097_soluble_1dfw",
+      "split": "train",
+      "axis": "soluble_amber",
+      "path": "tasks/097_soluble_1dfw/task.json",
+      "prompt": "tasks/097_soluble_1dfw/prompt.md"
+    },
+    {
+      "task_id": "098_soluble_1tba",
+      "split": "train",
+      "axis": "soluble_amber",
+      "path": "tasks/098_soluble_1tba/task.json",
+      "prompt": "tasks/098_soluble_1tba/prompt.md"
+    },
+    {
+      "task_id": "099_soluble_1vyc",
+      "split": "train",
+      "axis": "soluble_amber",
+      "path": "tasks/099_soluble_1vyc/task.json",
+      "prompt": "tasks/099_soluble_1vyc/prompt.md"
+    },
+    {
+      "task_id": "100_soluble_2axf",
+      "split": "train",
+      "axis": "soluble_amber",
+      "path": "tasks/100_soluble_2axf/task.json",
+      "prompt": "tasks/100_soluble_2axf/prompt.md"
     }
-  ]
+  ],
+  "counts": {
+    "total": 100,
+    "train": 70,
+    "eval": 30
+  }
 }
