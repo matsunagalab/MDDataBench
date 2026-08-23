@@ -8,6 +8,8 @@ Simulate Fusion protein of Beta-2 adrenergic receptor and T4 Lysozyme, PDB entry
 
 Chain A is deposited as a fusion: 160 residues between those ranges belong to the crystallisation partner. Simulate the protein without them.
 
+Join the pieces of chain A into a single continuous chain, bonded where the removed part was.
+
 Embed it in a **DPPC** bilayer.
 
 Leave the prepared structure, the topology, the minimised state and the production

@@ -568,9 +568,50 @@ def bilayer(metadata):
     return {"lipid": names[0] if len(names) == 1 else names, "residues": count}
 
 
+def joins_its_pieces(reference_pdb, chosen_chains):
+    """The deposit chains whose pieces the reference holds as one polymer.
+
+    A fusion construct is written as two ranges, and simulating it is not one
+    decision but two: the crystallisation partner comes out, and then the two
+    receptor halves are either left as separate chains or ligated into one.
+    Measured across the ten fusion references in the cast, six ligate and four
+    do not -- 5ZK8 bonds residue 214 to 383 at 1.35 A where the deposit leaves
+    them 9.6 A apart, while 5YC8 keeps 199 and 79 residues apart.  The deposit
+    records neither, so the prompt has to.
+
+    Attribution needs the pieces and the reference's polymers to correspond, and
+    they only do while one chain carries the several ranges.  Every task in the
+    cast that has any is such a task; one that is not raises rather than
+    guessing which chain was joined.
+    """
+    monomers = _cp().split_monomers(_cp().read_residues(reference_pdb))
+    pieces = sum(len(entry.get("ranges") or []) for entry in chosen_chains)
+    if len(monomers) >= pieces:
+        return frozenset()
+    multi = [entry["deposit_chain"] for entry in chosen_chains
+             if len(entry.get("ranges") or []) > 1]
+    if len(multi) != 1:
+        raise SystemExit(
+            f"{len(monomers)} reference polymers for {pieces} requested pieces, "
+            f"and {len(multi)} chains carry more than one range: which chain the "
+            "reference joined cannot be read off the counts")
+    return frozenset(multi)
+
+
+def _cp():
+    from mddatabench import composition
+    return composition
+
+
 def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonation,
-                 window_ns, replicas=1):
-    """The text an agent is given.  Derived, not written."""
+                 window_ns, replicas=1, joined_chains=()):
+    """The text an agent is given.  Derived, not written.
+
+    ``joined_chains`` names the deposit chains whose pieces the reference holds
+    as one continuous polymer.  See ``joins_its_pieces``: a construct written as
+    two ranges can be simulated as two chains or as one, the deposit records
+    neither, and the two differ by a peptide bond and two pairs of termini.
+    """
     field = buildable_force_field(metadata.get("FF"))
     water = WATERS.get(str(metadata.get("WAT") or "").upper())
     lines = [f"# Task {task_id}", ""]
@@ -608,6 +649,10 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
             lines += [f"Chain {entry['deposit_chain']} is deposited as a fusion: "
                       f"{removed} residues between those ranges belong to the "
                       "crystallisation partner. Simulate the protein without them.", ""]
+        if entry["deposit_chain"] in joined_chains:
+            lines += [f"Join the pieces of chain {entry['deposit_chain']} into a "
+                      "single continuous chain, bonded where the removed part "
+                      "was.", ""]
         if entry.get("build_missing"):
             named = entry.get("build_residues") or []
             if named and len(named) <= 8:

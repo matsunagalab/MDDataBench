@@ -8,6 +8,8 @@ Simulate Adenosine receptor A2a, PDB entry **6ZDV**, chain **A** residues **0–
 
 Chain A is deposited as a fusion: 106 residues between those ranges belong to the crystallisation partner. Simulate the protein without them.
 
+Join the pieces of chain A into a single continuous chain, bonded where the removed part was.
+
 Embed it in a **DPPC** bilayer.
 
 Leave the prepared structure, the topology, the minimised state and the production

@@ -328,8 +328,12 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     # correct Amber submission writes PC + PA + PA for the same chemistry.
     stated = (task["reference"].get("bilayer") or {}).get("lipid")
     stated = stated if isinstance(stated, str) else None
+    # Read from the topology rather than from the prepared structure: the bilayer
+    # is added at the solvation step, so a membrane system's prepared structure
+    # holds the receptor alone and reads as "no lipid" however good the membrane
+    # it was later embedded in.  The topology is the system that actually ran.
     reference_lipids = cp.lipid_species(bundle / "reference.pdb")
-    submitted_lipids = cp.lipid_species(prepared)
+    submitted_lipids = cp.lipid_species(topology_pdb)
     minimum = float(spec.get("membrane_matches_reference", {})
                     .get("minimum_fraction_of_reference_lipids", 0.5))
     wanted, reference_count = cp.lipid_chemistry(reference_lipids, stated)
