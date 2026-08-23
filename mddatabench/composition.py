@@ -63,13 +63,71 @@ SOLVENT_RESIDUES = {
 # 360 DPPC contributes 360 monomers and 360 phosphorus atoms to comparisons that
 # demand exact equality.  Which lipid it is, is a chemistry decision, and
 # ``lipid_species`` checks that separately.
-LIPID_RESIDUES = {
-    "POPC", "POPE", "POPS", "POPG", "POPI", "POPA", "DPPC", "DPPE", "DPPG",
-    "DOPC", "DOPE", "DOPS", "DMPC", "DLPC", "PLPC", "SDPC", "SAPI",
-    "CHL1", "CHOL", "PSM", "SSM",
-    # PDB truncates a four-letter lipid name to three columns.
-    "POP", "DPP", "DOP", "DMP", "DLP", "PLP", "SDP", "SAP", "CHL", "PSM", "SSM",
+# A lipid has two spellings and they are not interchangeable text.  CHARMM and
+# the PDB write one residue per lipid -- DPPC, truncated to DPP in three PDB
+# columns -- while Amber's Lipid21 splits it into a head-group residue and one
+# residue per acyl chain, so the same DPPC bilayer reads as PC + PA + PA.  A
+# reference simulated under CHARMM therefore never shares a residue name with a
+# correct submission built under Lipid21, and comparing the names directly
+# rejects it.  Both are decomposed into Lipid21 components before comparison.
+LIPID21_HEADS = {"PC", "PE", "PS", "PGR", "PH-", "PI", "PGS"}
+LIPID21_TAILS = {"PA", "ST", "OL", "MY", "LAL", "AR", "DHA", "SA", "PO"}
+LIPID21_WHOLE = {"CHL", "CHL1"}          # cholesterol is not split
+
+# Monolithic names, decomposed.  The first two letters of a CHARMM lipid name
+# its chains (DP = di-palmitoyl, PO = palmitoyl+oleoyl) and the last its head.
+LIPID_COMPONENTS = {
+    "DPPC": {"PC", "PA"},          "DPPE": {"PE", "PA"},   "DPPG": {"PGR", "PA"},
+    "DPPS": {"PS", "PA"},
+    "POPC": {"PC", "PA", "OL"},    "POPE": {"PE", "PA", "OL"},
+    "POPG": {"PGR", "PA", "OL"},   "POPS": {"PS", "PA", "OL"},
+    "POPI": {"PI", "PA", "OL"},    "POPA": {"PH-", "PA", "OL"},
+    "DOPC": {"PC", "OL"},          "DOPE": {"PE", "OL"},   "DOPS": {"PS", "OL"},
+    "DMPC": {"PC", "MY"},          "DLPC": {"PC", "LAL"},  "DSPC": {"PC", "ST"},
+    "PLPC": {"PC", "PA", "LAL"},   "SDPC": {"PC", "ST", "DHA"},
+    "SAPI": {"PI", "ST", "AR"},
+    "CHL1": {"CHL"},               "CHOL": {"CHL"},
+    "PSM": {"PSM"},                "SSM": {"SSM"},
 }
+
+LIPID_RESIDUES = (set(LIPID_COMPONENTS)
+                  | LIPID21_HEADS | LIPID21_TAILS | LIPID21_WHOLE
+                  # PDB truncates a four-letter lipid name to three columns.
+                  | {name[:3] for name in LIPID_COMPONENTS})
+
+
+def lipid_components(name, stated=None):
+    """The Lipid21 components of one lipid residue name.
+
+    ``stated`` resolves a three-column truncation: DPP is DPPC, DPPE or DPPG and
+    the file cannot say which, but the task contract records the lipid the
+    reference was built from, and that is what the truncation abbreviates.
+    """
+    name = name.strip().upper()
+    if name in LIPID_COMPONENTS:
+        return frozenset(LIPID_COMPONENTS[name])
+    if name in LIPID21_HEADS or name in LIPID21_TAILS or name in LIPID21_WHOLE:
+        return frozenset({name})
+    if stated and name == stated.strip().upper()[:len(name)]:
+        return frozenset(LIPID_COMPONENTS.get(stated.strip().upper(), {stated}))
+    return frozenset()
+
+
+def lipid_chemistry(counts, stated=None):
+    """Decompose a species tally into (Lipid21 components, number of lipids).
+
+    Counting lipids means counting head groups, not residues: under Lipid21 one
+    DPPC is three residues and under CHARMM it is one.
+    """
+    components, lipids = set(), 0
+    for name, count in counts.items():
+        parts = lipid_components(name, stated)
+        components |= parts
+        key = name.strip().upper()
+        if key in LIPID21_TAILS:
+            continue                              # a tail is half a lipid, not one
+        lipids += count
+    return frozenset(components), lipids
 
 # Longest bond that still counts as the polymer link.  A peptide C-N is 1.33 A
 # and a phosphodiester O3'-P is 1.60 A; 2.0 A separates them from the 3-4 A gap

@@ -320,31 +320,38 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
         topo / "artifacts" / "system.system.xml", topology_pdb)
 
     # --- the bilayer, if there is one -----------------------------------------
+    # The species is graded and the count is not, beyond "there is a membrane at
+    # all": which lipid to use is a decision the deposit does not record and the
+    # prompt therefore states, while how many of it there are follows from the
+    # box the agent chose.  Both sides are decomposed into Lipid21 components
+    # first, because a CHARMM reference writes one DPP residue per lipid and a
+    # correct Amber submission writes PC + PA + PA for the same chemistry.
+    stated = (task["reference"].get("bilayer") or {}).get("lipid")
+    stated = stated if isinstance(stated, str) else None
     reference_lipids = cp.lipid_species(bundle / "reference.pdb")
     submitted_lipids = cp.lipid_species(prepared)
     minimum = float(spec.get("membrane_matches_reference", {})
                     .get("minimum_fraction_of_reference_lipids", 0.5))
+    wanted, reference_count = cp.lipid_chemistry(reference_lipids, stated)
+    built, submitted_count = cp.lipid_chemistry(submitted_lipids, stated)
 
-    def _species(counts):
-        # PDB truncates a four-letter lipid to three columns, so DPPC and DPP are
-        # the same decision written two ways.
-        return {name[:3] for name in counts}
+    def _tally(counts):
+        return ", ".join(f"{n} x{c}" for n, c in sorted(counts.items())) or "no lipid"
 
     if not reference_lipids:
         check("membrane_matches_reference", not submitted_lipids,
               "the reference carries no bilayer; the submission carries "
-              + (", ".join(f"{n} x{c}" for n, c in sorted(submitted_lipids.items()))
-                 if submitted_lipids else "none either"))
+              + (_tally(submitted_lipids) if submitted_lipids else "none either"))
     else:
-        wanted, built = _species(reference_lipids), _species(submitted_lipids)
-        enough = (sum(submitted_lipids.values())
-                  >= minimum * sum(reference_lipids.values()))
+        enough = submitted_count >= minimum * reference_count
         check("membrane_matches_reference", wanted == built and enough,
-              f"reference {', '.join(f'{n} x{c}' for n, c in sorted(reference_lipids.items()))} "
-              f"against submitted "
-              f"{', '.join(f'{n} x{c}' for n, c in sorted(submitted_lipids.items())) or 'no lipid'}"
-              + ("" if wanted == built else f"; species differ: {sorted(wanted)} vs {sorted(built)}")
-              + ("" if enough else f"; fewer than {minimum:g} of the reference's count"))
+              f"reference {_tally(reference_lipids)}"
+              + (f" ({stated})" if stated else "")
+              + f" against submitted {_tally(submitted_lipids)}"
+              + ("" if wanted == built
+                 else f"; chemistry differs: {sorted(wanted)} vs {sorted(built)}")
+              + ("" if enough else f"; {submitted_count} lipids is fewer than "
+                                   f"{minimum:g} of the reference's {reference_count}"))
 
     pairs, mismatches = cp.match_monomers(reference_monomers, submitted_monomers)
     check("monomer_count_matches_reference", not mismatches,

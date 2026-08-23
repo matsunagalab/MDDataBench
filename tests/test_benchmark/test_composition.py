@@ -214,3 +214,42 @@ def test_the_four_letter_and_three_letter_spellings_are_one_lipid(tmp_path):
     rows = glycine(1, 1, (0.0, 0.0, 0.0)) + lipid(5, 2, (20.0, 0.0, 0.0), "DPP")
     assert set(cp.lipid_species(write(tmp_path, "trunc.pdb", rows))) == {"DPP"}
     assert "DPPC" in cp.LIPID_RESIDUES and "DPP" in cp.LIPID_RESIDUES
+
+
+# --- one lipid, two spellings ------------------------------------------------
+# CHARMM writes DPPC as one residue and a PDB truncates it to DPP; Amber's
+# Lipid21 splits the same lipid into a PC head and two PA tails.  Comparing the
+# residue names directly rejects a correct Amber submission against a CHARMM
+# reference -- the same failure as naming CHARMM36 in a prompt MDClaw can only
+# build with Amber.
+
+def test_the_charmm_and_lipid21_spellings_decompose_to_one_chemistry():
+    reference, _ = cp.lipid_chemistry({"DPP": 360}, "DPPC")
+    submitted, _ = cp.lipid_chemistry({"PC": 300, "PA": 600}, "DPPC")
+    assert reference == submitted == frozenset({"PC", "PA"})
+
+
+def test_a_different_lipid_is_still_a_different_lipid():
+    """DPPC is two palmitoyls; POPC swaps one for an oleoyl."""
+    wanted, _ = cp.lipid_chemistry({"DPP": 360}, "DPPC")
+    popc, _ = cp.lipid_chemistry({"PC": 300, "PA": 300, "OL": 300}, "DPPC")
+    assert wanted != popc
+
+
+def test_lipids_are_counted_by_head_group_not_by_residue():
+    """Under Lipid21 one DPPC is three residues; counting residues triples it."""
+    _, count = cp.lipid_chemistry({"PC": 300, "PA": 600}, "DPPC")
+    assert count == 300
+    _, charmm = cp.lipid_chemistry({"DPP": 360}, "DPPC")
+    assert charmm == 360
+
+
+def test_a_truncation_is_read_as_the_lipid_the_contract_states():
+    """DPP is DPPC, DPPE or DPPG; three columns cannot say which."""
+    assert cp.lipid_components("DPP", "DPPC") == frozenset({"PC", "PA"})
+    assert cp.lipid_components("DPP", "DPPE") == frozenset({"PE", "PA"})
+    assert cp.lipid_components("DPP") == frozenset()
+
+
+def test_no_bilayer_decomposes_to_nothing():
+    assert cp.lipid_chemistry({}, "DPPC") == (frozenset(), 0)

@@ -373,7 +373,8 @@
       "adversarial_headroom_note": "How far the degenerate baseline for this check lands from the band, in window standard deviations, computed from this task own windows: a shuffled profile scores about zero, a frozen trajectory has no fluctuation, a structure compressed to 85 per cent has that radius. Below the slack the widened band contains it and the check decides nothing here. It says nothing about fakes that are not degenerate."
     },
     "production_window_ns": 2.5,
-    "license_note": "MDDB returns no licence string for this project. Recorded as absent rather than assumed: the reference is fetched at scoring time and never redistributed, but nothing here demonstrates it is openly licensed."
+    "license_note": "MDDB returns no licence string for this project. Recorded as absent rather than assumed: the reference is fetched at scoring time and never redistributed, but nothing here demonstrates it is openly licensed.",
+    "bilayer": null
   },
   "solve_time_network_policy": {
     "allow": [
