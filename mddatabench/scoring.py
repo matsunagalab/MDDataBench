@@ -213,7 +213,7 @@ def _check_topology_chemistry(check, submitted, submitted_bonds, reference,
 # What the scorer needs the submission's DAG to have produced.  A run that
 # errored out before these exist is not a low-scoring submission, it is one that
 # cannot be measured at all.
-REQUIRED_STAGES = ("prep", "topo", "prod")
+REQUIRED_STAGES = ("prep", "topo", "min", "prod")
 
 
 def _report(task, results, diagnostics=None):
@@ -271,7 +271,8 @@ def _resolve_stages(job_dir):
         except OSError as exc:
             return None, f"the {stage} node could not be read: {exc}"
     required = {"topo": ("system.topology.pdb", "system.system.xml",
-                         "amber_metadata.json")}
+                         "amber_metadata.json"),
+                "min": ("minimized_structure.pdb",)}
     for stage, names in required.items():
         for name in names:
             if not (nodes[stage] / "artifacts" / name).exists():
@@ -285,7 +286,7 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     nodes, unrunnable = _resolve_stages(job_dir)
     if unrunnable:
         return _unrunnable(task, unrunnable)
-    prep, topo, prod = (nodes[t] for t in REQUIRED_STAGES)
+    prep, topo, minimized, prod = (nodes[t] for t in REQUIRED_STAGES)
     amber = json.loads((topo / "artifacts" / "amber_metadata.json").read_text())
     prod_meta = json.loads((prod / "node.json").read_text()).get("metadata", {})
     signature = prod_meta.get("system_signature", {})
@@ -307,10 +308,24 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     # canonical sequence. Everything below runs inside a matched pair, so a
     # multimer is N monomers rather than a special case, and a failure is
     # attributable to a chain and a residue instead of to a total.
-    prepared = _prepared_structure(prep)
+    # Read to fail early and by name when a prep node declares no structure at
+    # all; nothing is compared against it any more, because every comparison
+    # wants the system as it was built rather than as it was handed in.
+    _prepared_structure(prep)
     topology_pdb = topo / "artifacts" / "system.topology.pdb"
+    # Split on the minimised structure, not on the prepared one.  A polymer is
+    # counted by joining residues whose backbone ends are within bonding
+    # distance, and the prepared structure is the input to the build rather than
+    # its result: a construct the reference ligated -- 5ZK8 bonds residue 214 to
+    # 383, where the deposit leaves those atoms 9.63 A apart -- still carries the
+    # deposit's gap there, so it reads as two chains however correctly it was
+    # built.  Measured on that submission: prepared 197 + 76, minimised 273,
+    # reference 273, and the System's own bond graph carries the 1.335 A bond at
+    # every stage.  The minimised state is a required output and is the first
+    # artifact in which the force field has been applied.
+    minimized_structure = minimized / "artifacts" / "minimized_structure.pdb"
     reference_monomers = cp.split_monomers(cp.read_residues(bundle / "reference.pdb"))
-    submitted_monomers = cp.split_monomers(cp.read_residues(prepared))
+    submitted_monomers = cp.split_monomers(cp.read_residues(minimized_structure))
 
     # Both topologies, read rather than inferred. The reference ships its own
     # topology.prmtop and the submission ships the System that exerts force.
@@ -368,7 +383,14 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     # time its structure file is written, and a set derived from the trajectory
     # would exempt residues that were never ligands -- 6WRH's zinc reaches
     # GLN191:OE1 at 1.75 A once its thiolates leave.
-    submitted_metals = cp.read_metals(prepared)
+    # From the same structure the monomers were split on. Reading the metals
+    # from the prepared file while the monomers come from the minimised one
+    # compares coordinates from two different frames: minimisation moves the
+    # whole system, so every ligand distance is measured against a metal that is
+    # no longer where the residue thinks it is, and the site stops being found.
+    # Measured on 6W9C, that drops all three zinc thiolates out of the exemption
+    # and reports them as composition differences.
+    submitted_metals = cp.read_metals(minimized_structure)
     reference_metals = cp.read_metals(bundle / "reference.pdb")
     submitted_ligands = cp.metal_ligand_positions(submitted_monomers, submitted_metals)
     reference_ligands = cp.metal_ligand_positions(reference_monomers, reference_metals)

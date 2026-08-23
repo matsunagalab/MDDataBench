@@ -73,7 +73,7 @@ def test_scoring_such_a_job_returns_a_report_rather_than_raising(tmp_path):
     assert report["unrunnable"]
 
 
-def _dag(root, stages=("prep", "topo", "prod"), artifacts=True):
+def _dag(root, stages=("prep", "topo", "min", "prod"), artifacts=True):
     """The smallest node layout find_node accepts."""
     previous = None
     (root / "nodes").mkdir(exist_ok=True)
@@ -88,6 +88,8 @@ def _dag(root, stages=("prep", "topo", "prod"), artifacts=True):
             for name in ("system.topology.pdb", "system.system.xml",
                          "amber_metadata.json"):
                 (node / "artifacts" / name).write_text("{}")
+        if artifacts and stage == "min":
+            (node / "artifacts" / "minimized_structure.pdb").write_text("END\n")
         if artifacts and stage == "prod":
             (node / "artifacts" / "run.dcd").write_bytes(b"")
     return root
@@ -117,4 +119,23 @@ def test_a_prod_node_with_no_trajectory_is_unrunnable(tmp_path):
 def test_a_complete_dag_resolves(tmp_path):
     _dag(tmp_path)
     nodes, reason = sc._resolve_stages(tmp_path)
-    assert reason is None and set(nodes) == {"prep", "topo", "prod"}
+    assert reason is None and set(nodes) == {"prep", "topo", "min", "prod"}
+
+
+# The minimised state is compared against, not merely required: a construct the
+# reference ligated still carries the deposit's gap in the prepared structure, so
+# the comparison has to be made on the first artifact in which the force field
+# has been applied.
+
+def test_a_job_with_no_minimised_state_is_unrunnable(tmp_path):
+    _dag(tmp_path, stages=("prep", "topo", "prod"))
+    nodes, reason = sc._resolve_stages(tmp_path)
+    assert nodes is None and "min" in reason
+
+
+def test_a_min_node_with_no_structure_is_unrunnable(tmp_path):
+    _dag(tmp_path)
+    node = next(p for p in (tmp_path / "nodes").iterdir() if p.name.startswith("min"))
+    (node / "artifacts" / "minimized_structure.pdb").unlink()
+    nodes, reason = sc._resolve_stages(tmp_path)
+    assert nodes is None and "minimized_structure.pdb" in reason
