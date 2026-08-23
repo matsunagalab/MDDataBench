@@ -14,6 +14,8 @@ Chain B does not resolve residues 418, 420, 421, 419; the range runs through the
 
 Chain A is deposited as a fusion: 60 residues between those ranges belong to the crystallisation partner. Simulate the protein without them.
 
+Join the pieces of chain A into a single continuous chain, bonded where the removed part was.
+
 Chain C is deposited as a fusion: 82 residues between those ranges belong to the crystallisation partner. Simulate the protein without them.
 
 Chain C does not resolve residues 28, 29, 30, 31, 32, 34; the range runs through them, so build them.

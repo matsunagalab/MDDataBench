@@ -337,7 +337,7 @@ def merge_by_deposit_chain(entries):
     for entry in entries:
         chain = entry["deposit_chain"]
         if chain not in merged:
-            merged[chain] = dict(entry)
+            merged[chain] = dict(entry, reference_polymers=1)
             continue
         target = merged[chain]
         target["ranges"] = sorted(target["ranges"] + entry["ranges"],
@@ -355,6 +355,12 @@ def merge_by_deposit_chain(entries):
         # Two reference chains on one deposit chain means the reference left a
         # piece of it out, which is the same statement as an internal deletion.
         target["internal_deletion"] = True
+        # How many polymers the reference holds this deposit chain as, which is
+        # what says whether it ligated the pieces or left them apart.  Counted
+        # here because it is provenance and cannot be recovered afterwards: one
+        # reference chain carrying an internal deletion and two reference chains
+        # merged onto one deposit chain produce the same ranges.
+        target["reference_polymers"] = target.get("reference_polymers", 1) + 1
         target["numbering_certain"] = bool(target.get("numbering_certain")
                                            and entry.get("numbering_certain"))
     for entry in merged.values():
@@ -568,39 +574,28 @@ def bilayer(metadata):
     return {"lipid": names[0] if len(names) == 1 else names, "residues": count}
 
 
-def joins_its_pieces(reference_pdb, chosen_chains):
+def joins_its_pieces(chosen_chains):
     """The deposit chains whose pieces the reference holds as one polymer.
 
     A fusion construct is written as two ranges, and simulating it is not one
     decision but two: the crystallisation partner comes out, and then the two
     receptor halves are either left as separate chains or ligated into one.
-    Measured across the ten fusion references in the cast, six ligate and four
-    do not -- 5ZK8 bonds residue 214 to 383 at 1.35 A where the deposit leaves
-    them 9.6 A apart, while 5YC8 keeps 199 and 79 residues apart.  The deposit
-    records neither, so the prompt has to.
+    Measured across the fusion references in the cast, 5ZK8 bonds residue 214 to
+    383 at 1.35 A where the deposit leaves them 9.6 A apart, while 5YC8 keeps
+    199 and 79 residues apart.  The deposit records neither, so the prompt has
+    to.
 
-    Attribution needs the pieces and the reference's polymers to correspond, and
-    they only do while one chain carries the several ranges.  Every task in the
-    cast that has any is such a task; one that is not raises rather than
-    guessing which chain was joined.
+    Read from provenance rather than inferred from counts.  The two ways a chain
+    comes to carry several ranges are exactly the two answers: one reference
+    chain with an internal deletion is one polymer and was ligated, while
+    several reference chains merged onto one deposit chain are several polymers
+    and were not.  Counting instead -- fewer reference polymers than requested
+    pieces -- reads a bound ligand or a chain break inside a piece as a join,
+    and cannot say which of three pieces were joined to which.
     """
-    monomers = _cp().split_monomers(_cp().read_residues(reference_pdb))
-    pieces = sum(len(entry.get("ranges") or []) for entry in chosen_chains)
-    if len(monomers) >= pieces:
-        return frozenset()
-    multi = [entry["deposit_chain"] for entry in chosen_chains
-             if len(entry.get("ranges") or []) > 1]
-    if len(multi) != 1:
-        raise SystemExit(
-            f"{len(monomers)} reference polymers for {pieces} requested pieces, "
-            f"and {len(multi)} chains carry more than one range: which chain the "
-            "reference joined cannot be read off the counts")
-    return frozenset(multi)
-
-
-def _cp():
-    from mddatabench import composition
-    return composition
+    return frozenset(entry["deposit_chain"] for entry in chosen_chains
+                     if len(entry.get("ranges") or []) > 1
+                     and entry.get("reference_polymers", 1) == 1)
 
 
 def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonation,

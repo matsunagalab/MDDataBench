@@ -253,3 +253,18 @@ def test_a_truncation_is_read_as_the_lipid_the_contract_states():
 
 def test_no_bilayer_decomposes_to_nothing():
     assert cp.lipid_chemistry({}, "DPPC") == (frozenset(), 0)
+
+
+def test_the_bilayer_is_looked_for_where_it_is_added(tmp_path):
+    """A prepared structure has no bilayer yet; the topology is the built system.
+
+    The membrane is added at solvation, so reading the prep artifact reports "no
+    lipid" for a submission that embedded the receptor in 344 good DPPC.
+    """
+    receptor = write(tmp_path, "prepared.pdb", glycine(1, 1, (0.0, 0.0, 0.0)))
+    rows = glycine(1, 1, (0.0, 0.0, 0.0))
+    for i in range(4):
+        rows += lipid(5 + 2 * i, 2 + i, (20.0 + 5 * i, 0.0, 0.0))
+    built = write(tmp_path, "topology.pdb", rows)
+    assert cp.lipid_species(receptor) == {}
+    assert cp.lipid_species(built) == {"DPP": 4}

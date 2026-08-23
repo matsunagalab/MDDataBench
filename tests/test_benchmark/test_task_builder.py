@@ -129,70 +129,56 @@ def test_a_paper_title_is_shortened_to_a_name():
 
 # --- ligated or not is a decision the deposit does not record -----------------
 # A fusion construct written as two ranges can be simulated as two chains or as
-# one.  Measured across the ten fusion references in the cast, six ligate the
-# halves and four do not: 5ZK8 bonds residue 214 to 383 at 1.35 A where the
-# deposit leaves them 9.63 A apart, while 5YC8 keeps 199 and 79 residues apart.
+# one.  5ZK8 bonds residue 214 to 383 at 1.35 A where the deposit leaves them
+# 9.63 A apart; 5YC8 keeps 199 and 79 residues apart.  Which it is follows from
+# where the ranges came from, not from counting anything: one reference chain
+# with an internal deletion is one polymer, several reference chains merged onto
+# one deposit chain are several.
 
-# One residue's N-CA-C, laid on the x axis.  Consecutive residues 4.23 A apart
-# put the C of one 1.33 A from the N of the next, which is the peptide bond
-# split_monomers looks for; anything further apart reads as a chain break.
-BACKBONE = (("N", 0.00, "N"), ("CA", 1.45, "C"), ("C", 2.90, "C"))
-RESIDUE_PITCH = 4.23
-
-
-def _pdb(tmp_path, name, chains):
-    """chains: {chain: [(resnum, x)]} -- a backbone trace at the given offsets."""
-    rows, serial = [], 1
-    for chain, residues in chains.items():
-        for resnum, x in residues:
-            for name_, dx, element in BACKBONE:
-                rows.append(f"ATOM  {serial:5d}  {name_:<3s} ALA {chain}{resnum:4d}    "
-                            f"{x + dx:8.3f}{0.0:8.3f}{0.0:8.3f}"
-                            f"  1.00  0.00          {element:>2s}")
-                serial += 1
-    path = tmp_path / name
-    path.write_text("\n".join(rows) + "\nEND\n")
-    return str(path)
+def test_one_reference_chain_with_a_deletion_was_ligated():
+    """5ZK8: reference chain A, 273 residues, 115 removed from the middle."""
+    merged = tb.merge_by_deposit_chain([
+        {"deposit_chain": "A", "ranges": [["18", "214"], ["383", "458"]],
+         "residues": 273, "removed_residues": 115, "internal_deletion": True},
+    ])
+    assert tb.joins_its_pieces(merged) == frozenset({"A"})
 
 
-def test_a_joined_reference_is_reported_as_joined(tmp_path):
-    """One polymer where two ranges were asked for: the reference ligated them."""
-    reference = _pdb(tmp_path, "joined.pdb",
-                     {"A": [(i, RESIDUE_PITCH * i) for i in range(1, 7)]})
-    chains = [{"deposit_chain": "A", "ranges": [["18", "20"], ["383", "385"]]}]
-    assert tb.joins_its_pieces(reference, chains) == frozenset({"A"})
+def test_two_reference_chains_on_one_deposit_chain_were_not():
+    """5YC8: reference chains A (199) and B (79), both deposit chain A."""
+    merged = tb.merge_by_deposit_chain([
+        {"deposit_chain": "A", "ranges": [["16", "214"]], "residues": 199},
+        {"deposit_chain": "A", "ranges": [["380", "458"]], "residues": 79},
+    ])
+    assert len(merged) == 1 and len(merged[0]["ranges"]) == 2
+    assert tb.joins_its_pieces(merged) == frozenset()
 
 
-def test_a_reference_that_kept_them_apart_says_nothing(tmp_path):
-    """Two polymers for two ranges: nothing to state, the ranges already say it."""
-    reference = _pdb(tmp_path, "apart.pdb",
-                     {"A": [(1, 0.0), (2, 4.23), (3, 8.46)],
-                      "B": [(4, 40.0), (5, 44.23), (6, 48.46)]})
-    chains = [{"deposit_chain": "A", "ranges": [["18", "20"], ["383", "385"]]}]
-    assert tb.joins_its_pieces(reference, chains) == frozenset()
+def test_three_reference_chains_are_three_polymers():
+    """6KUY: 140, 45 and 79 residues, all on deposit chain A."""
+    merged = tb.merge_by_deposit_chain([
+        {"deposit_chain": "A", "ranges": [["35", "172"]], "residues": 140},
+        {"deposit_chain": "A", "ranges": [["183", "227"]], "residues": 45},
+        {"deposit_chain": "A", "ranges": [["365", "443"]], "residues": 79},
+    ])
+    assert tb.joins_its_pieces(merged) == frozenset()
 
 
-def test_more_polymers_than_ranges_is_not_a_join(tmp_path):
-    """6KUY's reference breaks a range in two; that is stated as a removal."""
-    reference = _pdb(tmp_path, "extra.pdb",
-                     {"A": [(1, 0.0), (2, 4.23)],
-                      "B": [(3, 40.0), (4, 44.23)],
-                      "C": [(5, 80.0), (6, 84.23)]})
-    chains = [{"deposit_chain": "A", "ranges": [["18", "19"], ["383", "384"]]}]
-    assert tb.joins_its_pieces(reference, chains) == frozenset()
+def test_a_single_range_chain_is_never_reported():
+    merged = tb.merge_by_deposit_chain([
+        {"deposit_chain": "A", "ranges": [["1", "100"]], "residues": 100}])
+    assert tb.joins_its_pieces(merged) == frozenset()
 
 
-def test_it_refuses_to_guess_which_chain_was_joined(tmp_path):
-    """6I53: several chains carry several ranges, and the counts cannot say."""
-    reference = _pdb(tmp_path, "ambiguous.pdb",
-                     {"A": [(i, RESIDUE_PITCH * i) for i in range(1, 5)],
-                      "B": [(i, 40.0 + RESIDUE_PITCH * i) for i in range(1, 5)],
-                      "C": [(i, 80.0 + RESIDUE_PITCH * i) for i in range(1, 5)]})
-    chains = [{"deposit_chain": "A", "ranges": [["1", "2"], ["10", "11"]]},
-              {"deposit_chain": "B", "ranges": [["1", "2"], ["10", "11"]]}]
-    with pytest.raises(SystemExit) as raised:
-        tb.joins_its_pieces(reference, chains)
-    assert "cannot be read off the counts" in str(raised.value)
+def test_each_chain_is_answered_on_its_own():
+    """6I53 has several multi-range chains; provenance answers each separately."""
+    merged = tb.merge_by_deposit_chain([
+        {"deposit_chain": "A", "ranges": [["10", "323"], ["384", "418"]],
+         "residues": 349, "removed_residues": 60, "internal_deletion": True},
+        {"deposit_chain": "E", "ranges": [["8", "312"]], "residues": 303},
+        {"deposit_chain": "E", "ranges": [["418", "447"]], "residues": 33},
+    ])
+    assert tb.joins_its_pieces(merged) == frozenset({"A"})
 
 
 def test_the_prompt_says_it_only_for_the_chains_that_were_joined():
