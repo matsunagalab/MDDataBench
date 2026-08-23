@@ -268,3 +268,89 @@ def test_the_bilayer_is_looked_for_where_it_is_added(tmp_path):
     built = write(tmp_path, "topology.pdb", rows)
     assert cp.lipid_species(receptor) == {}
     assert cp.lipid_species(built) == {"DPP": 4}
+
+
+# --- the contract atoms are placed by pairing, not by numbering ---------------
+# The two sides share no numbering. An antibody numbers each of its three chains
+# from 1, so 624 of 1AHW's 642 keys name three residues up to 88.8 A apart, and a
+# (residue number, atom name) lookup resolved all three to the first while
+# reporting 1908 of 1908 matched. A submission also keeps the deposit's numbering
+# where the reference renumbers: 5ZK8 runs 18-214 and 383-458 against 1..273.
+
+def _chain(rows, chain, start, names):
+    """Backbone-only residues at 4.23 A pitch, which is one peptide bond apart."""
+    out, serial = [], len(rows) + 1
+    for i, name in enumerate(names):
+        x = 4.23 * i
+        for atom, dx, element in (("N", 0.0, "N"), ("CA", 1.45, "C"), ("C", 2.90, "C")):
+            out.append(f"ATOM  {serial:5d}  {atom:<3s} {name} {chain}{start + i:4d}    "
+                       f"{x + dx:8.3f}{0.0:8.3f}{0.0:8.3f}  1.00  0.00          {element:>2s}")
+            serial += 1
+    return out
+
+
+def _file(tmp_path, name, rows):
+    path = tmp_path / name
+    path.write_text("\n".join(rows) + "\nEND\n")
+    return path
+
+
+def _placed(tmp_path, reference_rows, submitted_rows, indices):
+    from mddatabench.scoring import pdb_atoms
+    reference = _file(tmp_path, "reference.pdb", reference_rows)
+    submitted = _file(tmp_path, "submitted.pdb", submitted_rows)
+    ref_m = cp.split_monomers(cp.read_residues(reference))
+    sub_m = cp.split_monomers(cp.read_residues(submitted))
+    pairs, _ = cp.match_monomers(ref_m, sub_m)
+    return cp.contract_correspondence(indices, pdb_atoms(reference), ref_m,
+                                      pdb_atoms(submitted), sub_m, pairs)
+
+
+def test_a_submission_numbered_from_the_deposit_still_places(tmp_path):
+    """5ZK8's case: reference 1..N, submission 18..N+17."""
+    names = ["ALA", "GLY", "SER", "THR"]
+    reference = _chain([], "A", 1, names)
+    submitted = _chain([], "A", 18, names)
+    own, missing = _placed(tmp_path, reference, submitted, [0, 1, 2, 9, 10, 11])
+    assert not missing and own == [0, 1, 2, 9, 10, 11]
+
+
+def test_three_chains_numbered_alike_do_not_collapse(tmp_path):
+    """1AHW's case: each chain numbered from 1, so every key names three atoms."""
+    a = _chain([], "A", 1, ["ALA", "GLY"])
+    b = _chain(a, "B", 1, ["SER", "THR"])
+    c = _chain(a + b, "C", 1, ["VAL", "LEU"])
+    reference = a + b + c
+    own, missing = _placed(tmp_path, reference, reference, [0, 6, 12])
+    assert not missing
+    assert own == [0, 6, 12], "one atom per chain, not the first three times"
+
+
+def test_a_chain_the_submission_did_not_build_is_named(tmp_path):
+    a = _chain([], "A", 1, ["ALA", "GLY"])
+    b = _chain(a, "B", 1, ["SER", "THR"])
+    own, missing = _placed(tmp_path, a + b, a, [0, 6])
+    assert own == [0] and len(missing) == 1
+    assert "does not pair" in missing[0]
+
+
+def test_a_chain_built_to_the_wrong_length_pairs_with_nothing(tmp_path):
+    """Pairing is on the whole canonical sequence, so a short chain never pairs.
+
+    That is the safe answer rather than the informative one: it fails loudly
+    instead of placing the residues that happen to line up and quietly comparing
+    fluctuations of a molecule the submission did not build.
+    """
+    reference = _chain([], "A", 1, ["ALA", "GLY", "SER"])
+    submitted = _chain([], "A", 1, ["ALA", "GLY", "SER"])[:6]
+    own, missing = _placed(tmp_path, reference, submitted, [0, 6])
+    assert own == [] and len(missing) == 2
+    assert all("does not pair" in m for m in missing)
+
+
+def test_terminal_nucleotides_pair_with_their_plain_form():
+    """Every nucleic reference marks its ends by name; a submission need not."""
+    assert cp.CANONICAL_RESIDUE["DA5"] == "DA"
+    assert cp.CANONICAL_RESIDUE["DT3"] == "DT"
+    assert cp.CANONICAL_RESIDUE["G5"] == "G"
+    assert cp.CANONICAL_RESIDUE["C3"] == "C"

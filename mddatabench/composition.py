@@ -49,6 +49,21 @@ CANONICAL_RESIDUE = {
     "LYN": "LYS", "ARN": "ARG", "TYM": "TYR",
 }
 
+# Terminal nucleotides, collapsed onto the same parent for the same reason.
+# Amber marks a strand's ends by name -- DA5, DT3, G5, C3 -- and every nucleic
+# reference in the cast is written that way, while a submission may write the
+# plain residue and leave the terminus to the atoms. Measured by stripping the
+# suffixes from each reference and re-matching: without this, 12 of the 14
+# nucleic tasks pair no monomer at all and 1KX5 pairs 8 of 10, so three md gates
+# fail on a correct submission. What the terminus actually is stays graded,
+# because a 5' end carries no phosphate and the atom count inside the matched
+# monomer says so.
+CANONICAL_RESIDUE.update({
+    f"{base}{end}": base
+    for base in ("DA", "DC", "DG", "DT", "DU", "A", "C", "G", "U", "T")
+    for end in ("5", "3")
+})
+
 SOLVENT_RESIDUES = {
     "HOH", "WAT", "TIP", "TIP3", "TIP4", "SOL", "T3P", "T4P", "OPC",
     "NA", "NA+", "SOD", "CL", "CL-", "CLA", "K", "K+", "POT", "MG", "CA",
@@ -319,6 +334,65 @@ def match_monomers(reference, submission):
                 f"submission has an extra {len(sequence)}-residue chain "
                 f"({''.join(s[0] for s in sequence[:12])}...) absent from the reference")
     return pairs, problems
+
+
+def contract_correspondence(indices, reference_rows, reference_monomers,
+                            submitted_rows, submitted_monomers, pairs):
+    """Where each reference contract atom is in the submission.
+
+    The contract names backbone atoms by their index into ``reference.pdb``, and
+    the fluctuation gates need the submission's own index for each of them.
+    Resolving that by ``(residue number, atom name)`` -- what this replaced --
+    compares two files that share no numbering: an antibody numbers each of its
+    three chains from 1, so 624 of 1AHW's 642 keys name three different residues
+    up to 88.8 A apart and every one of them resolved to the first, reporting
+    1908 of 1908 "matched" while 1266 were wrong.  It is not only multimers: a
+    submission keeps the deposit's numbering, and 5ZK8 runs 18-214 and 383-458
+    against a reference renumbered 1..273.
+
+    Anchored on the monomer pairing instead, which ``match_monomers`` makes from
+    canonical sequence and ``split_monomers`` makes from backbone geometry, so
+    neither residue numbers nor chain labels are read across the two sides.
+    Within one file ``(chain, residue number, atom name)`` does address one atom,
+    and that is all it is used for here.
+
+    Returns ``(own_indices, missing)``; ``missing`` describes each atom that
+    could not be placed, so a failure names its cause instead of a count.
+    """
+    position = {}
+    for monomer in reference_monomers:
+        for offset, residue in enumerate(monomer):
+            position[(residue.chain, residue.resseq)] = (id(monomer), offset)
+    partner = {id(reference): submitted for reference, submitted in pairs}
+    submitted_index = {}
+    for n, row in enumerate(submitted_rows):
+        submitted_index.setdefault((row[0], row[1], row[2]), n)
+
+    own, missing = [], []
+    for i in indices:
+        chain, resseq, atom_name = reference_rows[i][0], reference_rows[i][1], reference_rows[i][2]
+        placed = position.get((chain, resseq))
+        if placed is None:
+            missing.append(f"{chain}:{resseq}:{atom_name} is in no reference monomer")
+            continue
+        monomer_id, offset = placed
+        submitted_monomer = partner.get(monomer_id)
+        if submitted_monomer is None:
+            missing.append(f"{chain}:{resseq}:{atom_name} is in a monomer the "
+                           "submission does not pair with")
+            continue
+        if offset >= len(submitted_monomer):
+            missing.append(f"{chain}:{resseq}:{atom_name} is position {offset + 1} of a "
+                           f"monomer the submission holds {len(submitted_monomer)} of")
+            continue
+        residue = submitted_monomer[offset]
+        n = submitted_index.get((residue.chain, residue.resseq, atom_name))
+        if n is None:
+            missing.append(f"{chain}:{resseq}:{atom_name} has no {atom_name} in the "
+                           f"submission's {residue.name}{residue.resseq}")
+            continue
+        own.append(n)
+    return own, missing
 
 
 # Metals whose coordination decides the protonation of the side chains around

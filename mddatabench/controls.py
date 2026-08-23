@@ -50,8 +50,10 @@ import pathlib
 import mdtraj as md
 import numpy as np
 
+from mddatabench import composition as cp
 from mddatabench import dynamics as dy
 from mddatabench import execution as ex
+from mddatabench import scoring as sc
 from mddatabench.scoring import find_node
 
 
@@ -124,21 +126,26 @@ def run_negative_controls(job_dir: str, bundle: str, task_file: str) -> dict:
     # trajectory keeps `traj.time` as a frame count, so the truncations would
     # otherwise be clocked in the wrong unit and could pass.
     interval = ex.dcd_frame_interval_ps(traj_path)
-    lookup, n = {}, 0
-    for line in open(topology):
-        # index by atom ordinal, not by file line: the topology carries headers
-        if line.startswith(("ATOM", "HETATM")):
-            lookup.setdefault((line[22:27].strip(), line[12:16].strip()), n)
-            n += 1
-    keys = [(rows[i][22:27].strip(), rows[i][12:16].strip()) for i in indices]
-    missing = [k for k in keys if k not in lookup]
+    # Placed exactly as the scorer places them, through the monomer pairing.
+    # This used to run its own (residue number, atom name) lookup against the
+    # topology node while the scorer used the minimised structure, and the two
+    # then disagreed about the same submission: 819 of 819 for the scorer,
+    # "228 absent" and unrunnable here.
+    minimized = find_node(job_dir, "min") / "artifacts" / "minimized_structure.pdb"
+    reference_atoms = sc.pdb_atoms(bundle / "reference.pdb")
+    reference_monomers = cp.split_monomers(cp.read_residues(bundle / "reference.pdb"))
+    submitted_monomers = cp.split_monomers(cp.read_residues(minimized))
+    pairs, _ = cp.match_monomers(reference_monomers, submitted_monomers)
+    own, missing = cp.contract_correspondence(
+        indices, reference_atoms, reference_monomers,
+        sc.pdb_atoms(minimized), submitted_monomers, pairs)
     if missing:
         # The scorer downgrades this to three failed checks and carries on; a
         # KeyError here would lose the whole report instead.
         return {"task_id": task["task_id"],
-                "unrunnable": f"{len(missing)} of {len(keys)} reference contract atoms "
-                              f"are absent from the submitted topology"}
-    own = np.array([lookup[k] for k in keys])
+                "unrunnable": f"{len(missing)} of {len(indices)} reference contract atoms "
+                              f"could not be placed in the submission; {missing[:2]}"}
+    own = np.array(own)
     rng = np.random.default_rng(11)
 
     # The scorer thins the trajectory to the windows' own 10 ps before measuring,

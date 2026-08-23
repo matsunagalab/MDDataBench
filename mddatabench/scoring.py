@@ -553,17 +553,20 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     # --- what a nanosecond can honestly be asked to reproduce -----------------
     reference_atoms = pdb_atoms(bundle / "reference.pdb")
     indices = json.loads((bundle / "pca_atom_indices.json").read_text())["atom_indices"]
-    keys = [(reference_atoms[i][1], reference_atoms[i][2]) for i in indices]
-
+    # Placed through the monomer pairing, not through residue numbers. The two
+    # sides share no numbering -- an antibody numbers each of its three chains
+    # from 1, and a submission keeps the deposit's while the reference renumbers
+    # -- so a (residue number, atom name) lookup either misses or, worse, hits
+    # the wrong residue and says nothing: on 1AHW it reported 1908 of 1908
+    # matched with 1266 of them up to 88.8 A from the atom they name.
     topology_pdb = topo / "artifacts" / "system.topology.pdb"
-    lookup = {}
-    for n, row in enumerate(pdb_atoms(topology_pdb)):
-        lookup.setdefault((row[1], row[2]), n)
-    missing = [k for k in keys if k not in lookup]
-    own_indices = np.array([lookup[k] for k in keys if k in lookup])
+    own_list, missing = cp.contract_correspondence(
+        indices, reference_atoms, reference_monomers,
+        pdb_atoms(minimized_structure), submitted_monomers, pairs)
+    own_indices = np.array(own_list)
     check("contract_atoms_resolvable", not missing,
-          f"{len(own_indices)}/{len(keys)} contract atoms matched by (residue, atom name)"
-          + (f"; missing {missing[:4]}" if missing else ""))
+          f"{len(own_list)}/{len(indices)} contract atoms placed through the monomer "
+          f"pairing" + (f"; {missing[:3]}" if missing else ""))
 
     # Thinned to the reference windows' 10 ps so both sides carry the same number
     # of samples; measured, the statistics move by less than 0.02 across strides
@@ -627,8 +630,8 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
                          "fluctuation_magnitude_is_physical",
                          "radius_of_gyration_matches_reference"):
             check(check_id, False,
-                  f"not evaluable: {len(missing)} of {len(keys)} reference contract "
-                  "atoms are absent from the submitted topology")
+                  f"not evaluable: {len(missing)} of {len(indices)} reference contract "
+                  f"atoms could not be placed in the submission; {missing[:2]}")
         agreement = None
     else:
         agreement = dy.profile_agreement(dy.atom_fluctuations(own_xyz),
