@@ -20,5 +20,7 @@ Chain C does not resolve residues 28, 29, 30, 31, 32, 34; the range runs through
 
 Chain D is deposited as a fusion: 61 residues between those ranges belong to the crystallisation partner. Simulate the protein without them.
 
+Embed it in a **DPPC** bilayer.
+
 Leave the prepared structure, the topology, the minimised state and the production
 trajectory as artifacts. The evaluator recomputes everything it needs from them.

@@ -174,3 +174,43 @@ def test_a_distant_cysteine_histidine_pair_is_not_exempt(tmp_path):
     path = write(tmp_path, "far.pdb", rows)
     monomers = cp.split_monomers(cp.read_residues(path))
     assert cp.catalytic_dyad_positions(monomers, cp.read_metals(path)) == {}
+
+
+# --- a bilayer is environment, not solute ------------------------------------
+# The membrane references carry 360 DPPC around a receptor whose crystal has a
+# handful of ordered lipids at most.  Counting them turned every membrane task
+# into a guess at the reference's box: 360 lipids contribute 360 monomers and
+# 360 phosphorus atoms to comparisons that demand exact equality, so a
+# submission with a perfectly good bilayer of 320 failed on both.
+
+def lipid(serial, resseq, origin, name="DPP"):
+    ox, oy, oz = origin
+    return [atom(serial, "P", name, resseq, (ox, oy, oz), "P"),
+            atom(serial + 1, "C1", name, resseq, (ox + 1.5, oy, oz), "C")]
+
+
+def test_lipids_do_not_enter_the_residue_or_element_comparison(tmp_path):
+    rows = glycine(1, 1, (0.0, 0.0, 0.0)) + lipid(5, 2, (20.0, 0.0, 0.0))
+    residues = cp.read_residues(write(tmp_path, "bilayer.pdb", rows))
+    assert [r.name for r in residues] == ["GLY"]
+    assert "P" not in cp.element_totals(cp.split_monomers(residues))
+
+
+def test_the_species_is_reported_separately_because_it_is_a_decision(tmp_path):
+    rows = glycine(1, 1, (0.0, 0.0, 0.0))
+    for i in range(3):
+        rows += lipid(5 + 2 * i, 2 + i, (20.0 + 5 * i, 0.0, 0.0))
+    path = write(tmp_path, "species.pdb", rows)
+    assert cp.lipid_species(path) == {"DPP": 3}
+
+
+def test_a_structure_with_no_lipid_reports_none(tmp_path):
+    path = write(tmp_path, "none.pdb", glycine(1, 1, (0.0, 0.0, 0.0)))
+    assert cp.lipid_species(path) == {}
+
+
+def test_the_four_letter_and_three_letter_spellings_are_one_lipid(tmp_path):
+    """A PDB truncates DPPC to three columns; both are the same decision."""
+    rows = glycine(1, 1, (0.0, 0.0, 0.0)) + lipid(5, 2, (20.0, 0.0, 0.0), "DPP")
+    assert set(cp.lipid_species(write(tmp_path, "trunc.pdb", rows))) == {"DPP"}
+    assert "DPPC" in cp.LIPID_RESIDUES and "DPP" in cp.LIPID_RESIDUES

@@ -43,6 +43,14 @@ ONE_LETTER = {v: k for k, v in reversed(list(AMINO.items()))}
 # invisible to it, while every variant below costs or adds exactly one hydrogen.
 # Stating a tautomer would hand over a free answer; not stating an ionisation
 # would make the check unanswerable.
+# Lipids a reference can carry.  A single one is a bound ligand; a bilayer is
+# hundreds, and the scorer compares composition against the reference, so a
+# submission that leaves the membrane out fails on every count.
+LIPIDS = frozenset({"POPC", "POPE", "POPS", "POPG", "POPI", "POPA", "DPPC", "DOPC",
+                    "DOPE", "DMPC", "DPPE", "DPPG", "DLPC", "PLPC", "SDPC", "SAPI",
+                    "CHL1", "CHOL", "PSM", "SSM"})
+BILAYER_RESIDUES = 20
+
 # An author-numbering step larger than this is a renumbering rather than an
 # unresolved stretch.  Deposits number a fusion partner in the 1000s, so the
 # jump is hundreds; the longest unresolved stretch in the cast is 46 residues.
@@ -542,6 +550,24 @@ def _range_text(entry):
             + " and ".join(f"**{a}–{b}**" for a, b in spans))
 
 
+def bilayer(metadata):
+    """The lipid a reference is embedded in, and how many of it.
+
+    A deposit does not say either: the crystallised receptor carries a handful of
+    ordered lipids at most, while the reference simulated 360. Leaving it to the
+    agent means building the receptor in water, which is not the system.
+    """
+    count = metadata.get("LIPIRES") or 0
+    try:
+        count = int(count)
+    except (TypeError, ValueError):
+        return None
+    if count < BILAYER_RESIDUES:
+        return None
+    names = sorted(set(metadata.get("RSNAME") or []) & LIPIDS)
+    return {"lipid": names[0] if len(names) == 1 else names, "residues": count}
+
+
 def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonation,
                  window_ns, replicas=1):
     """The text an agent is given.  Derived, not written."""
@@ -608,6 +634,11 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
             continue
         lines += [f"Residue {entry['residue']} is deposited as **{entry['name']}**, a "
                   f"modified {entry['parent']}. Simulate the unmodified residue.", ""]
+    membrane = bilayer(metadata)
+    if membrane:
+        lipid = membrane["lipid"]
+        what = lipid if isinstance(lipid, str) else " and ".join(lipid)
+        lines += [f"Embed it in a **{what}** bilayer.", ""]
     if metadata.get("_structural_metals"):
         names = ", ".join(sorted(metadata["_structural_metals"]))
         lines += [f"The entry carries a structural {names}. Keep it.", ""]

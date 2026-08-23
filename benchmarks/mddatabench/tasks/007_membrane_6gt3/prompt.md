@@ -8,5 +8,7 @@ Simulate Adenosine receptor A2a, PDB entry **6GT3**, chain **A** residues **-1â€
 
 Residue 209â€“218 of chain A is not part of the reference. Leave it out.
 
+Embed it in a **DPPC** bilayer.
+
 Leave the prepared structure, the topology, the minimised state and the production
 trajectory as artifacts. The evaluator recomputes everything it needs from them.

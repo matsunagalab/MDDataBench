@@ -319,6 +319,33 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     submitted_topology, submitted_bonds, topology_error = tp.load_submission(
         topo / "artifacts" / "system.system.xml", topology_pdb)
 
+    # --- the bilayer, if there is one -----------------------------------------
+    reference_lipids = cp.lipid_species(bundle / "reference.pdb")
+    submitted_lipids = cp.lipid_species(prepared)
+    minimum = float(spec.get("membrane_matches_reference", {})
+                    .get("minimum_fraction_of_reference_lipids", 0.5))
+
+    def _species(counts):
+        # PDB truncates a four-letter lipid to three columns, so DPPC and DPP are
+        # the same decision written two ways.
+        return {name[:3] for name in counts}
+
+    if not reference_lipids:
+        check("membrane_matches_reference", not submitted_lipids,
+              "the reference carries no bilayer; the submission carries "
+              + (", ".join(f"{n} x{c}" for n, c in sorted(submitted_lipids.items()))
+                 if submitted_lipids else "none either"))
+    else:
+        wanted, built = _species(reference_lipids), _species(submitted_lipids)
+        enough = (sum(submitted_lipids.values())
+                  >= minimum * sum(reference_lipids.values()))
+        check("membrane_matches_reference", wanted == built and enough,
+              f"reference {', '.join(f'{n} x{c}' for n, c in sorted(reference_lipids.items()))} "
+              f"against submitted "
+              f"{', '.join(f'{n} x{c}' for n, c in sorted(submitted_lipids.items())) or 'no lipid'}"
+              + ("" if wanted == built else f"; species differ: {sorted(wanted)} vs {sorted(built)}")
+              + ("" if enough else f"; fewer than {minimum:g} of the reference's count"))
+
     pairs, mismatches = cp.match_monomers(reference_monomers, submitted_monomers)
     check("monomer_count_matches_reference", not mismatches,
           f"{len(reference_monomers)} reference monomer(s), {len(submitted_monomers)} submitted"

@@ -55,6 +55,22 @@ SOLVENT_RESIDUES = {
     "ZN", "IOD", "BR", "LI", "CS", "RB", "F",
 }
 
+# Lipids of a bilayer, which are environment rather than solute.  How many of
+# them there are follows from the box the agent chose, not from any chemistry
+# decision: the membrane references carry 360 and a submission that builds a
+# perfectly good bilayer of 320 is not wrong.  Counting them turned every
+# membrane task into a guess at the reference's box, because a reference with
+# 360 DPPC contributes 360 monomers and 360 phosphorus atoms to comparisons that
+# demand exact equality.  Which lipid it is, is a chemistry decision, and
+# ``lipid_species`` checks that separately.
+LIPID_RESIDUES = {
+    "POPC", "POPE", "POPS", "POPG", "POPI", "POPA", "DPPC", "DPPE", "DPPG",
+    "DOPC", "DOPE", "DOPS", "DMPC", "DLPC", "PLPC", "SDPC", "SAPI",
+    "CHL1", "CHOL", "PSM", "SSM",
+    # PDB truncates a four-letter lipid name to three columns.
+    "POP", "DPP", "DOP", "DMP", "DLP", "PLP", "SDP", "SAP", "CHL", "PSM", "SSM",
+}
+
 # Longest bond that still counts as the polymer link.  A peptide C-N is 1.33 A
 # and a phosphodiester O3'-P is 1.60 A; 2.0 A separates them from the 3-4 A gap
 # left by a chain break without admitting a non-bonded contact.
@@ -132,15 +148,37 @@ class Residue:
         return f"{self.name}{self.resseq}"
 
 
+def lipid_species(path):
+    """Which lipids a structure carries, and how many of each.
+
+    Kept separate from the residue list because the species is a decision and
+    the count is a consequence of the box.
+    """
+    counts = collections.Counter()
+    seen = set()
+    for line in open(path):
+        if not line.startswith(("ATOM", "HETATM")):
+            continue
+        name = line[17:20].strip().upper()
+        if name not in LIPID_RESIDUES:
+            continue
+        key = (line[21], line[22:27].strip(), name)
+        if key in seen:
+            continue
+        seen.add(key)
+        counts[name] += 1
+    return dict(counts)
+
+
 def read_residues(path, drop_solvent=True):
-    """Ordered residues of a PDB, solvent and free ions removed by default."""
+    """Ordered residues of a PDB, solvent, free ions and bilayer lipids removed."""
     residues = []
     current = None
     for line in open(path):
         if not line.startswith(("ATOM", "HETATM")):
             continue
         name = line[17:20].strip()
-        if drop_solvent and name.upper() in SOLVENT_RESIDUES:
+        if drop_solvent and name.upper() in (SOLVENT_RESIDUES | LIPID_RESIDUES):
             current = None
             continue
         chain, resseq = line[21], line[22:27].strip()

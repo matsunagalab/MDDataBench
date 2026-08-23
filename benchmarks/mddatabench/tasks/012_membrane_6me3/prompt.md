@@ -10,5 +10,7 @@ Residue 1003 of chain A is not part of the reference. Leave it out.
 
 Residue 1004 is deposited as **YCM**, a modified CYS. Simulate the unmodified residue.
 
+Embed it in a **DPPC** bilayer.
+
 Leave the prepared structure, the topology, the minimised state and the production
 trajectory as artifacts. The evaluator recomputes everything it needs from them.

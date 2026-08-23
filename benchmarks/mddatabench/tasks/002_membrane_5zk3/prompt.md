@@ -8,5 +8,7 @@ Simulate Muscarinic acetylcholine receptor M2, PDB entry **5ZK3**, chain **A** r
 
 Chain A is deposited as a fusion: 114 residues between those ranges belong to the crystallisation partner. Simulate the protein without them.
 
+Embed it in a **DPPC** bilayer.
+
 Leave the prepared structure, the topology, the minimised state and the production
 trajectory as artifacts. The evaluator recomputes everything it needs from them.

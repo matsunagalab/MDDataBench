@@ -10,5 +10,7 @@ Chain A is deposited as a fusion: 165 residues between those ranges belong to th
 
 Chain A does not resolve residue 16; the range runs through them, so build them.
 
+Embed it in a **DPPC** bilayer.
+
 Leave the prepared structure, the topology, the minimised state and the production
 trajectory as artifacts. The evaluator recomputes everything it needs from them.
