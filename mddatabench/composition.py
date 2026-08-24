@@ -261,6 +261,11 @@ def canonical_sequence(monomer):
     return tuple(r.canonical for r in monomer)
 
 
+def residue_formula(residue):
+    """Element counts including hydrogen, used to resolve a generic ``LIG``."""
+    return tuple(sorted(collections.Counter(atom[1] for atom in residue.atoms).items()))
+
+
 def match_monomers(reference, submission):
     """Pair reference monomers with submission monomers by canonical sequence.
 
@@ -268,12 +273,30 @@ def match_monomers(reference, submission):
     same per-residue checks, so sequences are grouped and the group sizes are
     compared.  Returns (pairs, problems).
     """
+    # Some MDDB topology exports replace a deposited ligand name with the
+    # generic residue name LIG.  In that one narrow case the name cannot carry
+    # identity, so pair a singleton submission component only when its complete
+    # formula (including hydrogens) is identical.  Named ligands are never
+    # aliased to one another.
+    generic_ligand_formulas = {
+        residue_formula(monomer[0])
+        for monomer in reference
+        if len(monomer) == 1 and monomer[0].canonical == "LIG"
+    }
+
+    def matching_key(monomer):
+        if len(monomer) == 1:
+            formula = residue_formula(monomer[0])
+            if formula in generic_ligand_formulas:
+                return (("__GENERIC_LIGAND__", formula),)
+        return canonical_sequence(monomer)
+
     ref_groups = collections.defaultdict(list)
     sub_groups = collections.defaultdict(list)
     for m in reference:
-        ref_groups[canonical_sequence(m)].append(m)
+        ref_groups[matching_key(m)].append(m)
     for m in submission:
-        sub_groups[canonical_sequence(m)].append(m)
+        sub_groups[matching_key(m)].append(m)
 
     pairs, problems = [], []
     for sequence, ref_copies in ref_groups.items():
@@ -287,7 +310,7 @@ def match_monomers(reference, submission):
         if sequence not in ref_groups:
             problems.append(
                 f"submission has an extra {len(sequence)}-residue chain "
-                f"({''.join(s[0] for s in sequence[:12])}...) absent from the reference")
+                f"({''.join(str(s)[0] for s in sequence[:12])}...) absent from the reference")
     return pairs, problems
 
 
@@ -481,7 +504,11 @@ def compare_monomer(reference, submission, exempt=()):
     findings = {"sequence": [], "atom_counts": [], "elements": []}
     exempt = set(exempt)
     for index, (r, s) in enumerate(zip(reference, submission), start=1):
-        if r.canonical != s.canonical:
+        generic_ligand_match = (
+            (r.canonical == "LIG" or s.canonical == "LIG")
+            and residue_formula(r) == residue_formula(s)
+        )
+        if r.canonical != s.canonical and not generic_ligand_match:
             findings["sequence"].append(f"#{index} {r.label()} vs {s.label()}")
             continue
         if index in exempt:

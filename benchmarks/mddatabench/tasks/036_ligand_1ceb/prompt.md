@@ -5,6 +5,7 @@ Simulate PLASMINOGEN, PDB entry **1CEB**, chain **A** residues **1A–79**, in e
 - **Amber ff99SB-ILDN** protein force field, **TIP3P** water, neutralised
 - **298 K**, **NPT** at **1 bar**
 - at least **1 ns** of production MD
+- Treat the **AMH** ligand as having expected formal net charge **0** at pH 7
 
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 

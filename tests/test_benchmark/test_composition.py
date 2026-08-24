@@ -88,6 +88,28 @@ def test_element_swap_that_preserves_the_count_is_detected(tmp_path):
     assert ref[0][0].n_atoms == sub[0][0].n_atoms
     assert cp.element_totals(ref) != cp.element_totals(sub)
 
+
+def test_generic_reference_ligand_pairs_by_complete_formula(tmp_path):
+    """MDDB may export AMH as LIG; its complete formula still identifies the component."""
+    atoms = [("C1", "C"), ("N1", "N"), ("H1", "H"), ("H2", "H")]
+    reference = glycine(1, 1, (0.0, 0.0, 0.0), "LIG", extra=atoms)
+    submitted = glycine(1, 90, (20.0, 0.0, 0.0), "AMH", extra=atoms)
+    ref = cp.split_monomers(cp.read_residues(write(tmp_path, "generic_lig.pdb", reference)))
+    sub = cp.split_monomers(cp.read_residues(write(tmp_path, "named_lig.pdb", submitted)))
+    pairs, problems = cp.match_monomers(ref, sub)
+    assert not problems
+    assert cp.compare_monomer(*pairs[0]) == {"sequence": [], "atom_counts": [], "elements": []}
+
+
+def test_generic_reference_ligand_does_not_pair_when_hydrogen_count_differs(tmp_path):
+    reference = glycine(1, 1, (0.0, 0.0, 0.0), "LIG", extra=[("H1", "H")])
+    submitted = glycine(1, 90, (20.0, 0.0, 0.0), "AMH",
+                        extra=[("H1", "H"), ("H2", "H")])
+    ref = cp.split_monomers(cp.read_residues(write(tmp_path, "charged_ref.pdb", reference)))
+    sub = cp.split_monomers(cp.read_residues(write(tmp_path, "charged_sub.pdb", submitted)))
+    _, problems = cp.match_monomers(ref, sub)
+    assert problems
+
 def test_solvent_and_ions_are_not_part_of_the_solute(tmp_path):
     rows = glycine(1, 1, (0.0, 0.0, 0.0)) + [
         atom(9, "O", "HOH", 2, (10.0, 0.0, 0.0), "O", chain="B"),

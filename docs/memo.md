@@ -5,6 +5,59 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-24 — 036_ligand_1ceb passes 20/20 with expected AMH charge
+
+Task `036_ligand_1ceb` now states that AMH has expected formal net charge 0 at
+pH 7. MDClaw used that expectation to select the zwitterionic Dimorphite-DL
+candidate from the CCD SMILES rather than embedding a charged SMILES in the
+task. The prepared solute matches the reference contract exactly: chain A has
+80 residues and 1,225 atoms, AMH has 26 atoms, and the combined solute has
+1,251 atoms. The 36,395-atom ff99SB-ILDN/TIP3P system ran 0.1 ns NVT, 0.2 ns
+NPT, then 1.0 ns NPT production at 298 K and 1 bar on one GPU, saving 100
+frames at 10 ps intervals.
+
+The first score exposed a scorer bug rather than a simulation failure. MDDB's
+reference PDB calls the 26-atom AMH component `LIG`, while the submission
+correctly retains `AMH`; name-only monomer pairing therefore failed three prep
+checks despite identical complete formulas (`C8 H15 N1 O2`). The scorer now
+aliases only a singleton reference component named generic `LIG`, and only to a
+submission singleton with the identical full formula including hydrogen.
+Named ligands are not aliased to one another, and a changed hydrogen count does
+not pair. The composition suite adds both positive and negative regression
+tests.
+
+After the correction the official score is **prep 12/12 and MD 8/8 (20/20
+total)**. Measured values: fluctuation-profile Spearman rho 0.8993, total
+fluctuation 0.4936 A, radius of gyration 11.3131 A, mean temperature 298.853 K,
+density 1.0072 g/mL, and solvent-clock elapsed time 1,013 ps. Negative controls
+returned `all_correct=true`: the real run passed and all nine adversarial
+baselines failed. `pytest tests/test_benchmark -q` passes 727 tests; changed
+files also pass ruff.
+
+## 2026-08-24 — 035_nanobody_6gwn end-to-end run passes 20/20
+
+Ran the complete MDClaw workflow for task `035_nanobody_6gwn` against MDDB
+bundle `mmb_A0594`: chain B (115 residues), ff99SB-ILDN/TIP3P, 0.15 M NaCl,
+300 K and 1 bar, followed by 0.1 ns NVT, 0.2 ns NPT, and 1.0 ns NPT
+production with 4 fs HMR. The 52,418-atom system completed production with
+1,000 DCD frames. PyMOL side/top `system_box` inspection found the compact
+nanobody fully visible inside the periodic box with dispersed solvent and ions;
+the visual review was registered as severity `none`, recommendation `continue`.
+
+The official scorer passed **prep 12/12 and md 8/8 (20/20 total)**. Key measured
+values were fluctuation-profile Spearman rho 0.9216 (floor 0.6940), total
+fluctuation 0.4904 A (reference band 0.3955--0.6236 A), radius of gyration
+13.4261 A (13.2914--13.6701 A), mean temperature 300.443 K, density
+1.0095 g/mL, and solvent-clock elapsed time 979.8 ps for the claimed 1 ns.
+Reference and submission both contained zero disulfide bonds, confirming that
+the approximately 3.5 A Cys22--Cys96 raw-structure contact should not be bonded.
+
+`run_benchmark_negative_controls` returned `all_correct=true`: the real run
+passed and all nine adversarial baselines failed as intended (100 ps, 10 ps,
+frozen frame, 5x motion, shuffled atoms, compressed structure, ANM ensemble,
+isotropic noise, and duplicated minimum). This validates the current task bands
+without changing any scorer threshold.
+
 ## 2026-08-24 — Seven proposed deletions, measured one at a time: two dead, one refuted, the rest thinned
 
 A review proposed deleting seven things from the scorer and replacing the
