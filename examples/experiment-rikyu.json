@@ -1,0 +1,33 @@
+{
+  "experiment_id": "mddatabench-paper-pilot",
+  "replicates": 3,
+  "agent_timeout_seconds": 3600,
+  "md_time_limit": "01:00:00",
+  "tasks": [
+    "027_complex_1b6c"
+  ],
+  "sif": "/data1/rkp00048/mdclaw-rikyu-arm64-cuda130-cufft121-fusefix-54798ff98538.sif",
+  "mdclaw_cli": "/data1/rkp00048/rku00161/mdclaw/bin/mdclaw",
+  "mdclaw_source": "/data1/rkp00048/rku00161/mdclaw",
+  "runtime_sif": "/path/to/scientific-runtime-without-mdclaw.sif",
+  "cells": [
+    {
+      "condition": "cli_skill_sif",
+      "harness": "pi",
+      "model": "rikyu/kimi-k3",
+      "thinking": "high"
+    },
+    {
+      "condition": "cli_sif",
+      "harness": "claude-code",
+      "model": "opus",
+      "thinking": "high"
+    },
+    {
+      "condition": "sif_only",
+      "harness": "codex",
+      "model": "gpt-5.6",
+      "thinking": "high"
+    }
+  ]
+}

@@ -62,6 +62,73 @@ A submission whose pipeline errored out scores **prep 0 and md 0** with the
 reason recorded, rather than raising out of the scorer and vanishing from the
 results.
 
+For repeated agent campaigns across harness, model, and capability conditions,
+including Slurm handoff and paper-table generation, see
+[`docs/experiments.md`](docs/experiments.md). The primary campaign metric is the
+strict per-attempt success rate; partial check scores and any-pass-at-k remain
+diagnostic secondary measures.
+
+### Run a repeated agent campaign on Rikyu
+
+The shortest safe workflow is:
+
+1. Copy [`examples/experiment-rikyu.json`](examples/experiment-rikyu.json) and
+   edit its task and cell lists. Each cell selects one capability condition,
+   harness, and model. `replicates: 3` runs three independent attempts.
+2. Initialize isolated workspaces. Agents receive `prompt.md`, never the hidden
+   task contract or reference trajectory.
+3. Run one pilot attempt with `--limit 1` before launching the full matrix.
+4. Re-run without `--limit` to launch the remaining agents. Preparation runs on
+   the login node; agents submit MD through Slurm. An evaluator-owned scorer is
+   attached to the final MD job with `afterany`.
+5. After the Slurm jobs finish, regenerate the paper and failure tables.
+
+```bash
+cp examples/experiment-rikyu.json /tmp/my-campaign.json
+
+mddatabench init_experiment \
+  --experiment-dir /data1/rkp00048/rku00161/runs/my-campaign \
+  --spec-file /tmp/my-campaign.json \
+  --dataset-dir benchmarks/mddatabench
+
+# First verify one complete agent -> Slurm MD -> scorer path.
+mddatabench run_experiment \
+  --experiment-dir /data1/rkp00048/rku00161/runs/my-campaign \
+  --bundle-root /data1/rkp00048/rku00161/references \
+  --scorer-sif /data1/rkp00048/mdclaw-rikyu-arm64-cuda130-cufft121-fusefix-54798ff98538.sif \
+  --max-agents 1 --limit 1
+
+# Launch the remaining attempts. This is restart-safe.
+mddatabench run_experiment \
+  --experiment-dir /data1/rkp00048/rku00161/runs/my-campaign \
+  --bundle-root /data1/rkp00048/rku00161/references \
+  --scorer-sif /data1/rkp00048/mdclaw-rikyu-arm64-cuda130-cufft121-fusefix-54798ff98538.sif \
+  --max-agents 1
+
+mddatabench collect_experiment \
+  --experiment-dir /data1/rkp00048/rku00161/runs/my-campaign
+```
+
+The three conditions are `cli_skill_sif`, `cli_sif`, and `sif_only`. On Rikyu,
+the first two use the shared old SIF as a dependency layer and overlay the
+current `mdclaw_source`; skill-enabled attempts explicitly load that checkout's
+skills rather than a copy under `~`. `sif_only` requires a separate scientific
+runtime image that does not contain MDClaw.
+
+Available pi models can be recorded without exposing credentials:
+
+```bash
+mddatabench model_inventory --harness pi --out model-inventory.json
+```
+
+The current Rikyu IDs are `rikyu/qwen3.6-35b`, `rikyu/kimi-k2.6`,
+`rikyu/glm-5.2`, and `rikyu/kimi-k3`. Failed preparation, MD, timeout, missing
+submission, and scorer failure all remain in the denominator as zero. Results
+are rebuilt under `<experiment>/summary/`: `summary.csv` is the main table,
+`failures.csv` gives failure causes, and `attempts.jsonl` preserves every run.
+The example uses one-hour limits for agent/preparation, each MD Slurm job, and
+the scorer; change them in the spec only before initializing a campaign.
+
 ## What is here
 
 ```

@@ -22,6 +22,7 @@ Repository = "https://github.com/matsunagalab/MDDataBench"
 
 [project.scripts]
 mddatabench = "mddatabench.__main__:main"
+mddatabench-sbatch = "mddatabench.sbatch_shim:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["mddatabench"]

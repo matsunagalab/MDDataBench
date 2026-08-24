@@ -5,6 +5,37 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-24 — Repeated agent campaigns keep every failure in the denominator
+
+A campaign layer now expands explicit task × condition × harness × model ×
+replicate cells into isolated attempts and rebuilds paper tables from terminal
+`result.json` records.  The primary measure is strict binary success rate with
+a Wilson 95% interval; mean deterministic-check score, any-pass-at-k, 3/3
+reliability, failure codes, agent/queue/MD/node wall time, GPU seconds, and
+nullable transcript token estimates remain diagnostic outputs.  A missing or
+failed prep/MD submission, harness launch/timeout, scorer submission, or scorer
+Slurm allocation becomes zero rather than disappearing.
+
+Agents prepare on the login node and their `sbatch` calls pass through a
+standalone recorder.  The evaluator owns an `afterany` scorer, so agents cannot
+inspect or invoke it.  The shared old Rikyu SIF supplies dependencies only:
+current MDClaw and MDDataBench checkouts are bound and selected through
+`PYTHONPATH`.  The skill condition explicitly loads the current checkout's
+`mdclaw/skills` for pi, Claude Code, and Codex instead of relying on a home-dir
+copy.  No-skill and SIF-only environments suppress those project skills;
+SIF-only requires a separate runtime image without MDClaw.
+
+The initial fair budget is one hour for agent plus preparation and one hour per
+MD Slurm allocation; the shim overrides longer agent-provided Slurm limits.
+The scorer has its own one-hour allocation.  This is deliberately above the
+observed 550 s runtime of the completed 2.5 ns task 027 production job and can
+be tightened after the pilot distribution is measured.  pi (Kimi K3) reviewed
+the implementation and identified three consequential holes that were fixed:
+ambient instead of project-local skills, SIF-only PATH/source leakage, and
+submitted scorer jobs that terminated without ever writing a result.  The
+reviewed implementation passed 26 focused tests before the final full-suite
+run.
+
 ## 2026-08-24 — 027 complex passes 20/20; multimer RMSF is mapped but pooled
 
 Task `027_complex_1b6c` was executed from the public prompt and scored only

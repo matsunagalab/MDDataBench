@@ -13,6 +13,14 @@ def test_tools_are_registered():
         "calibrate_benchmark_task",
         "score_benchmark_submission",
         "run_benchmark_negative_controls",
+        "score_portable_submission",
+        "init_experiment",
+        "run_attempt_agent",
+        "submit_attempt_scorer",
+        "run_experiment",
+        "finalize_attempt",
+        "collect_experiment",
+        "model_inventory",
     }
 
 

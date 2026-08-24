@@ -24,6 +24,7 @@ from mddatabench.cli import (
     fetch_benchmark_reference,
     list_benchmark_tasks,
     run_benchmark_negative_controls,
+    score_portable_submission,
     score_benchmark_submission,
 )
 
@@ -33,5 +34,6 @@ __all__ = [
     "fetch_benchmark_reference",
     "list_benchmark_tasks",
     "run_benchmark_negative_controls",
+    "score_portable_submission",
     "score_benchmark_submission",
 ]
