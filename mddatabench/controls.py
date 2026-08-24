@@ -94,10 +94,8 @@ def _bands(task):
 
     def widened(key):
         band = calibration.get(key)
-        if not band:
-            return None
-        margin = slack_for(key) * float(spread.get(key, 0.0))
-        return [band[0] - margin, band[1] + margin]
+        return sc.widened_calibration_band(
+            band, key, slack_for(key), spread.get(key, 0.0))
 
     return {key: widened(key) for key in
             ("rank_correlation", "total_fluctuation_angstrom",

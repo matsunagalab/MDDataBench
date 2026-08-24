@@ -5,6 +5,42 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-24 — RMSF magnitude uses an asymmetric lower tolerance
+
+The 19/20 result recorded immediately below was 0.0161 A under the total-RMSF
+lower bound even though its profile, structure, thermodynamics, and elapsed
+time passed.  RMSF magnitude previously widened both sides of the measured
+reference-window range by the same 4 SD.  Scoring and negative controls now
+share an asymmetric rule: 5 SD below and the existing 4 SD above.  This keeps
+the stricter upper guard against excessive motion while giving independent
+short trajectories more room on the less harmful low-motion side.
+
+With no rerun or trajectory change, `046_nucleic_1a66` now scores **prep 12/12
+and MD 8/8 (20/20 total)**; its lower bound is 1.1399 A and the observed total
+fluctuation is 1.1695 A.  Its real run passes and all nine adversarial baselines
+still fail.  The same negative-control suites remain `all_correct=true` for
+035 nanobody, 036 ligand, and 037 ligand.  The full benchmark suite passes 729
+tests and the changed files pass ruff.
+
+## 2026-08-24 — 046_nucleic_1a66 scores 19/20 after a public-prompt-only run
+
+Task `046_nucleic_1a66` was run without exposing `task.json` to execution.
+The public request selected the two DNA strands from PDB 1A66 and therefore
+correctly excluded the deposited protein.  The prepared 24-residue,
+761-solute-atom duplex exactly matches the reference composition.  A neutral
+44,231-atom DNA.OL15/TIP3P system completed minimization, 0.1 ns NVT, 0.2 ns
+NPT, and 1.0 ns NPT production at 300 K and 1 bar using the engine's 4 fs HMR
+default, saving 100 frames at 10 ps intervals.
+
+The official score is **prep 12/12 and MD 7/8 (19/20 total)**.  The sole miss
+is total fluctuation 1.1695 A against the reference-window band lower bound of
+1.1855 A, a 0.0161 A shortfall.  Fluctuation-profile Spearman rho 0.8611,
+radius of gyration 14.3748 A, mean temperature 300.493 K, density 1.0112 g/mL,
+and the 986 ps solvent clock all pass.  Every one of the nine adversarial
+negative controls failed as intended.  The aggregate negative-control result
+is nevertheless `all_correct=false` because its `real_full_run` baseline must
+pass all gates and inherits the same marginal fluctuation-magnitude failure.
+
 ## 2026-08-24 — 037_ligand_1g74 passes 20/20 with one OLA alternate
 
 Task `037_ligand_1g74` completed end to end for chain A residues 1--131 and

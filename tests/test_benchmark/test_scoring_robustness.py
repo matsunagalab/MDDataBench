@@ -16,7 +16,7 @@ import pytest
 pytestmark = pytest.mark.slow
 mm = pytest.importorskip("openmm")
 
-from mddatabench.scoring import _load_system  # noqa: E402
+from mddatabench.scoring import _load_system, widened_calibration_band  # noqa: E402
 
 
 def serialise(system):
@@ -27,6 +27,18 @@ def write(tmp_path, name, text):
     path = tmp_path / name
     path.write_text(text)
     return path
+
+
+def test_fluctuation_magnitude_has_more_room_below_than_above():
+    assert widened_calibration_band(
+        [1.0, 2.0], "total_fluctuation_angstrom", 4.0, 0.1
+    ) == pytest.approx([0.5, 2.4])
+
+
+def test_other_measured_bands_remain_symmetric():
+    assert widened_calibration_band(
+        [1.0, 2.0], "radius_of_gyration_angstrom", 4.0, 0.1
+    ) == pytest.approx([0.6, 2.4])
 
 
 def test_a_valid_system_loads(tmp_path):

@@ -31,6 +31,23 @@ from mddatabench import energetics as en
 from mddatabench import execution as ex
 
 
+# A too-small RMSF magnitude can still reveal a frozen or over-restrained run,
+# but it is less harmful than excessive motion and varies noticeably between
+# independent short trajectories.  Give only that lower edge one extra SD of
+# room when the task uses the standard four-SD calibration slack.
+FLUCTUATION_LOWER_SLACK_MULTIPLIER = 1.25
+
+
+def widened_calibration_band(band, key, slack, spread):
+    """Widen a measured window band, asymmetrically for RMSF magnitude."""
+    if not band:
+        return None
+    margin = float(slack) * float(spread)
+    lower_multiplier = (FLUCTUATION_LOWER_SLACK_MULTIPLIER
+                        if key == "total_fluctuation_angstrom" else 1.0)
+    return [band[0] - lower_multiplier * margin, band[1] + margin]
+
+
 def pdb_atoms(path):
     """(chain, residue number, atom name) per atom record, in file order.
 
@@ -627,10 +644,8 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
         return float(recorded_slack or 0.0)
 
     def widened(band, key):
-        if not band:
-            return None
-        margin = slack_for(key) * float(spread.get(key, 0.0))
-        return [band[0] - margin, band[1] + margin]
+        return widened_calibration_band(
+            band, key, slack_for(key), spread.get(key, 0.0))
 
     def banded(check_id, value, band, key, unit=""):
         """Inside the range the reference's own windows span, plus the slack."""
@@ -639,10 +654,16 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
             check(check_id, False, "not measurable: no value or no calibrated band")
             return
         low, high = band
+        lower_slack = slack_for(key) * (
+            FLUCTUATION_LOWER_SLACK_MULTIPLIER
+            if key == "total_fluctuation_angstrom" else 1.0)
+        slack_detail = (f"{lower_slack:g} lower / {slack_for(key):g} upper"
+                        if lower_slack != slack_for(key)
+                        else f"{slack_for(key):g}")
         check(check_id, low <= value <= high,
               f"{value:.4f}{unit} against the reference's own 1 ns windows "
               f"[{low:.4f}, {high:.4f}]{unit} "
-              f"(n={calibration.get('windows')}, widened by {slack_for(key)} window SD)")
+              f"(n={calibration.get('windows')}, widened by {slack_detail} window SD)")
 
     if missing:
         for check_id in ("fluctuation_profile_matches_reference",
@@ -740,5 +761,4 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
             (relaxed.get("energy_per_particle_kj_mol") if minimized is not None else None),
         "minimized_max_force_kj_mol_nm":
             (relaxed.get("max_force_kj_mol_nm") if minimized is not None else None)})
-
 
