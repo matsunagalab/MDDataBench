@@ -41,7 +41,7 @@ def _record(path: Path, arguments: list[str], stdout: str, returncode: int) -> N
 def main(argv=None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     real = os.environ.get("MDDATABENCH_REAL_SBATCH", "/usr/bin/sbatch")
-    limit = os.environ.get("MDDATABENCH_MD_TIME_LIMIT", "01:00:00")
+    limit = os.environ.get("MDDATABENCH_MD_TIME_LIMIT", "00:20:00")
     submitted = [f"--time={limit}", *_without_time_limit(arguments)]
     completed = subprocess.run([real, *submitted], text=True, capture_output=True,
                                check=False)

@@ -5,6 +5,32 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-25 — Pilot agent/preparation and MD budgets extended to 20 minutes
+
+The Qwen 3.6 35B and Kimi K3 pilots both reached useful preparation stages but
+failed to submit a Slurm job within the 15-minute agent budget. Kimi K3 had
+correctly completed chain selection, preparation, solvation, and topology. To
+avoid turning near-complete preparation into the dominant failure mode, the
+default agent/preparation budget and each MD Slurm allocation are now 20
+minutes. The evaluator scorer retains its separate 15-minute allocation. This
+overturns the 15-minute agent and MD limits recorded immediately below.
+
+The two operational limits are stated directly in every agent prompt as well as
+in `CAPABILITIES.md`. To prevent budget disclosure from encouraging scientific
+shortcuts, the same prompt says that the limits do not relax the task and
+forbids shortening minimum production or changing force field, solvent,
+ensemble, temperature, or pressure to fit the allocation.
+
+## 2026-08-24 — Pilot budgets tightened from one hour to 15 minutes
+
+The one-hour campaign defaults recorded immediately below were too permissive
+for three-attempt comparisons, especially when a CLI-free agent keeps trying
+without converging.  Before the first pilot reached MD submission, it was
+stopped at 3 minutes 33 seconds and replaced with a 15-minute limit for agent
+plus preparation, each MD Slurm allocation, and the evaluator scorer.  A task
+that cannot reach a valid submission within that fixed budget is a measured
+zero rather than a reason to occupy the campaign indefinitely.
+
 ## 2026-08-24 — Repeated agent campaigns keep every failure in the denominator
 
 A campaign layer now expands explicit task × condition × harness × model ×

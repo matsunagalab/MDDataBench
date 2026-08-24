@@ -121,8 +121,8 @@ def _normalise_spec(spec: dict, experiment_dir: Path, dataset_dir: Path) -> dict
     replicates = int(spec.get("replicates", 3))
     if replicates < 1:
         raise ValueError("replicates must be positive")
-    agent_timeout = int(spec.get("agent_timeout_seconds", 3600))
-    md_time_limit = str(spec.get("md_time_limit", "01:00:00"))
+    agent_timeout = int(spec.get("agent_timeout_seconds", 1200))
+    md_time_limit = str(spec.get("md_time_limit", "00:20:00"))
     if agent_timeout < 1:
         raise ValueError("agent_timeout_seconds must be positive")
     if not re.fullmatch(r"[0-9:-]+", md_time_limit):
@@ -168,7 +168,8 @@ def _normalise_spec(spec: dict, experiment_dir: Path, dataset_dir: Path) -> dict
     }
 
 
-def _agent_instructions(condition: str) -> str:
+def _agent_instructions(condition: str, agent_timeout_seconds: int,
+                        md_time_limit: str) -> str:
     destination = ("workspace/job as a completed MDClaw schema-v3 job"
                    if condition != "sif_only" else
                    "workspace/submission using the portable layout in PORTABLE_SUBMISSION.md")
@@ -184,6 +185,15 @@ Internet access. Before exiting, submit the final MD work and leave the
 submission at {destination}. The evaluator, not you, will run the scorer.
 Your final sbatch invocation must be the final MD job for this attempt; the
 evaluation harness records that job and attaches its scorer with afterany.
+
+Operational limits: the agent session has a hard {agent_timeout_seconds} s
+wall-clock limit for structure acquisition, preparation, topology construction,
+and final Slurm submission. Each MD Slurm job has a hard {md_time_limit}
+wall-time limit.
+
+These operational limits do not relax the scientific requirements. Do not
+shorten the requested minimum production duration or alter the requested force
+field, solvent, ensemble, temperature, or pressure to fit the limits.
 """.strip()
 
 
@@ -238,7 +248,12 @@ def init_experiment(experiment_dir: str, spec_file: str,
                 workspace = attempt / "workspace"
                 workspace.mkdir(parents=True)
                 shutil.copy2(prompt_file, workspace / "task_prompt.md")
-                instructions = _agent_instructions(cell["condition"])
+                instructions = _agent_instructions(
+                    cell["condition"],
+                    int(cell.get("agent_timeout_seconds") or
+                        spec["agent_timeout_seconds"]),
+                    cell.get("md_time_limit") or spec["md_time_limit"],
+                )
                 (workspace / "agent_prompt.md").write_text(
                     instructions + "\n\n--- PUBLIC TASK ---\n\n" + prompt_file.read_text())
                 if cell["condition"] == "sif_only":
@@ -684,7 +699,7 @@ def _slurm_metrics(path: Path) -> dict:
 
 
 def submit_attempt_scorer(attempt_dir: str, bundle_root: str, sif: str,
-                          partition: str = "gpu", time_limit: str = "01:00:00",
+                          partition: str = "gpu", time_limit: str = "00:15:00",
                           memory: str = "32G", cpus_per_task: int = 4,
                           md_job_id: str = None) -> dict:
     """Submit an evaluator-owned scorer with ``afterany`` on the agent's MD job."""

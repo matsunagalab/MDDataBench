@@ -52,12 +52,19 @@ mddatabench model_inventory --harness pi --out model-inventory.json
 ```
 
 The example fixes both the login-node agent/preparation budget and every MD
-Slurm allocation at one hour. The agent is launched under GNU `timeout`, which
+Slurm allocation at 20 minutes. The agent is launched under GNU `timeout`, which
 also terminates leftover child processes. The transparent `sbatch` shim removes
 an agent-provided `--time` and supplies the campaign's `md_time_limit` on the
 command line, overriding any longer `#SBATCH --time` directive. The scorer has
-its own one-hour limit. These are recorded limits; observed wall times remain
+its own 15-minute limit. These are recorded limits; observed wall times remain
 separate metrics.
+
+Both operational limits are also inserted verbatim into the main agent prompt,
+so success does not depend on whether a model happens to inspect
+`CAPABILITIES.md`. The prompt states that the limits do not relax any scientific
+requirement and explicitly forbids shortening the requested minimum production
+duration or changing the requested force field, solvent, ensemble, temperature,
+or pressure to fit the budget.
 
 Initialize immutable attempt manifests and isolated workspaces:
 
@@ -79,12 +86,14 @@ mddatabench run_experiment \
   --experiment-dir /data1/rkp00048/rku00161/runs/paper-campaign \
   --bundle-root /data1/rkp00048/rku00161/references \
   --scorer-sif /data1/rkp00048/mdclaw-rikyu-arm64-cuda130-cufft121-fusefix-54798ff98538.sif \
-  --max-agents 1
+  --max-agents 3
 ```
 
 `--limit 1` is useful for a first end-to-end attempt. Re-running the command
 does not rerun a completed agent; it can repair an interrupted agent-to-scorer
-handoff. Once Slurm jobs have finished, rebuild all tables from per-attempt
+handoff. Three concurrent agents are the Rikyu starting point: they parallelise
+login-node preparation without opening an excessive number of CPU-heavy prep
+processes. Once Slurm jobs have finished, rebuild all tables from per-attempt
 `result.json` files:
 
 ```bash

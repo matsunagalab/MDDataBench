@@ -103,7 +103,7 @@ mddatabench run_experiment \
   --experiment-dir /data1/rkp00048/rku00161/runs/my-campaign \
   --bundle-root /data1/rkp00048/rku00161/references \
   --scorer-sif /data1/rkp00048/mdclaw-rikyu-arm64-cuda130-cufft121-fusefix-54798ff98538.sif \
-  --max-agents 1
+  --max-agents 3
 
 mddatabench collect_experiment \
   --experiment-dir /data1/rkp00048/rku00161/runs/my-campaign
@@ -126,8 +126,9 @@ The current Rikyu IDs are `rikyu/qwen3.6-35b`, `rikyu/kimi-k2.6`,
 submission, and scorer failure all remain in the denominator as zero. Results
 are rebuilt under `<experiment>/summary/`: `summary.csv` is the main table,
 `failures.csv` gives failure causes, and `attempts.jsonl` preserves every run.
-The example uses one-hour limits for agent/preparation, each MD Slurm job, and
-the scorer; change them in the spec only before initializing a campaign.
+The example uses 20-minute limits for agent/preparation and each MD Slurm job.
+The evaluator-owned scorer keeps its separate 15-minute limit. Change campaign
+limits in the spec only before initializing a campaign.
 
 ## What is here
 

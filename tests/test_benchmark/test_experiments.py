@@ -48,9 +48,16 @@ def test_init_builds_three_isolated_replicates_per_cell(tmp_path):
     assert len(manifests) == 9
     for path in manifests:
         manifest = json.loads(path.read_text())
+        assert manifest["environment"]["agent_timeout_seconds"] == 1200
+        assert manifest["environment"]["md_time_limit"] == "00:20:00"
         workspace = Path(manifest["paths"]["workspace"])
         assert (workspace / "task_prompt.md").is_file()
         assert (workspace / "CAPABILITIES.md").is_file()
+        agent_prompt = (workspace / "agent_prompt.md").read_text()
+        assert "hard 1200 s" in agent_prompt
+        assert "hard 00:20:00" in agent_prompt
+        assert "do not relax the scientific requirements" in agent_prompt.lower()
+        assert "Do not\nshorten the requested minimum production duration" in agent_prompt
         assert not list(workspace.rglob("task.json"))
         assert (workspace / ".mddatabench/bin/sbatch").stat().st_mode & 0o111
         assert str(Path(ex.__file__).resolve().parents[1]) not in (

@@ -1,8 +1,8 @@
 {
   "experiment_id": "mddatabench-paper-pilot",
   "replicates": 3,
-  "agent_timeout_seconds": 3600,
-  "md_time_limit": "01:00:00",
+  "agent_timeout_seconds": 1200,
+  "md_time_limit": "00:20:00",
   "tasks": [
     "027_complex_1b6c"
   ],
