@@ -37,6 +37,38 @@ def test_a_valid_system_loads(tmp_path):
     assert loaded.getNumParticles() == 1
 
 
+def test_a_system_already_parsed_is_validated_without_re_reading(tmp_path):
+    """The reuse path exists to skip a second parse of up to 84 MB.
+
+    ``load_submission`` deserialises the System, and passing it here saves 2.42 s
+    of a01-1ahw's 73.8 s. The branch has to validate the object it was handed and
+    must not fall back to the file, so the file is written as junk: if the reuse
+    path were skipped the parse would fail and this would report an error.
+    """
+    system = mm.System()
+    for _ in range(3):
+        system.addParticle(1.0)
+    path = write(tmp_path, "unreadable.xml", "this is not xml at all")
+    loaded, error = _load_system(path, system=system)
+    assert error is None
+    assert loaded is system
+    assert loaded.getNumParticles() == 3
+
+
+def test_a_system_that_was_not_parsed_still_falls_back_to_the_file(tmp_path):
+    """A valid System behind an unreadable topology PDB is still graded.
+
+    ``load_submission`` returns nothing when the topology PDB cannot be read, so
+    the force-field axis would go ungraded if this branch did not re-read the
+    file itself. That independence is the repo's first invariant.
+    """
+    system = mm.System()
+    system.addParticle(1.0)
+    loaded, error = _load_system(write(tmp_path, "ok.xml", serialise(system)), system=None)
+    assert error is None
+    assert loaded.getNumParticles() == 1
+
+
 def test_a_truncated_file_is_reported(tmp_path):
     system = mm.System()
     for _ in range(4):

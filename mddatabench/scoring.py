@@ -32,14 +32,14 @@ from mddatabench import execution as ex
 
 
 def pdb_atoms(path):
-    rows = []
-    for line in open(path):
-        if line.startswith(("ATOM", "HETATM")):
-            rows.append((line[21], line[22:27].strip(), line[12:16].strip(),
-                         (float(line[30:38]), float(line[38:46]), float(line[46:54])),
-                         (line[76:78].strip() or line[12:16].strip()[0]).upper(),
-                         line[17:20].strip()))
-    return rows
+    """(chain, residue number, atom name) per atom record, in file order.
+
+    Only what ``contract_correspondence`` addresses an atom by.  The coordinate,
+    element and residue name this used to carry as well were read by nothing and
+    cost 0.30 s per call on 1AHW's 381954 rows.
+    """
+    return [(line[21], line[22:27].strip(), line[12:16].strip())
+            for line in open(path) if line.startswith(("ATOM", "HETATM"))]
 
 
 def _read_nodes(job_dir: pathlib.Path) -> dict:
@@ -100,12 +100,21 @@ def find_node(job_dir: pathlib.Path, node_type: str) -> pathlib.Path:
     return best
 
 
-def _load_system(path: pathlib.Path):
-    """Deserialise a submitted OpenMM System. Returns (system, error_message)."""
-    try:
-        system = mm.XmlSerializer.deserialize(path.read_text())
-    except Exception as exc:                                        # noqa: BLE001
-        return None, f"{path.name} did not deserialise: {type(exc).__name__}: {exc}"
+def _load_system(path: pathlib.Path, system=None):
+    """Validate a submitted OpenMM System. Returns (system, error_message).
+
+    ``system`` is the object ``tp.load_submission`` deserialised from this same
+    file; validating that instead of re-reading saves the second parse of up to
+    84 MB -- 2.42 s of a01-1ahw's 73.8 s, 7.2 s over the five solved jobs.  The
+    file is still parsed here when ``load_submission`` returned nothing, so a
+    valid System behind an unreadable topology PDB is graded either way and the
+    force-field axis stays independent of the topology axis.
+    """
+    if system is None:
+        try:
+            system = mm.XmlSerializer.deserialize(path.read_text())
+        except Exception as exc:                                    # noqa: BLE001
+            return None, f"{path.name} did not deserialise: {type(exc).__name__}: {exc}"
     if not isinstance(system, mm.System):
         return None, f"{path.name} deserialised to {type(system).__name__}, not a System"
     if system.getNumParticles() <= 0:
@@ -170,9 +179,16 @@ def _check_topology_chemistry(check, submitted, submitted_bonds, reference,
     is nearby; they coincide on D01 and do not in general.
     """
     duplicated = tp.duplicate_atom_names(submitted)
-    valence = tp.valence_problems(submitted)
+    # Every bond question about a submission is asked of the System, never of
+    # the topology PDB's CONECT: a PDB serial is five columns and OpenMM's
+    # writer wraps them at 493215, so a large system's CONECT records address
+    # the wrong atoms.  The disulfide comparison below already reads
+    # submitted_bonds; these two used to read structure.bonds and so judged the
+    # chemistry from the one basis this module documents as metadata.
+    valence = tp.valence_problems(submitted, submitted_bonds)
     bridged = tp.metal_bridging_bonds(
-        submitted, cutoff=spec_valid["metal_ligand_angstrom"])
+        submitted, cutoff=spec_valid["metal_ligand_angstrom"],
+        bonds=submitted_bonds)
     faults = []
     if duplicated:
         faults.append(f"{len(duplicated)} residue(s) with a repeated atom name: "
@@ -331,8 +347,8 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     # topology.prmtop and the submission ships the System that exerts force.
     reference_topology = tp.load_reference(tp.find_reference_topology(bundle),
                                            bundle / "reference.pdb")
-    submitted_topology, submitted_bonds, topology_error = tp.load_submission(
-        topo / "artifacts" / "system.system.xml", topology_pdb)
+    submitted_topology, submitted_bonds, topology_error, submitted_system = \
+        tp.load_submission(topo / "artifacts" / "system.system.xml", topology_pdb)
 
     # --- the bilayer, if there is one -----------------------------------------
     # The species is graded and the count is not, beyond "there is a membrane at
@@ -399,7 +415,10 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     # with itself about whether such a pair is a thiolate-imidazolium ion pair
     # or neutral, and the disagreement is between experiments on the same
     # enzyme, so a benchmark that scores one answer scores a coin flip.
-    submitted_dyads = cp.catalytic_dyad_positions(submitted_monomers, submitted_metals)
+    # Reference side only: measured 2026-08-24, the submission-side call changed
+    # no exemption on any solved job, and its 3.5 A test flips with the frame
+    # (6W9C's pair is 3.30 A minimised, 3.68 A on the topology) while the
+    # reference finds the same pair at 2.98-3.11 A, the range 3.5 A was set on.
     reference_dyads = cp.catalytic_dyad_positions(reference_monomers, reference_metals)
 
     findings = {"sequence": [], "atom_counts": [], "elements": []}
@@ -407,7 +426,6 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     for reference_monomer, submitted_monomer in pairs:
         exempt = (submitted_ligands.get(id(submitted_monomer), set())
                   | reference_ligands.get(id(reference_monomer), set())
-                  | submitted_dyads.get(id(submitted_monomer), set())
                   | reference_dyads.get(id(reference_monomer), set()))
         exempt_total += len(exempt)
         comparison = cp.compare_monomer(reference_monomer, submitted_monomer,
@@ -457,7 +475,8 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     # not deserialise leaves the scorer unable to look at the force field at all.
     # It used to raise straight out of the scorer, so a broken submission crashed
     # the run instead of being recorded; everything below is reported either way.
-    system, load_error = _load_system(topo / "artifacts" / "system.system.xml")
+    system, load_error = _load_system(topo / "artifacts" / "system.system.xml",
+                                      submitted_system)
     check("topology_loads_and_is_parameterized", load_error is None,
           load_error or f"{system.getNumParticles()} particles, System deserialised")
 
@@ -559,11 +578,11 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     # -- so a (residue number, atom name) lookup either misses or, worse, hits
     # the wrong residue and says nothing: on 1AHW it reported 1908 of 1908
     # matched with 1266 of them up to 88.8 A from the atom they name.
-    topology_pdb = topo / "artifacts" / "system.topology.pdb"
     own_list, missing = cp.contract_correspondence(
-        indices, reference_atoms, reference_monomers,
-        pdb_atoms(minimized_structure), submitted_monomers, pairs)
-    own_indices = np.array(own_list)
+        indices, reference_atoms, pdb_atoms(minimized_structure), pairs)
+    # dtype, because an empty list is float64 and indexing traj.xyz with it
+    # raises instead of leaving the `if missing:` branch below to report it.
+    own_indices = np.array(own_list, dtype=int)
     check("contract_atoms_resolvable", not missing,
           f"{len(own_list)}/{len(indices)} contract atoms placed through the monomer "
           f"pairing" + (f"; {missing[:3]}" if missing else ""))

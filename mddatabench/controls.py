@@ -71,7 +71,7 @@ def load_reference(bundle: pathlib.Path):
     profile = np.asarray(json.loads(
         (bundle / "reference_fluctuation.json").read_text())["y"]["rmsf"]["data"],
         dtype=float)[indices] * 10.0
-    return indices, rows, coords, profile
+    return indices, coords, profile
 
 
 def _bands(task):
@@ -108,7 +108,7 @@ def run_negative_controls(job_dir: str, bundle: str, task_file: str) -> dict:
     """Score the baselines that must fail, plus the real run that must pass."""
     job_dir, bundle = pathlib.Path(job_dir), pathlib.Path(bundle)
     task = json.loads(pathlib.Path(task_file).read_text())
-    indices, rows, coords, profile = load_reference(bundle)
+    indices, coords, profile = load_reference(bundle)
     bands, calibration = _bands(task)
     fraction = next(c for c in task["scoring"]["deterministic_checks"]
                     if c["check_id"] == "elapsed_simulated_time_is_physical"
@@ -137,15 +137,14 @@ def run_negative_controls(job_dir: str, bundle: str, task_file: str) -> dict:
     submitted_monomers = cp.split_monomers(cp.read_residues(minimized))
     pairs, _ = cp.match_monomers(reference_monomers, submitted_monomers)
     own, missing = cp.contract_correspondence(
-        indices, reference_atoms, reference_monomers,
-        sc.pdb_atoms(minimized), submitted_monomers, pairs)
+        indices, reference_atoms, sc.pdb_atoms(minimized), pairs)
     if missing:
         # The scorer downgrades this to three failed checks and carries on; a
         # KeyError here would lose the whole report instead.
         return {"task_id": task["task_id"],
                 "unrunnable": f"{len(missing)} of {len(indices)} reference contract atoms "
                               f"could not be placed in the submission; {missing[:2]}"}
-    own = np.array(own)
+    own = np.array(own, dtype=int)
     rng = np.random.default_rng(11)
 
     # The scorer thins the trajectory to the windows' own 10 ps before measuring,

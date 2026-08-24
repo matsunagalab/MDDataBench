@@ -149,44 +149,6 @@ def lipid_chemistry(counts, stated=None):
 # left by a chain break without admitting a non-bonded contact.
 POLYMER_LINK_ANGSTROM = 2.0
 
-_HY36_UPPER = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-_HY36_LOWER = _HY36_UPPER.lower()
-
-
-def hy36decode(field, width=5):
-    """Read a PDB serial field, decimal or hybrid-36.  None if it is neither.
-
-    Past 99999 the PDB serial column switches to hybrid-36 -- ``A0000`` is
-    100000 -- and OpenMM writes it: a 136k-atom ``system.topology.pdb`` has
-    64544 CONECT records with no decimal field in them.  Reading those as
-    malformed made every disulfide check on a solvated system give up and
-    report the topology as unusable, which is how all three tasks failed
-    ``disulfide_bonds_match_reference`` on 2026-08-21.
-    """
-    text = field.strip()
-    if not text:
-        return None
-    try:
-        return int(text)
-    except ValueError:
-        pass
-    if len(text) != width:
-        return None
-    if text[0] in _HY36_UPPER[10:]:
-        digits, offset = _HY36_UPPER, -10 * 36 ** (width - 1)
-    elif text[0] in _HY36_LOWER[10:]:
-        digits, offset = _HY36_LOWER, 16 * 36 ** (width - 1)
-    else:
-        return None
-    value = 0
-    for char in text:
-        index = digits.find(char)
-        if index < 0:
-            return None
-        value = value * 36 + index
-    return value + offset + 10 ** width
-
-
 class Residue:
     __slots__ = ("name", "chain", "resseq", "atoms")
 
@@ -194,7 +156,7 @@ class Residue:
         self.name = name
         self.chain = chain
         self.resseq = resseq
-        self.atoms = []          # (serial, atom_name, element, xyz)
+        self.atoms = []          # (atom_name, element, xyz)
 
     @property
     def canonical(self):
@@ -204,16 +166,12 @@ class Residue:
     def n_atoms(self):
         return len(self.atoms)
 
-    @property
-    def n_heavy(self):
-        return sum(1 for a in self.atoms if a[2] != "H")
-
     def element_counts(self):
-        return collections.Counter(a[2] for a in self.atoms if a[2] != "H")
+        return collections.Counter(a[1] for a in self.atoms if a[1] != "H")
 
     def atom(self, name):
         for a in self.atoms:
-            if a[1] == name:
+            if a[0] == name:
                 return a
         return None
 
@@ -266,10 +224,7 @@ def read_residues(path, drop_solvent=True):
             current = Residue(name, chain, resseq)
             residues.append(current)
         element = (line[76:78].strip() or atom_name.lstrip("0123456789")[:1]).upper()
-        serial = hy36decode(line[6:11])
-        if serial is None:                       # unreadable serial column
-            serial = -1
-        current.atoms.append((serial, atom_name, element,
+        current.atoms.append((atom_name, element,
                               np.array([float(line[30 + 8 * i:38 + 8 * i]) for i in range(3)])))
     return residues
 
@@ -297,7 +252,7 @@ def _linked(first, second):
     for tail, head in (("C", "N"), ("O3'", "P")):
         a, b = first.atom(tail), second.atom(head)
         if a is not None and b is not None:
-            if float(np.linalg.norm(a[3] - b[3])) <= POLYMER_LINK_ANGSTROM:
+            if float(np.linalg.norm(a[2] - b[2])) <= POLYMER_LINK_ANGSTROM:
                 return True
     return False
 
@@ -336,8 +291,7 @@ def match_monomers(reference, submission):
     return pairs, problems
 
 
-def contract_correspondence(indices, reference_rows, reference_monomers,
-                            submitted_rows, submitted_monomers, pairs):
+def contract_correspondence(indices, reference_rows, submitted_rows, pairs):
     """Where each reference contract atom is in the submission.
 
     The contract names backbone atoms by their index into ``reference.pdb``, and
@@ -356,36 +310,36 @@ def contract_correspondence(indices, reference_rows, reference_monomers,
     Within one file ``(chain, residue number, atom name)`` does address one atom,
     and that is all it is used for here.
 
+    Built straight off ``pairs``: a paired monomer and its partner are the same
+    canonical sequence and therefore the same length, so zipping them addresses
+    the submitted residue directly and no monomer identity, offset or
+    short-partner guard is needed.  Verified elementwise 2026-08-24 against the
+    offset form on all five solved jobs -- same indices, 0 differing slots, the
+    atoms 0.0 A apart.
+
     Returns ``(own_indices, missing)``; ``missing`` describes each atom that
-    could not be placed, so a failure names its cause instead of a count.
+    could not be placed, so a failure names its cause instead of a count.  One
+    message covers both ways a contract atom escapes the pairing -- its monomer
+    went unpaired, or ``read_residues`` dropped it from the polymer entirely;
+    the second never fired on any of the 101 bundles.
     """
-    position = {}
-    for monomer in reference_monomers:
-        for offset, residue in enumerate(monomer):
-            position[(residue.chain, residue.resseq)] = (id(monomer), offset)
-    partner = {id(reference): submitted for reference, submitted in pairs}
+    resolve = {}
+    for reference_monomer, submitted_monomer in pairs:
+        for reference_residue, submitted_residue in zip(reference_monomer,
+                                                        submitted_monomer):
+            resolve[(reference_residue.chain, reference_residue.resseq)] = submitted_residue
     submitted_index = {}
     for n, row in enumerate(submitted_rows):
-        submitted_index.setdefault((row[0], row[1], row[2]), n)
+        submitted_index.setdefault(row, n)
 
     own, missing = [], []
     for i in indices:
-        chain, resseq, atom_name = reference_rows[i][0], reference_rows[i][1], reference_rows[i][2]
-        placed = position.get((chain, resseq))
-        if placed is None:
-            missing.append(f"{chain}:{resseq}:{atom_name} is in no reference monomer")
-            continue
-        monomer_id, offset = placed
-        submitted_monomer = partner.get(monomer_id)
-        if submitted_monomer is None:
+        chain, resseq, atom_name = reference_rows[i]
+        residue = resolve.get((chain, resseq))
+        if residue is None:
             missing.append(f"{chain}:{resseq}:{atom_name} is in a monomer the "
                            "submission does not pair with")
             continue
-        if offset >= len(submitted_monomer):
-            missing.append(f"{chain}:{resseq}:{atom_name} is position {offset + 1} of a "
-                           f"monomer the submission holds {len(submitted_monomer)} of")
-            continue
-        residue = submitted_monomer[offset]
         n = submitted_index.get((residue.chain, residue.resseq, atom_name))
         if n is None:
             missing.append(f"{chain}:{resseq}:{atom_name} has no {atom_name} in the "
@@ -445,7 +399,7 @@ def metal_ligand_positions(monomers, metals, cutoff=METAL_LIGAND_ANGSTROM):
     for monomer in monomers:
         found = set()
         for position, residue in enumerate(monomer, start=1):
-            for _, atom_name, element, xyz in residue.atoms:
+            for atom_name, element, xyz in residue.atoms:
                 if atom_name in BACKBONE_ATOMS or element not in ("S", "N", "O"):
                     continue
                 if any(float(np.linalg.norm(xyz - metal)) <= cutoff
@@ -498,11 +452,11 @@ def catalytic_dyad_positions(monomers, metals, cutoff=CATALYTIC_DYAD_ANGSTROM):
         for cys_index, cys in cysteines:
             if cys_index in bound:
                 continue
-            sulfur = cys.atom("SG")[3]
+            sulfur = cys.atom("SG")[2]
             for his_index, his in histidines:
                 if his_index in bound:
                     continue
-                distances = [float(np.linalg.norm(sulfur - his.atom(name)[3]))
+                distances = [float(np.linalg.norm(sulfur - his.atom(name)[2]))
                              for name in HIS_DONORS if his.atom(name) is not None]
                 if distances and min(distances) <= cutoff:
                     found.update((cys_index, his_index))

@@ -32,7 +32,14 @@ import csv
 
 import numpy as np
 
-from mddatabench import subspace as st
+
+def kabsch(mobile: np.ndarray, target: np.ndarray) -> np.ndarray:
+    """Return ``mobile`` centred and rotated onto centred ``target``."""
+    p = mobile - mobile.mean(axis=0)
+    q = target - target.mean(axis=0)
+    v, _, wt = np.linalg.svd(p.T @ q)
+    d = np.sign(np.linalg.det(v @ wt))
+    return p @ (v @ np.diag([1.0, 1.0, d]) @ wt)
 
 
 def energy_series(path):
@@ -62,7 +69,7 @@ def fitted(xyz, rounds=3):
     """
     reference = xyz.mean(axis=0)
     for _ in range(rounds):
-        superposed = np.stack([st.kabsch(frame, reference) for frame in xyz])
+        superposed = np.stack([kabsch(frame, reference) for frame in xyz])
         reference = superposed.mean(axis=0)
     return superposed
 

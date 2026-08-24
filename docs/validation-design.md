@@ -267,3 +267,27 @@ GPCRmd を外し、CC-BY / CC0 に限定した後の供給量。計数の定義�
 - **同一 PDB / 複数力場**: 11 群。`6VXX` が 6 力場、`6M0J` が 5、`6M71` / `6VSB` / `6ACS` が 3、
   `1FZX` / `1ICK` / `1SK5` / `3GGI` が 4（OL15 / OL21 / ParmBSC1 / Tumuc1）、
   `6LU7` / `6NUR` が 2。**全群 CC-BY。**
+
+## 付録: 固定契約 `pca_backbone_subspace@1` (2026-08-24 移設)
+
+この契約 id は `_md_checks.py` が `contract_atoms_resolvable` に刻み続けており、
+100 件すべての `task.json` に載っている。定義は `subspace.py` の docstring に
+しかなかったが、そのモジュールは 2026-08-22 に retire した subspace テストの
+残骸で、到達可能なのは `kabsch` だけだったため 2026-08-24 に削除した
+(`kabsch` は `dynamics.py` へ移した)。定義だけをここに残す。
+
+```
+contract pca_backbone_subspace@1
+    selection      backbone N, CA, C in residue order, N/CA/C within residue
+    superposition  Kabsch fit onto a common reference structure, then 3
+                   iterations of fitting onto the running mean structure
+    covariance     3M x 3M covariance of the superposed, mean-centred coords
+    subspace       eigenvectors of the D largest eigenvalues (default D = 10)
+    units          Angstrom
+```
+
+いま使われているのは **選択 (selection) だけ**である。参照が公開している PCA
+原子集合を提出側トポロジーに対応づけられるか、という前提条件の名前として
+契約 id が残っている。共分散から先 — 部分空間・RMSIP・ANM null — は採点に
+関与しない。retire の理由は、動力学をまったく含まない弾性ネットワーク集団が
+RMSIP 0.749 を出し、実際の走行の 0.704 を上回ったこと。

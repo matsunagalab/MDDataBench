@@ -96,27 +96,27 @@ def test_solvent_and_ions_are_not_part_of_the_solute(tmp_path):
     assert len(residues) == 1 and residues[0].name == "GLY"
 
 
-# --- hybrid-36 serials -------------------------------------------------------
-# OpenMM writes hybrid-36 past 99999 and the CONECT reader used to call those
-# records malformed, which made every disulfide check on a solvated system give
-# up.  The boundaries below are the ones the format specification fixes.
+# --- the serial column is not read at all ------------------------------------
+# It used to be decoded (decimal, then hybrid-36) into the atom tuple's first
+# slot, and nothing ever unpacked that slot.  The decode is gone; this pins the
+# property that made deleting it legal, so re-introducing a read of the column
+# fails here.  Reading bonds off the System rather than off CONECT -- the reason
+# the decode existed -- is pinned by test_topology.py's
+# test_bonds_are_read_from_the_system_not_from_conect.
 
-@pytest.mark.parametrize("field, value", [
-    ("    1", 1),
-    ("99999", 99999),
-    ("A0000", 100000),          # first hybrid-36 value
-    ("A0001", 100001),
-    ("ZZZZZ", 43770015),        # last uppercase value
-    ("a0000", 43770016),        # first lowercase value
-    ("zzzzz", 87440031),        # last representable value
-])
-def test_hybrid36_serials_decode(field, value):
-    assert cp.hy36decode(field) == value
-
-
-@pytest.mark.parametrize("field", ["     ", "xx", "A00 0", "!!!!!"])
-def test_unreadable_serials_are_none_not_an_exception(field):
-    assert cp.hy36decode(field) is None
+@pytest.mark.parametrize("serial", ["    1", "A0000", "     ", "!!!!!"])
+def test_the_serial_column_changes_nothing(tmp_path, serial):
+    rows = glycine(1, 1, (0.0, 0.0, 0.0)) + glycine(8, 2, (3.8, 0.0, 0.0))
+    spelled = [line[:6] + serial + line[11:] for line in rows]
+    plain = cp.read_residues(write(tmp_path, "plain.pdb", rows))
+    other = cp.read_residues(write(tmp_path, f"{serial.strip() or 'blank'}.pdb", spelled))
+    assert [r.name for r in plain] == [r.name for r in other]
+    assert [[a[0] for a in r.atoms] for r in plain] == [[a[0] for a in r.atoms] for r in other]
+    assert [[a[1] for a in r.atoms] for r in plain] == [[a[1] for a in r.atoms] for r in other]
+    assert all((a[2] == b[2]).all() for r, q in zip(plain, other)
+               for a, b in zip(r.atoms, q.atoms))
+    assert ([len(m) for m in cp.split_monomers(plain)]
+            == [len(m) for m in cp.split_monomers(other)])
 
 
 # --- what is exempt from the protonation comparison, and why -----------------
@@ -302,8 +302,8 @@ def _placed(tmp_path, reference_rows, submitted_rows, indices):
     ref_m = cp.split_monomers(cp.read_residues(reference))
     sub_m = cp.split_monomers(cp.read_residues(submitted))
     pairs, _ = cp.match_monomers(ref_m, sub_m)
-    return cp.contract_correspondence(indices, pdb_atoms(reference), ref_m,
-                                      pdb_atoms(submitted), sub_m, pairs)
+    return cp.contract_correspondence(indices, pdb_atoms(reference),
+                                      pdb_atoms(submitted), pairs)
 
 
 def test_a_submission_numbered_from_the_deposit_still_places(tmp_path):

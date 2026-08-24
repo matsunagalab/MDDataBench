@@ -5,6 +5,455 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-24 — Seven proposed deletions, measured one at a time: two dead, one refuted, the rest thinned
+
+A review proposed deleting seven things from the scorer and replacing the
+monomer split with union-find over the force-bearing bond graph. Nothing was
+deleted before it was measured. This entry records every measurement, what was
+applied, and what was declined and why — the declines are the point of it,
+because a deletion refused on evidence is a decision that must not be re-raised
+from the same premises.
+
+### Regression frame
+
+Baseline taken from the working tree **as it stood**, with the bond-basis change
+of the entry below already in it, not from git HEAD. Scored into `baseline/`,
+changed, re-scored into `after/`, then diffed field by field.
+
+    003_membrane_5zk8 20/20   062_metal_6w9c 20/20   063_metal_6wrh 20/20
+    060_metal_4ow0    20/20   015_antibody_1ahw 20/20
+
+All **100 scored checks** (20 per job x 5 jobs) come out identical across the
+change: same `check_id`, `passed`, `category`, `weight`, and byte-identical
+`detail` strings. Zero differences.
+
+The only fields that move at all are four floats in the unscored `diagnostics`
+block (`built_energy_per_atom_kj_mol`, `minimized_energy_per_atom_kj_mol`,
+`minimized_max_force_kj_mol_nm`). **That is not this change.** Two runs of the
+*identical pre-change* code, in two processes, move the same fields by the same
+amount — 5ZK8's `minimized_max_force_kj_mol_nm` is 2360.31884765625 in one and
+2360.318359375 in the other, the very same pair the before/after diff shows.
+It is OpenMM CPU-platform summation order, run to run. Which particular job's
+max force happens to land byte-identical is itself noise and does not reproduce
+between run pairs, so do not use one as a landmark. Recorded here so the next
+person diffing two reports does not chase it.
+
+Wall clock, same host, same 4 threads, measured with the change in and out
+(`score()` only):
+
+                        pre-change   post-change
+    003_membrane_5zk8      40.6 s        37.7 s
+    062_metal_6w9c         21.1 s        19.8 s
+    063_metal_6wrh         22.8 s        21.6 s
+    060_metal_4ow0         22.3 s        21.5 s
+    015_antibody_1ahw      62.0 s        57.3 s
+    total                 168.8 s       157.9 s     (-6.5 %)
+
+`ruff check mddatabench/ tests/` — all checks passed. `pytest tests/ -q` —
+**723 passed** (713 fast + 10 slow); it was 730 before, and the 7 lost are the
+hybrid-36 parametrisations deleted with the function, replaced by 4 new ones.
+`run_negative_controls` on all five: `all_correct=True` everywhere, and
+`gates_never_decisive` unchanged from baseline — `[]` on 5ZK8, 6W9C and 1AHW,
+`['solvent_clock']` on 6WRH, `['fluctuation_magnitude', 'solvent_clock']` on
+4OW0.
+
+Line count, split by scope so no one figure has to carry three meanings:
+
+    code and tests             +108 / −358   =  −249   (package 4755 -> 4506)
+    docs/validation-design.md   +24 /    0            (rescues the
+                                                       `pca_backbone_subspace@1`
+                                                       contract out of the module
+                                                       that was deleted)
+    this memo entry            +339 /    0
+
+−249 is the honest code figure, and it is dominated by one item: deleting
+`subspace.py` accounts for 215 of the 358 deletions, and that module is not one
+of the seven proposals reviewed here. The seven proposals themselves come to
+**+108 / −142 = −34 lines**. Say that rather than the headline when the question
+is what the review bought.
+
+### Applied
+
+**`hy36decode` and its two alphabets are gone, and so is the serial slot they
+filled** (composition.py, −36 lines plus the tuple slot). The decoded value went
+into `Residue.atoms[i][0]` and no consumer ever unpacked slot 0: every reader
+took slot 1, 2 or 3. Proven twice — statically by enumerating the readers, and
+dynamically by monkeypatching `hy36decode` to return an object whose `__eq__`,
+`__hash__`, `__int__`, `__str__`, `__repr__`, `__format__`, `__bool__` and
+`__index__` all raise, then running the full scorer and the full control suite:
+all five jobs still 20/20, all five control suites still `all_correct`. The atom
+tuple is now `(atom_name, element, xyz)`.
+
+The two tests that exercised only the decode (7 + 4 parametrisations) could not
+survive it. They are replaced by one test that pins the property which *makes*
+the deletion legal: `read_residues` and `split_monomers` give identical residue
+names, atom names, elements, coordinates and split when the serial column is
+spelled decimal, hybrid-36 (`A0000`), blank, or garbage (`!!!!!`). That fails the
+moment anyone reads the column again. The reason the decode existed — reading
+disulfides out of CONECT past 99999 — is already owned on the new basis by
+`test_topology.py::test_bonds_are_read_from_the_system_not_from_conect`.
+
+**`contract_correspondence` is thinned, not deleted** (composition.py, 34 body
+lines → 20). The monomer-identity map, the `id()`-keyed partner dict and the
+offset arithmetic are replaced by one flat `{(reference chain, resseq):
+submitted Residue}` dict built by zipping each pair at pairing time. Verified
+**elementwise, not by count**: identical placed indices on all five jobs
+(819 / 936 / 936 / 936 / 1908), 0 differing slots, and the maximum distance
+between the atoms the two schemes select is **0.0 A** on every job. A count-only
+comparison would have missed the failure mode that matters (a permuted index
+list counts 1908/1908 while 1287 atoms are mispaired by up to 193 A).
+
+Three things went with it:
+
+* the `submitted_monomers` parameter, never read in the body, though all three
+  call sites passed it; and `reference_monomers`, which the flat form does not
+  need. The signature drops from 6 arguments to 4, at three call sites.
+* the `offset >= len(submitted_monomer)` branch (5 lines). It cannot fire:
+  `match_monomers` only pairs monomers that share a canonical sequence, hence a
+  length. Measured on all five jobs — no pair with mismatched lengths exists.
+* one of the four `missing` messages. `is in no reference monomer` and `is in a
+  monomer the submission does not pair with` are now one message. **This is a
+  real, if small, loss of diagnosis and it is recorded rather than hidden**: the
+  first was the only signal that a bundle's `pca_atom_indices.json` names an
+  atom outside the polymer — a bundle bug, not a submission bug. It has never
+  fired: a scan of all 101 bundles found 0 contract atoms off the polymer, and
+  the contract atom names are backbone only. The surviving wording keeps the
+  substring `does not pair`, which two tests assert.
+
+The **21-line docstring stays**. It records why the `(residue number, atom name)`
+scheme was replaced and the 1908-counted / 1266-wrong measurement behind it; that
+is the institutional record and is not a line to save. So the honest saving here
+is ~14 body lines, **not the 57 the review claimed** — 21 of those 57 were
+docstring and about 22 were code the flat form still needs.
+
+One behavioural note for the future: the old map was "last reference monomer in
+file order wins" on a duplicate `(chain, resseq)` key; the flat dict is "last
+*paired* monomer wins". 0 of 101 references carry a duplicate key, so the two
+cannot differ on today's cast — but that is a property of today's references, not
+a guarantee.
+
+**The submission-side `catalytic_dyad_positions` call is gone** (scoring.py),
+along with the `submitted_dyads` term in the exemption union. Measured: it
+changes the exemption on none of the five jobs on either frame. `exempt_total`
+per matched monomer with and without it is 0/0, 6/6, 6/6, 6/6, 0/0; every
+`compare_monomer` finding is byte-identical; the `detail` string of
+`residue_atom_counts_match_reference`, which prints `exempt_total`, is unchanged.
+It is never decisive only because the reference-side call finds the same pair —
+and its own answer is a coin flip, because the Cys-His pair sits at 3.30 A on
+6W9C's minimised frame and 3.68 A on its topology frame against a 3.5 A cutoff
+(6WRH 3.66/3.79, 4OW0 3.79/3.77). The reference side finds it at 2.98–3.11 A,
+which is the range 3.5 A was calibrated on. **This is a 5-job sample.**
+
+Removing it closes one submitter-controlled exemption and leaves a larger one
+open: `submitted_ligands` (scoring.py) is `metal_ligand_positions` over the
+submission's own coordinates, so a submission still nominates part of the set of
+positions it is excused on. That is deliberate -- a submission's metal site has
+to be read from the submission -- but it is the same shape as the term just
+removed, and it is bigger. Anyone tightening this should start there, not here.
+
+**`subspace.py` is deleted — 215 lines, the largest dead body in the repo and not
+on the review's list.** Only `kabsch` (7 lines) was reachable; it has moved into
+`dynamics.py`, its one caller. Unreachable and now gone: `superpose`,
+`essential_subspace`, `canonical_correlations`, `rmsip`, `anm_subspace`,
+`anm_floor`, `null_distribution`, `anm_null_distribution`, `test_beyond_structure`,
+`test_unrelated` (134 lines of body) and 8 module constants. This is the residue
+of the subspace test retired 2026-08-22. **Its docstring was the only prose
+definition of the contract `pca_backbone_subspace@1`, which `_md_checks.py:159`
+still stamps into every task.json**, so the definition was moved to
+`docs/validation-design.md` first rather than lost — into docs, deliberately, not
+into the `_md_checks.py` note, because editing that note would rewrite 100
+task.json files on the next generation for no gain.
+
+**`scoring.pdb_atoms` returns `(chain, resseq, atom_name)`.** Its only consumer
+reads slots 0, 1 and 2; slots 3, 4 and 5 were three float parses and two string
+operations per ATOM line that nothing ever read. Measured on 1AHW's 381954-row
+minimised PDB: 0.46 s for the 6-tuple, 0.16 s for the 3-tuple, and it is called
+twice per `score()` and twice per controls run.
+
+**`_load_system` now validates the System `tp.load_submission` already
+deserialised** instead of parsing the file a second time; `load_submission`
+returns it as a fourth value. Measured duplicate-parse cost: 2.42 s of 1AHW's
+73.8 s, 2.07 s of 5ZK8's, 0.88–0.94 s on the three metal jobs, 7.22 s over the
+suite. **The function itself is kept and so is its fallback parse** — see the
+declines below; this is a reuse, not a merge.
+
+**`np.array(own_list, dtype=int)`** in scoring.py, and the same in controls.py.
+Independent live bug, found while constructing a broken-`system.xml` case: an
+empty `own_list` gives a float64 array and `traj.xyz[::stride][:, own_indices, :]`
+then raises `IndexError: arrays used as indices must be of integer (or boolean)
+type`. Any submission whose monomers fail to pair hit that — reachable today —
+and the scorer raised instead of reporting, which is exactly the failure the
+`if missing:` branch downstream exists to prevent. With the fix, the broken case
+reports 7/20 instead of raising.
+
+Small, same class, all verified unreferenced by grep and by AST scan:
+`topology.BACKBONE_ATOMS` (superseded by `SIDECHAIN_DONORS`, whose own comment
+says so; `composition.BACKBONE_ATOMS`, byte-identical, is live and stays);
+`composition.Residue.n_heavy`; `execution.CHECK_ID`; the four never-read keys of
+`execution.elapsed_time_ps` (`total_msd_nm2`, `frame_interval_ps`,
+`frame_interval_source`, `n_tracers` — the dict is a local in both callers and is
+never serialised); `rows` from `controls.load_reference`'s return tuple; and the
+duplicate re-assignment of `topology_pdb` in scoring.py, identical to one 247
+lines above it.
+
+### Declined, with the measurement that refused each
+
+**Union-find over the bond graph must NOT replace `split_monomers`.** The
+equivalence the review claimed is real but local. On the five solved jobs, both
+sides, the two bases agree exactly — 5ZK8 [273]/[273], PLpro [312], 1AHW
+[214,214,208] — and they are identical *partitions*, not merely equal size lists.
+Swept over every bundle on disk (100 of 101 loadable, 1.08M atoms, 59 tpr /
+32 prmtop / 10 psf, 50 multi-chain) they **disagree on 5 bundles backing 7 of the
+100 tasks**:
+
+* `inr_A00KY` (019_antibody_2dd8): geometry [220,212,192] → bond graph [432,192];
+  the crossing bond is the Fab light-heavy interchain disulfide **CYS216:SG –
+  CYS213:SG**.
+* `mmb_A024H` (011_membrane_6kuy): [140,45,79] → [185,79]; crossing bond
+  **CYS74:SG – CYS146:SG**.
+* `cin_A000J`, `cin_A000O`, `cin_A000P`: the tpr splits the ligand into
+  LIG(1 atom) + LIG(101/42/20 atoms) where reference.pdb writes all of it as one
+  residue B58, so the two bases do not index the same residue list at all —
+  **57 PDB residues against 58 topology residues** (`A000J`), 95 vs 96 (`A000O`),
+  106 vs 107 (`A000P`). No run-length mapping between them exists.
+  Those five back 019_antibody_2dd8, 011_membrane_6kuy, 043_ligand_5od1,
+  044_ligand_5oh3, and 029_complex_1e3u / 042_ligand_4mn3 / 095_soluble_1ard.
+
+Where they differ the bond graph is **worse for the benchmark, not merely
+different**. Today a submission that omits an interchain disulfide loses exactly
+`disulfide_bonds_match_reference` — one prep check, attributable to the bond it
+got wrong. Under the bond-graph basis the reference is [432,192] and that
+submission is [220,212,192], so `match_monomers` pairs nothing and one missing
+bond takes out `monomer_count`, `sequence`, `residue_atom_counts`,
+`element_composition` and, through `contract_correspondence`, all three md gates.
+One chemistry mistake cascading across two axes is precisely what "every axis is
+evaluated independently" forbids.
+
+**And the deletion would have saved nothing anyway.** `split_monomers`, `_linked`
+and `POLYMER_LINK_ANGSTROM` have three callers and **two of them have no System**:
+`_task_builder.stated_protonation` is handed a bare deposit PDB (the generator's
+`struct/` directory holds 593 files, all `.pdb`), and `controls.run_negative_controls`
+opens only `system.topology.pdb`, the minimised PDB and the DCD — putting it on
+the bond graph would make it start paying a `load_submission` measured at 10.7 s
+(6W9C) to 26.3 s (1AHW) per job against 0.1–0.4 s for the geometry split. Plus 12
+test sites, every one on a hand-written PDB. The geometry path survives, the
+deletion removes zero lines, and a union-find helper would be added on top.
+
+**And the submission's monomers must not be made to depend on `system.xml`
+deserialising.** Measured on a constructed broken `system.xml` (truncated to a
+third, emptied, and a well-formed `<State/>`): all three score **14/20 today**
+with all five composition checks and `contract_atoms_resolvable` passing, because
+those are computed from PDB text and never touch the System. With the monomers
+unavailable — what a bond graph you cannot build gives you — the same job scores
+**7/20**: four prep checks and three md gates lost. Composition is verifiable
+from the topology PDB whether or not the System parses, and that independence is
+worth keeping.
+
+**`_prepared_structure` is alive.** The review called it dead because its return
+value is discarded at the call site. Both of its `SystemExit` paths were
+reproduced against a real node: `prep_004` of a01-1ahw declares
+`artifacts/merge/merged.pdb` and resolves; the same node.json with
+`merged_pdb=artifacts/merge/gone.pdb` raises `prep_fake declares
+merged_pdb=artifacts/merge/gone.pdb and the file is not there`; a node declaring
+no `merged_pdb` with two candidates raises `prep_amb declares no merged_pdb and
+holds 2 candidates (a.pdb, b.pdb)`. The comment at the call site says exactly
+this. Not deleted. It is the worked example of checking before deleting.
+
+**`_load_system` is alive and its failure domain is not `load_submission`'s.**
+Measured with a valid 3-particle `system.xml` and a deliberately broken topology
+PDB: `load_submission` returns `err='the submitted topology could not be read:
+IndexError: list index out of range'` while `_load_system` returns a System with
+3 particles and no error. Because the call sits deliberately outside the
+`topology_error` branch, a submission whose System is fine but whose topology PDB
+is unreadable still gets `forcefield_applied_to_every_atom`, `system_is_neutral`,
+`potential_energy_is_physical` and `minimization_reduced_the_energy` graded.
+Folding the two would couple those axes to the PDB. Hence the reuse applied above
+keeps the fallback parse and all five error strings that
+`test_scoring_robustness.py` asserts on.
+
+**`metal_ligand_positions` is alive, and the efficiency premise behind touching
+it is wrong by three orders of magnitude.** The "4x per job" is real (two direct
+calls plus two inside `catalytic_dyad_positions`), and it costs **0.0006 s per
+call** on the antibody, 0.0009 s on 6W9C — the two redundant calls are 0.002 % of
+`score()`. Deleting the submission-side dyad call (applied above) removes one of
+the four for a correctness reason, not a speed one. Also declined: threading the
+caller's ligand set in as a parameter. It would make the inner and outer results
+identical by construction rather than by coincidence (verified they agree today:
+6W9C both {186,189,221}, 6WRH both {186,189,221,223}, 4OW0 both {187,190,222,224}),
+but it adds a parameter and saves 0.0013 s.
+
+**The reference-side `catalytic_dyad_positions` call must stay.** Dropping both
+dyad calls produces two atom-count findings on each of the three metal jobs —
+6W9C `#108 CYM108 10 vs CYS108 11 atoms` and `#269 HIP269 18 vs HIE269 17 atoms`,
+6WRH the same, 4OW0 `#109` and `#270` — and fails
+`residue_atom_counts_match_reference` on 3 of the 5 jobs.
+
+**`lipid_species` is not folded into `read_residues`.** The premise "same file,
+same names" is half wrong. Same names, yes — both filter the same
+`LIPID_RESIDUES` on the same `line[17:20]` field. Same file only on the reference
+side: the submission's `lipid_species` reads `system.topology.pdb` while
+`read_residues` reads `minimized_structure.pdb`. And the residue-identity rules
+differ: measured on 5ZK8, `lipid_species` (dedup on `(chain, resseq, name)`)
+reports `{'PA': 344, 'PC': 344}` while `read_residues`' rule (new residue when an
+atom name repeats) reports `{'PA': 688, 'PC': 344}` — Lipid21 splits one DPPC into
+PC + PA + PA and the two acyl residues share a residue number. The *graded* value
+is unchanged, because PA is in `LIPID21_TAILS` and is skipped from the count — but
+there is one membrane job in the harness and one job is not a cast.
+
+**`match_monomers` stays as it is,** and the measurement that earns it belongs on
+the record: 51 of 101 references are multimers; matched against a reverse-ordered
+copy of themselves, all 46 without duplicate canonical sequences place at max
+displacement **0.0 A**, while naive zip in input order fails to place anything in
+37 bundles and places atoms **silently wrong** in 14 — worst `inr_A00LC` at
+**91.56 A over 1332 atoms**, also `mmb_A01DH` 61.6 A, `mmb_A01DS` 61.3 A,
+`mmb_A01DT` 60.2 A. Order is not free.
+
+Two measured hazards in it are recorded and **declined for now** rather than
+fixed blind, because both fixes need calibration this suite does not have:
+
+* 5 references carry duplicate canonical sequences (`inr_A000B`, `mmb_A017E`,
+  `mmb_A01A6`, `mmb_A01DF`, `mmb_A023K`). Within one sequence group the pairing is
+  zip in input order, so a submission that writes identical copies in the other
+  order places 142–684 contract atoms **42.0–77.9 A** from the intended copy,
+  with pairs complete and nothing reported. The per-atom RMSF profile is then
+  compared against the wrong copy. No flat-dict replacement addresses this.
+* the `mismatches` gate makes `sequence_matches_reference` and
+  `residue_atom_counts_match_reference` report "not compared: no monomer pairing"
+  even when every pair *was* compared and matched — measured on a reference given
+  an extra chain copy: all 3 chains paired, all 1908 contract atoms placed,
+  findings empty, and 3 checks still fail with 2 of them reporting a false
+  diagnostic.
+
+Needleman-Wunsch or any per-residue fallback pairing is declined outright: its
+gap penalties are an uncalibrated threshold.
+
+**The row-index-on-the-residue variant is declined** — it would let `pdb_atoms`
+and both its extra full-file parses go, but it saves under 0.6 s per job
+(measured: `pdb_atoms` 0.43 s, `read_residues` 0.38 s, index build 0.13 s on
+1AHW) and it collides head-on with the hy36 deletion applied above, which frees
+the residue tuple's first slot rather than repurposing it.
+
+**`scoring.py`'s `pdb_atoms(minimized_structure)` is NOT switched to
+`system.topology.pdb`,** and composition is not moved off the minimised frame as
+a side effect of anything here. The atom *order* agrees on all five jobs (row i
+is the same atom) but the *labels* do not — the zinc is chain B resseq 1 in the
+minimised file and B/313 in the topology file on all three metal jobs, and 1AHW's
+N-terminal amide hydrogen is `H` in one and `H1` in the other — and the table is
+keyed on `(chain, resseq, atom name)`. It resolves 936/936 and 1908/1908 from
+either file today only because the contract atoms are backbone heavy atoms. A
+per-bundle coincidence, not a property of the files.
+
+**The report fields `by_category` and `diagnostics`, and controls'
+`baseline`/`caught_by`/`bands`/`calibration_windows`/`claimed_ns`/
+`minimum_clock_fraction`/`frame_interval_ps`, are NOT deleted** although no code
+reads them. They are surfaced in the JSON report that humans and agents consume.
+"No programmatic reader" is not "dead"; that is a different class from a value
+stored in a tuple slot nothing unpacks.
+
+**`_task_builder`'s `numbering_certain`, `auth_number`'s discarded `exact` flag
+and the unused `exact` local are confirmed unread and left alone** — they belong
+to the task-generation workflow and touching them would change 100 task.json
+files.
+
+### One thing the five solved jobs cannot see
+
+`mmb_MCV1900237`, which backs task 061_metal_6m0j, **does not survive
+`tp.load_reference` today**: `reference.prmtop and reference.pdb disagree on atom
+order at 815 position(s), first at index 20`. Pre-existing and unrelated to
+anything here, but it is the standing proof that the corpus carries failures the
+five-job harness cannot show. Every claim in the original review was true on
+those five; two of them were false on the corpus. The five jobs are a regression
+harness, not the population.
+
+## 2026-08-24 — Every bond question about a submission now asks the System
+
+`015_antibody_1ahw` scored 19/20 on artifacts whose chemistry is correct. The
+one failure, `topology_is_chemically_valid` — "84 atom(s) over their valence:
+CYS23:N 5, CYS23:C 5, CYS88:CA 7" — was the scorer's, not the submission's.
+
+Traced in full. Each over-valent atom carried extra partners that exist only in
+the topology PDB's CONECT records, at 50–135 A, with no force term behind them:
+
+    CYS23:N   THR22:C 1.32 A force | CYS23:CA 1.43 force | CYS23:H 1.01 force
+              HOH1081:H1 96.32 A CONECT-only | HOH1086:O 64.35 A CONECT-only
+
+The cause is a PDB serial overflow, and it is not hybrid-36 (both this repo's
+docstrings and mdclaw's visualization comment say hybrid-36; both are wrong).
+`openmm.app.pdbfile._formatIndex` writes decimal to 99999 and then hexadecimal
+with a shift, wrapping modulo 16**5, so the largest index it can express is
+493215. Measured on this file:
+
+    atoms                                        381954
+    TER records (one per chain object)           124078
+    serials consumed                             506032   > 493215
+    serial fields naming more than one atom        2245   affecting 4490 atoms
+    e.g. serial '    1'  = ASP A 1 :N  and  WAT M 880 :O
+
+The topology carries 124078 chain objects — 3 protein chains and 124075
+one-residue water chains — and OpenMM writes a TER per chain object, which is
+what pushes the count past the limit. Waters are named WAT, which is not in
+`PDBFile._standardResidues` (HOH is), so 372272 of the 372459 CONECT records
+exist only because of that name; renaming them would not have been enough, as
+2311 of the remaining 2498 still resolve through an aliased serial.
+
+`load_submission` already returns the System's force-bearing bonds and
+`sulfur_bonds` already takes them, but `valence_problems` and
+`metal_bridging_bonds` still read `structure.bonds`, which parmed takes from
+the OpenMM topology, which is CONECT plus template inference. So two checks
+judged chemistry from the one basis this module's own docstring calls metadata.
+
+Both now take `bonds=None` on the same contract as `sulfur_bonds`, and
+`scoring.py` passes `submitted_bonds`. A submission's bonds are never read from
+its PDB again. The reference side is unchanged and stays on `structure.bonds`:
+a prmtop/tpr/psf has no CONECT and its bonds are the force field.
+
+`force_bearing_bonds` also had to stop counting angle constraints. Rigid water
+constrains H-H as well as both O-H, so every water hydrogen got a second
+partner. Measured over the five solved jobs, atoms reading over their valence:
+
+    basis                        m01-5zk8   d02   d03   d04   a01-1ahw
+    structure.bonds (CONECT)            0     0     0     0         84
+    raw force-bearing               47478     0     0     0          0
+    force-bearing less H-H              0     0     0     0          0
+
+The H-H constraint is the angle. `constraints=HBonds` (openmm_build.py:1175)
+constrains only X-H bonds; it is `rigidWater=True` beside it that emits the
+third pair, because OpenMM makes a water rigid by fixing all three sides of the
+triangle -- O-H1, O-H2 and H1-H2 -- so the angle arrives expressed as a
+distance. Both ends being hydrogen is therefore the whole test, and no
+biomolecular force field bonds two hydrogens to each other.
+
+A first attempt dropped a constrained pair whose ends share a neighbour, on the
+theory that an angle shows itself that way. It is wrong and the measurement
+hid it: water's O and H1 share H2, so it discarded the real O-H bonds as well,
+and the resulting zero looked like success. Caught by asking a solvent-only
+topology for its valence distribution, where O read 0 instead of 2.
+
+The corrected basis was then checked for what it must still catch, on
+d02-6w9c (135696 atoms): the valence distribution is chemically right (H 1,
+O 2, C 4 and 3, N 3) with no atom over its limit, and injecting one spurious
+bond onto a saturated carbon flags 2 atoms whether it is added as a
+HarmonicBondForce term or as a constraint.
+
+Scope: the wrap needs atoms + TER > 493215, so it takes roughly 350k atoms.
+The other four jobs are 120k–146k and never reached it. Any correct submission
+above that size was failing this check.
+
+Decided against: renaming WAT to HOH, and regrouping the solvent into few
+chains, in mdclaw. Neither affects the MD — nothing in prep, the topo build,
+minimisation, equilibration or production reads CONECT (the only reader is
+`structure/merge.py`, on per-component files of 1672–3262 atoms, far below the
+wrap). The PDB's five-column serial cannot address 506032 entities and that is
+the format's limit, not a defect to engineer around. What the broken CONECT
+still costs is pictures: mdclaw's `visualization/_base.py` already documents the
+same wrap ("5762 of 47972 lipid atoms fell past the wrap ... rendered as a hole
+in the bilayer") and works around it with PyMOL `connect_mode 3`.
+
+Also overturned from earlier today: the claim that a01's artifacts were corrupt
+because they were written while a `keepIds=True` defect was in mdclaw. The
+timestamps do fall in that window, but the artifacts are correct — the System
+carries no bond over 3 A and no over-valent atom. No re-run was needed.
+
 ## 2026-08-23 — Sceptical review of calibration.py (pooled-band rewrite)
 
 Reviewed the replica-pooling rewrite the day it landed. Verified by execution:

@@ -33,7 +33,6 @@ import struct
 
 import numpy as np
 
-CHECK_ID = "elapsed_simulated_time@1"
 MAX_TRACERS = 1000          # a diffusive clock needs tracers, not every water
 MAX_LAGS = 40               # the fit is linear; forty points determine it
 TRACER_SEED = 20260819
@@ -92,8 +91,4 @@ def elapsed_time_ps(traj, selection: str = "water and name O",
     total = float(np.mean(np.sum(walk[-1] ** 2, axis=1)))
     return {"measurable": True,
             "elapsed_ps": total / (6.0 * diffusion) if diffusion > 0 else 0.0,
-            "total_msd_nm2": total,
-            "diffusion_1e5_cm2_s": diffusion * 1e3,
-            "frame_interval_ps": dt,
-            "frame_interval_source": "dcd_header" if dt_ps else "traj.time",
-            "n_tracers": int(len(atoms))}
+            "diffusion_1e5_cm2_s": diffusion * 1e3}

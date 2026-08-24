@@ -46,11 +46,6 @@ METAL_ELEMENTS = frozenset({
 # 3.21 A, so a tighter limit splits one site into coordinated and not.
 METAL_LIGAND_ANGSTROM = 3.5
 
-# Backbone atoms are never metal ligands in a protein; counting them turns one
-# zinc into a dozen "ligands" made of nearby amide nitrogens.
-BACKBONE_ATOMS = frozenset({"N", "CA", "C", "O", "OXT", "H", "HA", "HA2", "HA3",
-                            "H1", "H2", "H3", "HN"})
-
 # Which side-chain atoms can donate to a metal, by residue.  Selecting on
 # "any S, N or O that is not a backbone atom" instead lets a water, a hydroxide
 # or a ligand atom into the coordination shell, and the carve-out then exempts
@@ -151,7 +146,7 @@ def load_reference(topology_path, pdb_path):
     # disulfides Cys3-Cys40, Cys4-Cys32, Cys16-Cys26 all present.
     polymer = sum(1 for residue in structure.residues
                   if residue.name.strip().upper() in POLYMER_RESIDUES)
-    if polymer and not len(structure.bonds):
+    if polymer and not structure.bonds:
         raise SystemExit(
             f"{topology_path.name} declares {polymer} polymer residue(s) and no "
             "bonds; the bond list was lost in reading it")
@@ -167,7 +162,10 @@ def load_submission(system_xml_path, topology_pdb_path):
     problem entirely -- past 99999 the column is hybrid-36 and 64544 of a 141k
     atom topology's CONECT records hold no decimal field at all.
 
-    Returns (structure, force-bearing bonds, error_message).  It must not raise:
+    Returns (structure, force-bearing bonds, error_message, system).  The System
+    is handed back because the scorer's force-field checks want it and it is
+    already deserialised here; it is returned even when the topology PDB is
+    unreadable, so those checks stay independent of this one.  It must not raise:
     this runs before the
     check that reports an unloadable System, so a truncated or empty file used to
     crash the scorer here instead of being scored as a failed submission.
@@ -175,6 +173,7 @@ def load_submission(system_xml_path, topology_pdb_path):
     import openmm as mm
     import parmed
     from openmm.app import PDBFile
+    system = None
     try:
         system = mm.XmlSerializer.deserialize(open(system_xml_path).read())
         pdb = PDBFile(str(topology_pdb_path))
@@ -182,8 +181,8 @@ def load_submission(system_xml_path, topology_pdb_path):
                                                 xyz=pdb.positions)
     except Exception as exc:                                        # noqa: BLE001
         return None, None, (f"the submitted topology could not be read: "
-                            f"{type(exc).__name__}: {exc}")
-    return structure, force_bearing_bonds(system, structure), None
+                            f"{type(exc).__name__}: {exc}"), system
+    return structure, force_bearing_bonds(system, structure), None, system
 
 
 
@@ -205,6 +204,12 @@ NUCLEIC_RESIDUES = frozenset(
 )
 POLYMER_RESIDUES = PROTEIN_RESIDUES | NUCLEIC_RESIDUES
 
+# Between the longest bond constrained over a hydrogen and a heavy atom (H-S,
+# 1.34 A) and the shortest angle constrained over the same (C...H, 1.94 A).
+# Hydrogen-hydrogen pairs are settled by element, not by this: OPC water's H-H
+# is 1.37 A and would fall on the bonded side of any threshold that keeps H-S.
+CONSTRAINED_ANGLE_ANGSTROM = 1.45
+
 
 def force_bearing_bonds(system, structure):
     """Atom-index pairs the System actually constrains or bonds.
@@ -221,14 +226,46 @@ def force_bearing_bonds(system, structure):
     one measured task).
     """
     import openmm as mm
-    pairs = set()
+    from openmm import unit
+    pairs, constrained = set(), []
     for force in system.getForces():
         if isinstance(force, mm.HarmonicBondForce):
             for index in range(force.getNumBonds()):
                 one, two, _, _ = force.getBondParameters(index)
                 pairs.add(frozenset((one, two)))
     for index in range(system.getNumConstraints()):
-        one, two, _ = system.getConstraintParameters(index)
+        one, two, length = system.getConstraintParameters(index)
+        constrained.append((one, two, length.value_in_unit(unit.angstrom)))
+    # A constraint is not always a bond.  A rigid water fixes all three sides of
+    # its triangle -- O-H, O-H and H-H -- so the angle arrives as a distance,
+    # and `constraints=HAngles` does the same for every H-X-H and H-X-Y angle in
+    # the solute.  Counting those as bonds gives hydrogens a second partner and
+    # heavy atoms a fifth: measured, 47478 atoms of the 5ZK8 membrane system
+    # read as over their valence, and 119 of a 3263-atom protein under HAngles.
+    #
+    # Only angles involving hydrogen are ever constrained, so a pair with no
+    # hydrogen in it is always a bond -- C-C, C-S and S-S reach 2.04 A and no
+    # scheme constrains a heavy-atom angle.  Two tests cover the rest:
+    #
+    #  * Both ends hydrogen -> an angle.  No biomolecular force field bonds two
+    #    hydrogens, and this is how every rigid water spells its H-O-H.  It has
+    #    to be the element test rather than a length: OPC's H-H is 1.37 A and a
+    #    real H-S bond is 1.34, so no threshold separates them.  Measured across
+    #    tip3p, spce, tip4pew, tip5p, opc, opc3, tip3p-fb and tip4p-fb.
+    #  * One end hydrogen -> a bond if short.  `constraints=HAngles` fixes the
+    #    H-X-Y angle as an X...Y distance, which for a hydrogen and a heavy atom
+    #    is far longer than their bond.  Measured on a 3263-atom protein under
+    #    HAngles: bonded H-O 0.96, H-N 1.01, C-H 1.08-1.09, H-S 1.34 (longest);
+    #    angle C...H 1.94-1.95 (shortest).  119 atoms read as over their valence
+    #    without this and none with it.
+    hydrogen = {atom.idx for atom in structure.atoms
+                if atom.element_name in ("H", "D")}
+    for one, two, length in constrained:
+        ends = (one in hydrogen, two in hydrogen)
+        if all(ends):
+            continue
+        if any(ends) and length >= CONSTRAINED_ANGLE_ANGSTROM:
+            continue
         pairs.add(frozenset((one, two)))
     return pairs
 
@@ -283,16 +320,32 @@ def duplicate_atom_names(structure):
     return out
 
 
-def valence_problems(structure):
-    """Atoms carrying more bonds than the element can hold."""
+def valence_problems(structure, bonds=None):
+    """Atoms carrying more bonds than the element can hold.
+
+    ``bonds`` is a set of atom-index pairs and follows the same contract as
+    :func:`sulfur_bonds`: a submission passes what the System exerts, and a
+    reference prmtop passes None because its own bonds are the force field.
+    Reading a submission's ``structure.bonds`` instead measures CONECT, which
+    a PDB cannot address past 493215 serials -- a 381954-atom topology with a
+    TER after every water consumes 506032, and OpenMM's writer then wraps them
+    onto the low decimal range.  Measured on 1AHW: 2245 serials named two atoms
+    each, and the CONECT records that resolved through them put 84 atoms over
+    their valence, joining protein to water up to 135 A away.  The System
+    indexes atoms by position and cannot alias.
+    """
     # Only limits nothing legitimate exceeds.  Sulfur is not among them: a
     # sulfonamide, a sulfate and DMSO all carry four bonds on S, so the earlier
     # limit of 2 would have failed a correct system for being correct.
     limits = {"H": 1, "O": 2, "N": 4, "C": 4}
+    if bonds is None:
+        bonds = {frozenset((bond.atom1.idx, bond.atom2.idx))
+                 for bond in structure.bonds}
     degree = collections.Counter()
-    for bond in structure.bonds:
-        degree[bond.atom1.idx] += 1
-        degree[bond.atom2.idx] += 1
+    for bond in bonds:
+        one, two = tuple(bond)
+        degree[one] += 1
+        degree[two] += 1
     out = []
     for atom in structure.atoms:
         limit = limits.get(atom.element_name)
@@ -347,18 +400,27 @@ def describe_position_pairs(pairs):
     return sorted("-".join(str(x) for x in sorted(pair)) for pair in pairs)
 
 
-def metal_bridging_bonds(structure, cutoff=METAL_LIGAND_ANGSTROM):
+def metal_bridging_bonds(structure, cutoff=METAL_LIGAND_ANGSTROM, bonds=None):
     """Covalent bonds joining two ligands of one metal, as printable labels.
 
     Two side chains that both reach the same metal are ligands of it, not
     partners of each other, however close their donor atoms happen to be.
+
+    ``bonds`` follows the same contract as :func:`sulfur_bonds` and
+    :func:`valence_problems`: what the System exerts, or None for a reference
+    whose own bonds are its force field.
     """
     metals = metal_atoms(structure)
     if not metals:
         return []
+    atoms = structure.atoms
+    if bonds is None:
+        bonds = {frozenset((bond.atom1.idx, bond.atom2.idx))
+                 for bond in structure.bonds}
     out = []
-    for bond in structure.bonds:
-        one, two = bond.atom1, bond.atom2
+    for bond in bonds:
+        first_index, second_index = tuple(bond)
+        one, two = atoms[first_index], atoms[second_index]
         if one.residue.idx == two.residue.idx:
             continue
         if not (_donor_atoms(one.residue) and _donor_atoms(two.residue)):
