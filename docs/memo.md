@@ -5,6 +5,30 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-24 — 037_ligand_1g74 passes 20/20 with one OLA alternate
+
+Task `037_ligand_1g74` completed end to end for chain A residues 1--131 and
+bound oleate.  The deposited OLA has two complete occupancy-0.50 alternates;
+MDClaw selected the entire alternate A consistently, excluded the phosphate
+additive, and prepared 53-atom OLA at expected charge -1.  The resulting
+solute exactly matched the reference contract (2,054 protein atoms plus 53
+OLA atoms).  A neutral 44,984-atom ff99SB-ILDN/TIP3P system ran 0.1 ns NVT,
+0.2 ns NPT, and 1.0 ns NPT production at 298 K and 1 bar on one GPU, producing
+100 frames at 10 ps intervals.
+
+The official score is **prep 12/12 and MD 8/8 (20/20 total)**.  Measured values
+include fluctuation-profile Spearman rho 0.7733, total fluctuation 0.5319 A,
+radius of gyration 13.9328 A, mean temperature 298.281 K, density 1.0076 g/mL,
+and solvent-clock elapsed time 1,021 ps.  Negative controls returned
+`all_correct=true`: the real run passed and all nine adversarial baselines
+failed.
+
+This manual run used the 2 fs reference timestep after inspecting task metadata.
+That is acceptable for this completed diagnostic, but not normal benchmark
+execution: agents must use only the public prompt and inputs, reserving hidden
+reference fields in `task.json` for the scorer.  If the prompt omits a
+timestep, the simulation engine's safe topology-aware default should be used.
+
 ## 2026-08-24 — 036_ligand_1ceb passes 20/20 with expected AMH charge
 
 Task `036_ligand_1ceb` now states that AMH has expected formal net charge 0 at
