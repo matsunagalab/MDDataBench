@@ -5,6 +5,29 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-24 — 027 complex passes 20/20; multimer RMSF is mapped but pooled
+
+Task `027_complex_1b6c` was executed from the public prompt and scored only
+after the 2.5 ns trajectory completed.  The fresh Slurm production node
+`prod_002` (job 41364) produced 250 frames at 10 ps.  The official scorer
+passes prep 12/12 and MD 8/8 (20/20): both sequence-distinct monomers pair at
+107/107 and 326/326 residues, all 1299 contract atoms resolve through those
+pairs, the pooled RMSF rank correlation is 0.8566, total fluctuation is 0.7947
+A, and radius of gyration is 24.4365 A.  The real run passes and all nine
+adversarial baselines fail.
+
+This run also exposes the precise limit of the current multimer treatment.
+Atom correspondence is genuinely monomer-aware and the fit is over the whole
+complex, so relative subunit motion is retained.  The RMSF gate, however, is
+one atom-pooled Spearman correlation rather than a per-monomer gate.  On the
+same globally fitted profile, chain A contributes 321 atoms at rho=0.7297 and
+chain B contributes 978 atoms at rho=0.8857, producing rho=0.8566 overall.
+The existing aggregate calibration cannot be reused as a chain-level cutoff,
+so this does not establish a chain-A failure; it does establish that a larger
+subunit can dominate the verdict.  A future per-monomer gate needs its own
+reference-window calibration and a permutation-invariant policy for identical
+homomers, rather than an uncalibrated code-only split.
+
 ## 2026-08-24 — RMSF magnitude uses an asymmetric lower tolerance
 
 The 19/20 result recorded immediately below was 0.0161 A under the total-RMSF
