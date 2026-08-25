@@ -5,6 +5,52 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-25 — Ligand prompts now name the ligand and its expected charge
+
+Nine of the ten ligand prompts never mentioned the ligand. The reference
+carries it as a component named generically `LIG`, on a chain the prompt's
+residue range does not cover, so an agent that built exactly what was asked was
+then scored as missing a monomer the prompt excluded by its own terms. Across
+the campaign, no attempt on a task that hid its ligand passed, and the only
+task that named one (036, via a charge instruction) is the only one with
+passing attempts.
+
+The charge is not decoration. The scorer aliases a singleton reference `LIG`
+only to a submission singleton with the identical full formula *including
+hydrogen*, and MDClaw's `expected_net_charge` picks the protonation state from
+the Dimorphite-DL candidates and fails closed when none matches. A wrong charge
+is therefore worse than no charge.
+
+Each charge was derived, not guessed: `CCD formal charge + (reference H count -
+CCD H count)`, with the reference's own hydrogens counted from its PDB. Every
+result is chemically ordinary at pH 7 -- oleate (OLA -1), a phosphate dianion
+(J9Z -2, already -2 in the CCD), a carboxylate (0R3 -1), a sulfonic acid plus
+phosphonate (9RQ -2), and three neutrals (AMH, D3X, 9V2). B4L at +2 is the one
+that needed a second look: an N-methylpiperidine plus a protonated amidine in
+the pyrimidinone. It is borderline chemistry, but it is what the reference
+contains, and the formula comparison is what the score turns on.
+
+Before writing any of it, each stated charge was run through the actual code
+path -- `_fetch_smiles_from_ccd` then `_protonate_smiles_dimorphite(smiles, 7.0)`
+then `_select_protonation_state` -- to confirm a matching candidate exists.
+All eight resolve. B4L offers [0, +1, +2], so +2 is reachable. Six of the seven
+have more than one candidate, so the statement is load-bearing rather than
+merely confirmatory; OLA and 9RQ have a single candidate each.
+
+Two of the ten are a different defect and are NOT fixed by a charge line:
+
+- 038_ligand_1ikt: the reference's C21 H36 O4 is a partially modelled Triton
+  X-100 (OXN, C34 H62 O11) -- atom names C1-C25 with O15/O18/O21/O24 show the
+  PEG tail truncated in the deposit. Parameterising OXN from its CCD SMILES
+  gives the whole molecule, which cannot match.
+- 042_ligand_4mn3: not a small molecule at all. Atom names CA/CB/CG/CD1/CZ/OH/
+  NZ plus CM1-CM3 are a 7-residue peptide (`XFAYKSX`, RCSB polymer entity 2)
+  carrying a trimethyl-lysine, flattened by MDDB into one residue named LIG.
+
+`audit_task_cast` also reports a cap mismatch on 4MN3 (deposit has ACE and NH2,
+reference has neither) and a disulfide mismatch on 087_soluble_1gqv; both are
+recorded, neither is addressed here.
+
 ## 2026-08-25 — The campaign now runs against a frozen MDClaw, not the live checkout
 
 A validation-run agent on `049_nucleic_1iv6` decided MDClaw had a bug stopping
