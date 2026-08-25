@@ -21,6 +21,8 @@ def test_tools_are_registered():
         "finalize_attempt",
         "collect_experiment",
         "model_inventory",
+        "audit_task_contract",
+        "audit_task_cast",
     }
 
 

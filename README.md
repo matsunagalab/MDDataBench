@@ -33,6 +33,11 @@ mddatabench --list
 Scoring needs an interpreter that can import `openmm`, `mdtraj`, and `numpy`.
 OpenMM is best installed from conda-forge.
 
+The `audit_task_contract` and `audit_task_cast` commands require Gemmi for
+mmCIF parsing, deposited `struct_conn` records, and wwPDB residue
+classification. Gemmi is a declared package dependency and is installed by
+`pip install -e .`; unlike OpenMM, it is not an optional conda-only dependency.
+
 ## Using it
 
 ```bash
