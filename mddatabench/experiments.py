@@ -241,6 +241,12 @@ submission at {destination}. The evaluator, not you, will run the scorer.
 Your final sbatch invocation must be the final MD job for this attempt; the
 evaluation harness records that job and attaches its scorer with afterany.
 
+This attempt ends at submission. Submit the MD stages as one dependency chain
+-- each stage held by `afterok` on the one before it -- and then exit. Do not
+wait for a stage to finish before submitting the next, and do not poll squeue
+or the job state: queue time and Slurm run time are outside your wall-clock
+limit, but time spent waiting for them is not.
+
 Operational limits: the agent session has a hard {agent_timeout_seconds} s
 wall-clock limit for structure acquisition, preparation, topology construction,
 and final Slurm submission. Each MD Slurm job has a hard {md_time_limit}

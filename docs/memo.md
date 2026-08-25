@@ -5,6 +5,29 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-25 — The attempt ends at submission, and the prompt now says so
+
+Agents were waiting for each MD stage to finish before submitting the next.
+Measured from sacct on 041_ligand_4erf r1: min ended 20:43:22, eq was submitted
+20:43:37, eq ended 20:44:58, prod started 20:45:00. Three submissions, no
+`--dependency` anywhere, and check_job/squeue polled 63 to 96 times per
+attempt. Agent survival past the final sbatch tracked MD queue+run in all eight
+sealed attempts of the earlier run, +343 s to +1566 s against 164 s to 1279 s
+of MD.
+
+That pays the queue three times inside one 90-minute budget, which is what
+saturated the old campaign: its `md_queue` median alone was 2088 s, and 54% of
+attempts hit the wall.
+
+The prompt asked the agent to "submit the final MD work" before exiting but
+never said not to wait, and the MDClaw skills gave it nowhere else to learn:
+md-prepare, md-equilibration and md-production mention neither SLURM nor
+submit_job, and no attempt in the campaign ever called submit_job -- all of
+them hand-wrote sbatch files, which is why `--dependency` never appeared. Both
+halves are fixed: the prompt now states that the attempt ends at submission and
+that waiting is inside the budget while queue and run time are not, and MDClaw
+routes cluster stages to hpc-run with the afterok chain as its first rule.
+
 ## 2026-08-25 — Ligand prompts now name the ligand and its expected charge
 
 Nine of the ten ligand prompts never mentioned the ligand. The reference
