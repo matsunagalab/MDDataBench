@@ -170,7 +170,12 @@ def _normalise_spec(spec: dict, experiment_dir: Path, dataset_dir: Path) -> dict
 
 def _agent_instructions(condition: str, agent_timeout_seconds: int,
                         md_time_limit: str) -> str:
-    destination = ("workspace/job as a completed MDClaw schema-v3 job"
+    # Paths are relative to the workspace, which is already the agent's working
+    # directory. Naming it again - "workspace/study" - reads as a subdirectory
+    # to create, and agents duly created workspace/workspace/study.
+    destination = ("study/jobs/main, the completed MDClaw schema-v3 job that "
+                   "`mdclaw bootstrap_md_workflow --study-dir study` creates "
+                   "in this directory"
                    if condition != "sif_only" else
                    "workspace/submission using the portable layout in PORTABLE_SUBMISSION.md")
     return f"""
@@ -638,8 +643,8 @@ def finalize_attempt(attempt_dir: str, score_file: str = None,
             "agent_wall_seconds": agent_end.get("wall_seconds"),
             **slurm_metrics,
             "total_wall_seconds": _elapsed_between(manifest.get("created_at"), finished_at),
-            "node_wall_seconds": _node_wall_seconds(
-                Path(manifest["paths"]["workspace"]) / "job"),
+            "node_wall_seconds": _node_wall_seconds(_submission_dir(
+                Path(manifest["paths"]["workspace"]), manifest["condition"])),
             "token_usage": agent_end.get("usage") or {
                 "input_tokens": None, "output_tokens": None,
                 "reasoning_tokens": None, "provenance": "unavailable"},
@@ -698,6 +703,44 @@ def _slurm_metrics(path: Path) -> dict:
             "slurm_metrics_provenance": "sacct"}
 
 
+def _submission_dir(workspace: Path, condition: str) -> Path:
+    """Resolve the submission inside an attempt workspace.
+
+    MDClaw's canonical layout is a study whose jobs live at
+    ``<study>/jobs/<job_id>``; ``bootstrap_md_workflow`` names the first one
+    ``main``.  A bare job outside a study works but MDClaw warns
+    ``study_context_missing`` and its skills steer every agent to the study
+    form, so the study path is what the prompt asks for and what is scored.
+
+    The prompt names that path as ``workspace/...``, which an agent already
+    sitting in the workspace can equally read as a literal subdirectory to
+    create.  Measured 2026-08-25 the cast split almost evenly, 14 attempts
+    flat against 15 nested, so both roots are searched: which reading an agent
+    took says nothing about the molecular dynamics being graded.
+    """
+    roots = (workspace, workspace / "workspace")
+    if condition == "sif_only":
+        for root in roots:
+            if (root / "submission").is_dir():
+                return root / "submission"
+        return workspace / "submission"
+    # Canonical first across every root, then the looser forms. Exhausting one
+    # root before trying the next let a stale outer `job/` win over a nested
+    # `study/jobs/main` that was the actual submission.
+    for root in roots:
+        canonical = root / "study" / "jobs" / "main"
+        if canonical.is_dir():
+            return canonical
+    for root in roots:
+        jobs = sorted(p for p in (root / "study" / "jobs").glob("*") if p.is_dir())
+        if len(jobs) == 1:
+            return jobs[0]
+    for root in roots:
+        if (root / "job").is_dir():
+            return root / "job"
+    return workspace / "study" / "jobs" / "main"
+
+
 def submit_attempt_scorer(attempt_dir: str, bundle_root: str, sif: str,
                           partition: str = "gpu", time_limit: str = "00:15:00",
                           memory: str = "32G", cpus_per_task: int = 4,
@@ -717,7 +760,7 @@ def submit_attempt_scorer(attempt_dir: str, bundle_root: str, sif: str,
     bundle = Path(bundle_root).resolve() / f"{reference['node']}_{reference['accession']}"
     source = Path(__file__).resolve().parents[1]
     workspace = Path(manifest["paths"]["workspace"])
-    submission = workspace / ("submission" if manifest["condition"] == "sif_only" else "job")
+    submission = _submission_dir(workspace, manifest["condition"])
     raw_score = attempt / "score.json"
     logs = attempt / "slurm"
     logs.mkdir(exist_ok=True)
@@ -790,7 +833,7 @@ def run_experiment(experiment_dir: str, bundle_root: str, scorer_sif: str,
     """
     root = Path(experiment_dir).resolve()
     pending = []
-    for manifest_path in sorted((root / "attempts").glob("**/manifest.json")):
+    for manifest_path in sorted((root / "attempts").glob("*/*/manifest.json")):
         attempt = manifest_path.parent
         if (attempt / "result.json").exists():
             continue
@@ -832,7 +875,7 @@ def run_experiment(experiment_dir: str, bundle_root: str, scorer_sif: str,
 
 def _attempt_rows(root: Path) -> tuple[list[dict], list[str]]:
     rows, incomplete = [], []
-    for manifest_path in sorted((root / "attempts").glob("**/manifest.json")):
+    for manifest_path in sorted((root / "attempts").glob("*/*/manifest.json")):
         attempt = manifest_path.parent
         result = attempt / "result.json"
         if result.is_file():
@@ -863,7 +906,7 @@ def collect_experiment(experiment_dir: str, out_dir: str = None) -> dict:
     root = Path(experiment_dir).resolve()
     out = Path(out_dir).resolve() if out_dir else root / "summary"
     out.mkdir(parents=True, exist_ok=True)
-    for manifest_path in sorted((root / "attempts").glob("**/manifest.json")):
+    for manifest_path in sorted((root / "attempts").glob("*/*/manifest.json")):
         _reconcile_scorer(manifest_path.parent)
     rows, incomplete = _attempt_rows(root)
     with (out / "attempts.jsonl").open("w") as handle:

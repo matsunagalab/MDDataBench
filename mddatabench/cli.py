@@ -110,6 +110,19 @@ def finalize_attempt(attempt_dir: str, score_file: str = None,
     return run(attempt_dir, score_file, failure_stage, failure_code, failure_detail)
 
 
+def audit_task_contract(task_dir: str, bundle: str, deposit_cache: str = None) -> dict:
+    """Report reference or deposit components one task's prompt never names."""
+    from mddatabench.contract_audit import audit_task_contract as run
+    return run(task_dir, bundle, deposit_cache)
+
+
+def audit_task_cast(dataset_dir: str, bundle_root: str,
+                    deposit_cache: str = None) -> dict:
+    """Run the contract audit over every task in a dataset directory."""
+    from mddatabench.contract_audit import audit_task_cast as run
+    return run(dataset_dir, bundle_root, deposit_cache)
+
+
 def collect_experiment(experiment_dir: str, out_dir: str = None) -> dict:
     """Build paper-ready summary and failure tables from attempt results."""
     from mddatabench.experiments import collect_experiment as run
@@ -162,4 +175,6 @@ TOOLS = {
     "finalize_attempt": finalize_attempt,
     "collect_experiment": collect_experiment,
     "model_inventory": model_inventory,
+    "audit_task_contract": audit_task_contract,
+    "audit_task_cast": audit_task_cast,
 }

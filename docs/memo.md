@@ -5,6 +5,44 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-25 — Correction: Gemmi is a required contract-audit dependency
+
+The hardened contract audit initially imported Gemmi without declaring it, so
+it passed in the campaign SIF but failed under the host Python used by the
+standard-library prototype. Gemmi is load-bearing: it supplies quoted mmCIF
+parsing, authentic `struct_conn` records, and the wwPDB residue dictionary.
+It is now a declared `gemmi>=0.7.0` package dependency, the README names the two
+audit commands that require it, and a non-skipping test checks both the project
+metadata and the actual import. This corrects the portability claim implicit in
+the audit entry below. The audit fixtures now pass 14/14 and the complete suite
+passes 766/766 (with the same constant-input Spearman warning).
+
+## 2026-08-25 — Contract audit hardened and run across all 100 tasks
+
+`audit_task_cast` now parses mmCIF with Gemmi, audits every PDB ID, compares the
+prompt's observed polymer selection with the reference, preserves ligand/cap
+occurrences and sites, separates structural metals from bulk ions, and compares
+deposit `struct_conn` disulfides with the force-bearing reference topology.
+Gemmi's wwPDB residue dictionary supplements the Amber-specific name lists so
+modified polymer residues such as SEP, TPO, PTR and PSU are not silently
+classified as ligands. NMR deposits deliberately use the first model because
+the benchmark prepares one conformer and model copies do not multiply chemical
+components.
+
+The hardened audit reports **87 clean tasks and 13 tasks with findings**, the
+same headline count as the prototype but not the same membership. It confirms
+all ten ligand tasks contain a reference `LIG` the prompt never requests,
+detects dropped input caps in 028 (ACE) and 042 (ACE and NH2), and finds
+deposit/reference disulfide-pair differences in 016 and 087. Task 087 is new:
+1GQV declares four pairs while the reference topology contains three. The old
+035 finding is removed because the authentic deposit has no disulfide
+`struct_conn`; a geometry-only guess is not deposited chemistry. A second 6W9C
+Zn is also excluded after its selected construct retains only one symmetry-
+contact ligand, whereas the intended Cys4 site retains four.
+
+The contract-audit fixtures pass 13/13 and the complete MDDataBench suite passes
+765/765 (one existing constant-input Spearman warning).
+
 ## 2026-08-25 — Pilot agent/preparation and MD budgets extended to 20 minutes
 
 The Qwen 3.6 35B and Kimi K3 pilots both reached useful preparation stages but
