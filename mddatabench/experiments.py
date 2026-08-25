@@ -82,6 +82,53 @@ def _git_revision(path: Path) -> str | None:
         return None
 
 
+FROZEN_SOURCE_EXCLUDES = (
+    ".git", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache",
+    ".mdclaw_cache", "node_modules", ".venv",
+)
+
+
+def _freeze_source(src: Path, dest: Path) -> dict:
+    """Copy a source checkout into the experiment and take write access away.
+
+    An attempt reaches MDClaw through CLAUDE_PLUGIN_ROOT and PYTHONPATH, which
+    pointed at the operator's live checkout: an agent that decided MDClaw had a
+    bug could edit the package it was being measured against, and every later
+    attempt in the campaign inherited the edit. Measured 2026-08-25, one did.
+    The same aliasing cuts the other way -- the operator cannot touch the
+    checkout while a campaign runs without perturbing it.
+
+    The frozen copy is what the campaign runs, and the digest recorded here is
+    what the numbers belong to. Directories lose write permission as well as
+    files, because a writable directory still allows creating and replacing
+    entries inside it.
+    """
+    revision = _git_revision(src)
+    dirty = None
+    try:
+        dirty = bool(subprocess.run(
+            ["git", "-C", str(src), "status", "--porcelain"], check=True,
+            text=True, capture_output=True, timeout=30).stdout.strip())
+    except (OSError, subprocess.SubprocessError):
+        pass
+    shutil.copytree(src, dest,
+                    ignore=shutil.ignore_patterns(*FROZEN_SOURCE_EXCLUDES),
+                    symlinks=True)
+    digest, files = hashlib.sha256(), 0
+    for path in sorted(p for p in dest.rglob("*") if p.is_file() and not p.is_symlink()):
+        digest.update(str(path.relative_to(dest)).encode())
+        digest.update(path.read_bytes())
+        files += 1
+    for path in sorted(dest.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+        if path.is_symlink():
+            continue
+        path.chmod(path.stat().st_mode & ~0o222)
+    dest.chmod(dest.stat().st_mode & ~0o222)
+    return {"origin": str(src), "frozen": str(dest), "revision": revision,
+            "origin_dirty": dirty, "files": files,
+            "tree_sha256": digest.hexdigest()}
+
+
 def _version(command: str) -> str | None:
     try:
         return subprocess.run(
@@ -143,8 +190,11 @@ def _normalise_spec(spec: dict, experiment_dir: Path, dataset_dir: Path) -> dict
                 raise ValueError(f"{condition} requires sif")
             if not (cell.get("mdclaw_cli") or spec.get("mdclaw_cli")):
                 raise ValueError(f"{condition} requires mdclaw_cli")
-            if not (cell.get("mdclaw_source") or spec.get("mdclaw_source")):
+            source = cell.get("mdclaw_source") or spec.get("mdclaw_source")
+            if not source:
                 raise ValueError(f"{condition} requires mdclaw_source for the SIF overlay")
+            if not Path(source).is_dir():
+                raise ValueError(f"mdclaw_source is not a directory: {source}")
         if condition == "sif_only" and not (cell.get("runtime_sif") or spec.get("runtime_sif")):
             raise ValueError("sif_only requires a runtime_sif that does not contain MDClaw")
         if condition == "sif_only":
@@ -236,9 +286,25 @@ def init_experiment(experiment_dir: str, spec_file: str,
     spec_path, dataset = Path(spec_file).resolve(), Path(dataset_dir).resolve()
     spec = _normalise_spec(_json(spec_path), root, dataset)
     root.mkdir(parents=True, exist_ok=True)
+
+    # Freeze every MDClaw checkout the spec names, and run the campaign against
+    # the frozen copy. See _freeze_source.
+    frozen: dict[str, dict] = {}
+    for cell in spec["cells"]:
+        source = cell.get("mdclaw_source") or spec.get("mdclaw_source")
+        if not source:
+            continue
+        origin = Path(source).resolve()
+        if str(origin) in frozen:
+            continue
+        dest = root / "frozen-source" / f"mdclaw-{len(frozen)}"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        frozen[str(origin)] = _freeze_source(origin, dest)
+
     _write_json(root / "experiment.json", {
         **spec, "created_at": _now(), "spec_sha256": _sha256(spec_path),
         "mddatabench_revision": _git_revision(Path(__file__).resolve().parents[1]),
+        "frozen_sources": list(frozen.values()),
     })
 
     attempts = []
@@ -263,11 +329,23 @@ def init_experiment(experiment_dir: str, spec_file: str,
                     instructions + "\n\n--- PUBLIC TASK ---\n\n" + prompt_file.read_text())
                 if cell["condition"] == "sif_only":
                     (workspace / "PORTABLE_SUBMISSION.md").write_text(PORTABLE_LAYOUT)
+                cell_source = cell.get("mdclaw_source") or spec.get("mdclaw_source")
+                cell_cli = cell.get("mdclaw_cli") or spec.get("mdclaw_cli")
+                source_record = frozen.get(
+                    str(Path(cell_source).resolve())) if cell_source else None
+                if source_record:
+                    origin = Path(source_record["origin"])
+                    cell_source = source_record["frozen"]
+                    # bin/mdclaw normally lives in the checkout; follow it in.
+                    if cell_cli:
+                        cli = Path(cell_cli).resolve()
+                        if cli.is_relative_to(origin):
+                            cell_cli = str(Path(cell_source) / cli.relative_to(origin))
                 environment_spec = {
                     "sif": cell.get("sif") or spec.get("sif"),
                     "runtime_sif": cell.get("runtime_sif") or spec.get("runtime_sif"),
-                    "mdclaw_cli": cell.get("mdclaw_cli") or spec.get("mdclaw_cli"),
-                    "mdclaw_source": cell.get("mdclaw_source") or spec.get("mdclaw_source"),
+                    "mdclaw_cli": cell_cli,
+                    "mdclaw_source": cell_source,
                     "mddatabench_source": str(Path(__file__).resolve().parents[1]),
                     "source_overlay_required": True,
                     "agent_timeout_seconds": (int(cell.get("agent_timeout_seconds") or
@@ -340,8 +418,9 @@ def init_experiment(experiment_dir: str, spec_file: str,
                     },
                     "revisions": {
                         "mddatabench": _git_revision(Path(__file__).resolve().parents[1]),
-                        "mdclaw": (_git_revision(Path(environment_spec["mdclaw_source"]))
-                                   if environment_spec.get("mdclaw_source") else None),
+                        "mdclaw": source_record["revision"] if source_record else None,
+                        "mdclaw_tree_sha256": (source_record["tree_sha256"]
+                                               if source_record else None),
                     },
                     "reference": {
                         "node": task["reference"]["node"],

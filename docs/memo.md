@@ -5,6 +5,48 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-25 — The campaign now runs against a frozen MDClaw, not the live checkout
+
+A validation-run agent on `049_nucleic_1iv6` decided MDClaw had a bug stopping
+its DNA duplex from being neutralised, and edited
+`mdclaw/solvation/water.py` in the operator's checkout with its own edit tool.
+It was right about the bug. That is not the point: `CLAUDE_PLUGIN_ROOT` and
+`PYTHONPATH` pointed every attempt at one live directory, so the subject of
+measurement could be rewritten mid-campaign by the thing being measured.
+
+Contamination was traced attempt by attempt and came to exactly one of nine —
+006 goes through the membrane path, 021 had `delta=0` so the changed
+expression was identical, and 049 r1/r2 had chosen `salt=true`, where the old
+code applied the correction anyway. The validation run's conclusions survive.
+Had the edit landed on a hotter path it would have silently rewritten the
+campaign.
+
+`init_experiment` now copies each `mdclaw_source` to
+`<experiment-dir>/frozen-source/mdclaw-<n>` and strips write permission from
+every file and directory, and the campaign runs against that copy.
+Directories lose write access too: a writable directory still allows creating
+and replacing entries inside it. Verified against the four ways the edit could
+have arrived — in-place write, new file, rename, shell redirect — all four now
+fail with EACCES, and `mdclaw --list` still returns its 54 tools from the
+frozen copy. The copy is 17 MB and `.git` is not included.
+
+Two things fall out that are worth as much as the protection. The run is now
+self-describing: `experiment.json` records origin, git revision, whether the
+origin was dirty, and a SHA-256 over the copied tree, and every attempt
+manifest repeats revision and digest, so a set of numbers names the source it
+belongs to. And the aliasing ran both ways — editing MDClaw while a campaign
+was in flight silently changed that campaign. It no longer does.
+
+`init_experiment` also now rejects an `mdclaw_source` that is not a directory.
+It previously accepted any string and failed much later, at agent run time.
+
+Not fixed here, recorded for the rerun: agents wait for their own MD instead of
+exiting after submitting the afterok chain. Survival past the final `sbatch`
+tracked MD queue+run in all 8 sealed attempts (+343 s to +1566 s against 164 s
+to 1279 s of MD). The 90-minute agent budget is therefore spent on prep plus
+queue plus MD, which is what saturated it in the old campaign, where the
+`md_queue` median alone was 2088 s.
+
 ## 2026-08-25 — Correction: Gemmi is a required contract-audit dependency
 
 The hardened contract audit initially imported Gemmi without declaring it, so

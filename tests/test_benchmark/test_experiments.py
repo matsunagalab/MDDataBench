@@ -15,7 +15,21 @@ DATASET = Path("benchmarks/mddatabench")
 TASK = "027_complex_1b6c"
 
 
+def fake_checkout(tmp_path):
+    """A minimal stand-in for an MDClaw checkout, which init now freezes."""
+    root = tmp_path / "mdclaw"
+    (root / "mdclaw").mkdir(parents=True, exist_ok=True)
+    (root / "skills" / "md-prepare").mkdir(parents=True, exist_ok=True)
+    (root / "bin").mkdir(parents=True, exist_ok=True)
+    (root / "mdclaw" / "__init__.py").write_text("VERSION = '0'\n")
+    (root / "skills" / "md-prepare" / "SKILL.md").write_text("# md-prepare\n")
+    (root / "bin" / "mdclaw").write_text("#!/bin/sh\nexit 0\n")
+    (root / "bin" / "mdclaw").chmod(0o755)
+    return root
+
+
 def write_spec(tmp_path, cells, replicates=3):
+    fake_checkout(tmp_path)
     spec = tmp_path / "spec.json"
     spec.write_text(json.dumps({
         "experiment_id": "paper-test",
@@ -128,7 +142,60 @@ def test_skill_condition_loads_the_current_project_skill_explicitly(tmp_path, ha
     attempt = attempts(root)[0].parent
     command = ex.run_attempt_agent(str(attempt), dry_run=True)["command"]
     assert flag in command
-    assert any(value.startswith(str(tmp_path / "mdclaw")) for value in command)
+    # The skill comes from the campaign's frozen copy, never the live checkout.
+    frozen = root / "frozen-source" / "mdclaw-0"
+    assert any(value.startswith(str(frozen)) for value in command)
+    assert not any(value.startswith(str(tmp_path / "mdclaw") + "/") for value in command)
+
+
+def test_init_freezes_the_mdclaw_checkout_and_takes_write_access_away(tmp_path):
+    # An agent reaches MDClaw through CLAUDE_PLUGIN_ROOT and PYTHONPATH. Left
+    # pointing at the operator's checkout, an attempt could edit the package it
+    # was being measured against and every later attempt inherited the edit.
+    origin = fake_checkout(tmp_path)
+    spec = tmp_path / "spec.json"
+    spec.write_text(json.dumps({
+        "experiment_id": "freeze-test", "replicates": 1, "tasks": [TASK],
+        "sif": "/images/mdclaw.sif",
+        "mdclaw_cli": str(origin / "bin" / "mdclaw"),   # inside the checkout
+        "mdclaw_source": str(origin), "cells": [cell()],
+    }))
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(spec), str(DATASET))
+
+    record = json.loads((root / "experiment.json").read_text())["frozen_sources"]
+    assert len(record) == 1
+    frozen = Path(record[0]["frozen"])
+    assert record[0]["origin"] == str(origin)
+    assert frozen.is_relative_to(root)
+
+    manifest = json.loads(attempts(root)[0].read_text())
+    assert manifest["environment"]["mdclaw_source"] == str(frozen)
+    assert manifest["environment"]["mdclaw_cli"] == str(frozen / "bin" / "mdclaw")
+    assert manifest["revisions"]["mdclaw_tree_sha256"] == record[0]["tree_sha256"]
+
+    module = frozen / "mdclaw" / "__init__.py"
+    assert module.read_text() == (origin / "mdclaw" / "__init__.py").read_text()
+    assert (frozen / "bin" / "mdclaw").stat().st_mode & 0o111, "exec bits survive"
+
+    with pytest.raises(PermissionError):
+        module.write_text("VERSION = 'tampered'\n")
+    with pytest.raises(PermissionError):
+        (frozen / "mdclaw" / "added.py").write_text("x")
+
+    # The origin is untouched, so the operator can keep working during a run.
+    assert (origin / "mdclaw" / "__init__.py").read_text() == "VERSION = '0'\n"
+
+
+def test_freeze_leaves_a_cli_outside_the_checkout_where_it_is(tmp_path):
+    # Only bin/mdclaw living inside the checkout follows it into the freeze; a
+    # CLI installed elsewhere is not ours to copy.
+    spec = write_spec(tmp_path, [cell()], 1)          # mdclaw_cli is /bin/true
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(spec), str(DATASET))
+    manifest = json.loads(attempts(root)[0].read_text())
+    assert manifest["environment"]["mdclaw_cli"] == "/bin/true"
+    assert manifest["environment"]["mdclaw_source"].startswith(str(root))
 
 
 def test_partial_prep_or_md_score_is_binary_zero_and_tables_keep_partial_score(tmp_path):

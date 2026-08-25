@@ -25,9 +25,24 @@ On Rikyu, the shared image is an old dependency image:
 ```
 
 For `cli_skill_sif` and `cli_sif`, `sif`, `mdclaw_cli`, and
-`mdclaw_source` are all required. The generated CLI wrapper fixes
-`CLAUDE_PLUGIN_ROOT` to that checkout; MDClaw then binds the checkout into the
-old SIF and prep/MD commands import the current source through `PYTHONPATH`.
+`mdclaw_source` are all required. `init_experiment` copies the named checkout
+to `<experiment-dir>/frozen-source/mdclaw-<n>` and removes write permission
+from every file and directory in it; the campaign runs against that copy. The
+generated CLI wrapper fixes `CLAUDE_PLUGIN_ROOT` to the frozen copy, and a
+`mdclaw_cli` that lives inside the checkout follows it in. MDClaw then binds
+the frozen copy into the old SIF and prep/MD commands import it through
+`PYTHONPATH`.
+
+Freezing exists because the agent reaches MDClaw through those two variables.
+Pointed at a live checkout, an attempt that decides MDClaw has a bug can edit
+the package it is being measured against, and every later attempt in the
+campaign inherits the edit; one did on 2026-08-25. The same aliasing runs the
+other way, so the operator could not touch the checkout while a campaign ran.
+`experiment.json` records each frozen source's origin, git revision, whether
+the origin had uncommitted changes, and a SHA-256 over the copied tree, and
+each attempt manifest repeats the revision and tree digest: the numbers name
+the source they belong to. Note the copy is read-only, so removing an old
+experiment directory needs `chmod -R u+w` first. `.git` is not copied.
 The evaluator similarly binds the current MDDataBench checkout and sets
 `PYTHONPATH` when scoring. Thus the image supplies scientific dependencies,
 not the package implementation being evaluated.
