@@ -36,9 +36,18 @@ def test_fluctuation_magnitude_has_more_room_below_than_above():
 
 
 def test_other_measured_bands_remain_symmetric():
-    assert widened_calibration_band(
-        [1.0, 2.0], "radius_of_gyration_angstrom", 4.0, 0.1
-    ) == pytest.approx([0.6, 2.4])
+    """Only RMSF magnitude widens asymmetrically; the rest move equally.
+
+    The radius-of-gyration band also carries a flat tolerance on each side
+    (``RADIUS_OF_GYRATION_TOLERANCE_ANGSTROM``), added because the band is
+    measured within one reference trajectory and applied to an independent run.
+    That tolerance must stay symmetric, which is what this guards.
+    """
+    from mddatabench.scoring import RADIUS_OF_GYRATION_TOLERANCE_ANGSTROM as tol
+    low, high = widened_calibration_band(
+        [1.0, 2.0], "radius_of_gyration_angstrom", 4.0, 0.1)
+    assert [low, high] == pytest.approx([0.6 - tol, 2.4 + tol])
+    assert (1.0 - low) == pytest.approx(high - 2.0)
 
 
 def test_a_valid_system_loads(tmp_path):

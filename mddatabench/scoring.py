@@ -38,6 +38,46 @@ from mddatabench import execution as ex
 FLUCTUATION_LOWER_SLACK_MULTIPLIER = 1.25
 
 
+#: Hard ceiling on the fluctuation-shape floor, whatever the calibration says.
+#:
+#: The band is measured from windows of one continuous reference trajectory, so
+#: it captures within-trajectory spread and is then applied to an independently
+#: run submission, whose spread is larger. Measured 2026-08-25 with
+#: ``run_benchmark_negative_controls``, the positive control - the submission
+#: that must pass - failed on three tasks at the calibrated floor:
+#:
+#:     047_nucleic_1c7u  0.5202 against floor 0.8355   (needs 15.2 window SD)
+#:     049_nucleic_1iv6  0.8613 against floor 0.8731   (needs  4.6)
+#:     091_soluble_1ag4  0.6869 against floor 0.6964   (needs  4.2)
+#:
+#: Nothing is lost by capping. Across those runs the corruptions only this gate
+#: can catch - shuffled atoms, a frozen frame, isotropic noise, a duplicated
+#: minimum - never scored above 0.0429, while every legitimate run scored at
+#: least 0.5202. The gate was never the one catching over-restraint, expansion
+#: or truncation: an elastic-network ensemble scores 0.77-0.83 here and is
+#: caught by the RMSF magnitude gate (0.16-0.26 against bands starting at
+#: 0.29), and a 100 ps truncation is caught by the solvent clock.
+RANK_CORRELATION_FLOOR_CAP = 0.30
+
+#: Absolute tolerance added to each side of the radius-of-gyration band.
+#:
+#: Same cause as the floor cap above: the band comes from windows of one
+#: continuous reference trajectory and is applied to an independent run.
+#: Measured 2026-08-25, two positive controls sat just outside the upper bound
+#: while every check that matters was comfortably inside:
+#:
+#:     047_nucleic_1c7u  21.2004 against a ceiling of 21.1945  (+0.0059 A)
+#:     049_nucleic_1iv6  15.4450 against a ceiling of 15.4329  (+0.0121 A)
+#:
+#: 0.25 A covers those by twenty to forty times over and still leaves the gate
+#: decisive. The baseline this gate exists to catch, a compressed structure,
+#: sat 1.6 to 2.7 A *below* the band on the same four tasks - two orders of
+#: magnitude further out than a legitimate run overshoots, and on the opposite
+#: side. Expansion and over-restraint are caught by the RMSF magnitude gate,
+#: not by this one.
+RADIUS_OF_GYRATION_TOLERANCE_ANGSTROM = 0.25
+
+
 def widened_calibration_band(band, key, slack, spread):
     """Widen a measured window band, asymmetrically for RMSF magnitude."""
     if not band:
@@ -45,7 +85,14 @@ def widened_calibration_band(band, key, slack, spread):
     margin = float(slack) * float(spread)
     lower_multiplier = (FLUCTUATION_LOWER_SLACK_MULTIPLIER
                         if key == "total_fluctuation_angstrom" else 1.0)
-    return [band[0] - lower_multiplier * margin, band[1] + margin]
+    lower = band[0] - lower_multiplier * margin
+    upper = band[1] + margin
+    if key == "rank_correlation":
+        lower = min(lower, RANK_CORRELATION_FLOOR_CAP)
+    if key == "radius_of_gyration_angstrom":
+        lower -= RADIUS_OF_GYRATION_TOLERANCE_ANGSTROM
+        upper += RADIUS_OF_GYRATION_TOLERANCE_ANGSTROM
+    return [lower, upper]
 
 
 def pdb_atoms(path):
