@@ -5,6 +5,51 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-26 — Half the prompts never said to build the unresolved residues
+
+Twenty tasks have a `build_missing` entry, meaning the reference simulated
+residues the deposit does not resolve. Ten prompts said so; ten said nothing,
+so on those ten the agent had no way to know the gaps were meant to be filled
+and its model came out short. Measured on the pass@2 campaign before it was
+stopped: tasks with six or more unresolved residues passed 26/36 against 21/25
+with none, and `monomer_count_matches_reference` was the largest single failure
+code, with 001, 004, 019 and 030 among its victims -- all four in the silent
+ten.
+
+The generator had the wording and the data all along. `_task_builder` computes
+`build_residues`, the author numbers of each gap, and emitted "Chain C does not
+resolve residues 83, 84, ...; the range runs through them, so build them." But
+`build_residues` never reached the shipped contracts -- `null` in every
+task.json -- so `named` was empty and the count-based fallback never fired
+either. Only tasks whose numbers survived generation got a line, which is why
+008_membrane_6i53, the worst case at 22 residues, is silent: its list also
+exceeded the `len(named) <= 8` cutoff.
+
+All twenty now carry one sentence, and the generator emits the same one:
+
+    The deposit does not resolve every residue of the stated ranges. Build the
+    ones it leaves out, including any at the start or end of a range.
+
+Naming the residues was over-specification and is gone from the ten that had
+it. Which residues lack coordinates is in the deposit and how many is
+arithmetic on it; a prompt states what cannot be inferred, and that is the
+decision -- that the reference filled the gaps rather than leaving them, and
+that it filled the ones at a range's ends too. The last clause carries the
+weight: neither PDBFixer nor MODELLER rebuilds a terminus unless asked, and of
+the four tasks whose gaps could be located independently of the generator, all
+four were terminal.
+
+Separately, MODELLER could not have run at all. The SIF ships
+`modeller-10.8/modlib/modeller/config.py` with the placeholder key `XXXX`, and
+the licence was not in the environment. MDClaw already handles the placeholder
+-- it reads any `KEY_MODELLER*` variable and substitutes a synthetic
+`modeller.config`, so no bind mount is needed -- but the variable has to reach
+the container. A plain export does, because the image does not define that
+name; an `APPTAINERENV_` mirror is insurance against a future image that does.
+`~/.bashrc` alone is not enough: its interactivity guard returns before the
+export, so login and non-interactive shells never see it. It belongs in
+`~/.bash_profile`.
+
 ## 2026-08-25 — The attempt ends at submission, and the prompt now says so
 
 Agents were waiting for each MD stage to finish before submitting the next.

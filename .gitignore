@@ -19,3 +19,6 @@ reference_bundles/
 
 benchmark_runs/
 outputs/
+
+# MDClaw writes its membrane-patch cache into the working directory.
+.mdclaw_cache/
