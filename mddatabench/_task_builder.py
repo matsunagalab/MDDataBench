@@ -789,41 +789,81 @@ def _validated_build_sites(entry: dict) -> list:
     task, not a residue to drop quietly: 011_membrane_6kuy asked an agent both
     to leave residues out and to build them because a silent filter swallowed
     the collision. Generation fails instead.
+
+    Identifiers keep their insertion codes and are compared as identifiers, not
+    as integers. Author numbering is not an ordering: 036 declares ``1A-79``,
+    and reading ``1A``, ``1`` and ``1B`` all as ``1`` would let a site match a
+    range endpoint or an omission it has nothing to do with. Without the
+    deposit's polymer scheme this function cannot order an insertion-coded
+    site, so it accepts one only where the range endpoint spells it exactly,
+    and refuses anything it cannot read at all.
     """
     named = list(entry.get("build_residues") or [])
     if not named:
         return []
     chain = entry.get("deposit_chain")
-    spans = entry.get("ranges") or []
-    omitted = {
-        value
-        for span in (entry.get("omitted") or [])
-        for value in range(min(_as_int(span[0]), _as_int(span[1])),
-                           max(_as_int(span[0]), _as_int(span[1])) + 1)
-        if _as_int(span[0]) is not None and _as_int(span[1]) is not None
-    }
+    spans = [(_site_key(low), _site_key(high))
+             for low, high in (entry.get("ranges") or [])]
+    omitted = set()
+    for span in (entry.get("omitted") or []):
+        low, high = _as_int(span[0]), _as_int(span[1])
+        if low is None or high is None:
+            raise ValueError(
+                f"chain {chain}: omitted span {span!r} is not a residue range")
+        omitted.update(range(min(low, high), max(low, high) + 1))
+
     seen: list = []
     for site in named:
-        if site in seen:
+        if site in seen or str(site) in {str(other) for other in seen}:
             raise ValueError(
                 f"chain {chain}: residue {site} is listed twice for building")
-        number = _as_int(site)
+        number, icode = _site_key(site)
         if number is None:
-            seen.append(site)
-            continue
-        if number in omitted:
+            raise ValueError(
+                f"chain {chain}: residue {site!r} is not an author residue id")
+        if not icode and number in omitted:
             raise ValueError(
                 f"chain {chain}: residue {site} is both built and omitted")
-        if spans and not any(
-                _as_int(low) is not None and _as_int(high) is not None
-                and min(_as_int(low), _as_int(high)) <= number
-                <= max(_as_int(low), _as_int(high))
-                for low, high in spans):
+        if spans and not _site_within(number, icode, spans):
             raise ValueError(
                 f"chain {chain}: residue {site} is built but lies outside "
-                f"every stated range {spans}")
+                f"every stated range {entry.get('ranges')}")
         seen.append(site)
     return seen
+
+
+def _site_key(value) -> tuple:
+    """``"1A"`` as ``(1, "A")``; a bare number as ``(n, "")``."""
+    match = re.match(r"\s*(-?\d+)([A-Za-z]?)\s*$", str(value))
+    return (int(match.group(1)), match.group(2).upper()) if match else (None, "")
+
+
+def _site_within(number: int, icode: str, spans: list) -> bool:
+    """Is this site inside one of the spans, without ordering by number alone?
+
+    An insertion-coded site is accepted only where an endpoint spells it
+    exactly. ``1A`` may precede or follow ``1`` depending on the deposit's own
+    scheme, which this module cannot see, so anything else is refused rather
+    than guessed.
+    """
+    for (low, low_icode), (high, high_icode) in spans:
+        if low is None or high is None:
+            continue
+        if icode:
+            if ((number, icode) == (low, low_icode)
+                    or (number, icode) == (high, high_icode)):
+                return True
+            continue
+        first, last = min(low, high), max(low, high)
+        if first < number < last:
+            return True
+        # An endpoint carrying its own insertion code names one residue, not
+        # every residue sharing that number.
+        if number == low and not low_icode:
+            return True
+        if number == high and not high_icode:
+            return True
+    return False
 
 
 def _as_int(value):

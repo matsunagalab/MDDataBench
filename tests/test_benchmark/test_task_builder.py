@@ -509,3 +509,46 @@ def test_merging_does_not_duplicate_a_shared_site():
     ])
     assert merged[0]["build_residues"] == [10]
 
+def _build_prompt_for(chain_entry):
+    metadata = {"WAT": "TIP3P", "TEMP": 300, "ENSEMBLE": "NPT",
+                "FF": ["Amber ff14SB"]}
+    return tb.build_prompt("t", "Protein", "1ABC", metadata, [chain_entry],
+                           {}, [], 1.0)
+
+
+def test_build_prompt_writes_nothing_from_a_bare_count():
+    """Through build_prompt, not the helper.
+
+    The helper tests above pin _validated_build_sites. This pins the caller: if
+    build_prompt regained a build_missing fallback of its own they would all
+    still pass, and prose generated from that count is what told an agent to add
+    residues seven references do not have.
+    """
+    text = _build_prompt_for(
+        {"deposit_chain": "A", "ranges": [["16", "214"]], "build_missing": 1})
+    assert "does not resolve" not in text
+    assert "build them" not in text.lower()
+
+
+def test_build_prompt_writes_the_named_sites_with_their_chain():
+    text = _build_prompt_for(
+        {"deposit_chain": "C", "ranges": [["5", "211"]],
+         "build_missing": 3, "build_residues": [83, 84, 85]})
+    assert ("Chain C does not resolve residues 83, 84, 85; the range runs "
+            "through them, so build them.") in text
+
+
+def test_build_prompt_writes_the_singular_for_one_site():
+    text = _build_prompt_for(
+        {"deposit_chain": "A", "ranges": [["1", "100"]],
+         "build_missing": 1, "build_residues": [42]})
+    assert "does not resolve residue 42;" in text
+
+
+def test_build_prompt_refuses_a_site_its_own_prompt_omits():
+    """011_membrane_6kuy's shape, refused at the point the text is written."""
+    with pytest.raises(ValueError, match="both built and omitted"):
+        _build_prompt_for(
+            {"deposit_chain": "A", "ranges": [["1", "100"]],
+             "omitted": [(10, 12)], "build_missing": 1, "build_residues": [10]})
+

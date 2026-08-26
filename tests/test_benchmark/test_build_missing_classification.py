@@ -114,6 +114,12 @@ def test_the_recorded_bundle_is_the_one_measured(task_id):
     assert digest == RECORDED[task_id]["bundle_reference_pdb_sha256"]
 
 
+def test_build_sites_and_segments_agree():
+    """A fixture whose two site lists disagree is describing nothing."""
+    for task_id, record in RECORDED.items():
+        assert record["build_sites"] == [s["site"] for s in record["segments"]], task_id
+
+
 @needs_bundles
 @pytest.mark.parametrize("task_id", sorted(RECORDED))
 def test_the_delta_still_matches_the_bundle(task_id):
@@ -131,3 +137,54 @@ def test_the_delta_still_matches_the_bundle(task_id):
                                                 declared) if ca._is_polymer(r)]
     reference = [r for r in ca._structure_records(bundle) if ca._is_polymer(r)]
     assert len(reference) - len(observed) == RECORDED[task_id]["reference_delta"]
+
+
+@needs_bundles
+@pytest.mark.parametrize("task_id", sorted(RECORDED))
+def test_every_site_and_class_is_recomputed(task_id):
+    """The sites and their classes, not just the totals.
+
+    Without this the fixture could move 062's C-terminal residue onto an
+    internal one, or replace a site with a different number, and every other
+    assertion here would still pass: the membership sets check which tasks
+    build, the delta checks how many, and neither looks at which residues.
+
+    Classification reads the deposit's own polymer scheme rather than comparing
+    author numbers, because author numbering carries insertion codes and can
+    restart or run backwards, so it does not order the chain.
+    """
+    from mddatabench import contract_audit as ca
+
+    spec = json.loads(
+        (DATASET / "tasks" / task_id / "task.json").read_text())["reference"]
+    declared = ca._declared((DATASET / "tasks" / task_id / "prompt.md").read_text())
+    scheme = ca.deposit_polymer_scheme(
+        ca._deposit_path(spec["pdb_ids"][0], DATASET / "_deposits"))
+
+    segments = []
+    for chain, sites in sorted(declared["build_sites"].items()):
+        for entry in ca.classify_build_sites(
+                scheme.get(chain, []), declared["selected"].get(chain, set()),
+                sorted(sites)):
+            segments.append({"site": f"{chain}:{entry['site']}",
+                             "class": entry["class"]})
+    assert segments == RECORDED[task_id]["segments"]
+
+
+@needs_bundles
+def test_the_classifier_reads_position_not_residue_number():
+    """1CTF's built tail is 47-52 and its observed run starts at 53.
+
+    Numerically 47 is simply the smallest number present, so a comparison of
+    numbers gets this right by accident. What makes it N-terminal is that the
+    deposit's polymer scheme places those six positions before every observed
+    one, which is what the classifier reads.
+    """
+    from mddatabench import contract_audit as ca
+
+    scheme = ca.deposit_polymer_scheme(DATASET / "_deposits" / "1CTF.cif")["A"]
+    assert [number for number, _, observed in scheme if not observed] == [
+        47, 48, 49, 50, 51, 52]
+    classified = ca.classify_build_sites(
+        scheme, set(range(47, 121)), [(n, "") for n in range(47, 53)])
+    assert {entry["class"] for entry in classified} == {"n_terminal"}

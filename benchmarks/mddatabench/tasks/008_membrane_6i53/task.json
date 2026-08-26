@@ -46,11 +46,11 @@
     },
     "selection": {
       "chains": [
-        "E",
         "A",
         "B",
         "C",
-        "D"
+        "D",
+        "E"
       ],
       "ranges": {
         "E": [

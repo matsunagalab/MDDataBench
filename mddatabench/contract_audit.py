@@ -203,11 +203,25 @@ def selection_range_findings(prompt: str, selection: dict) -> list[dict]:
     declared = declared_range_tokens(prompt)
     stored = stored_range_tokens(selection)
     findings: list[dict] = []
-    if set(declared) != set(stored):
+    # `chains` and the keys of `ranges` are separate claims and can disagree
+    # separately, so check them separately -- the earlier version named the
+    # finding after `chains` while only ever reading `ranges`. `chains` is
+    # compared as a set: eight tasks store it in an order their prompt does not
+    # use, so the field's order carries no meaning and reordering it would be
+    # churn rather than a correction.
+    listed = selection.get("chains")
+    if listed is not None and set(listed) != set(declared):
         findings.append({
             "kind": "selection_chains_differ_from_prompt",
             "detail": (f"prompt declares {sorted(declared)}, "
-                       f"selection.ranges holds {sorted(stored)}"),
+                       f"selection.chains holds {sorted(listed)}"),
+            "component": "selection",
+        })
+    if set(declared) != set(stored):
+        findings.append({
+            "kind": "selection_range_chains_differ_from_prompt",
+            "detail": (f"prompt declares {sorted(declared)}, "
+                       f"selection.ranges is keyed by {sorted(stored)}"),
             "component": "selection",
         })
     for chain in sorted(set(declared) & set(stored)):
@@ -220,6 +234,68 @@ def selection_range_findings(prompt: str, selection: dict) -> list[dict]:
                 "chain": chain,
             })
     return findings
+
+
+def deposit_polymer_scheme(path) -> dict[str, list[tuple]]:
+    """Each deposit chain's residues in the order the deposit itself gives.
+
+    ``_pdbx_poly_seq_scheme`` lists every SEQRES position, observed or not, in
+    polymer order, with ``auth_seq_num`` set to ``?`` where there are no
+    coordinates. That order is the only sound one: author numbering can carry
+    insertion codes, restart, or run non-monotonically, so comparing residue
+    numbers cannot tell you which residue comes first.
+
+    Returns ``{chain: [(auth_number, insertion_code, observed), ...]}`` with
+    ``auth_number`` None for an unobserved position.
+    """
+    import gemmi
+
+    block = gemmi.cif.read(str(path)).sole_block()
+    table = block.find("_pdbx_poly_seq_scheme.",
+                       ["pdb_strand_id", "pdb_seq_num", "auth_seq_num",
+                        "pdb_ins_code"])
+    scheme: dict[str, list[tuple]] = {}
+    for row in table:
+        chain = str(row[0])
+        # pdb_seq_num carries the author number for every SEQRES position,
+        # observed or not; auth_seq_num is "?" exactly where the deposit has no
+        # coordinates, which is what makes a position unobserved.
+        numbered, resolved = str(row[1]), str(row[2])
+        icode = str(row[3])
+        icode = "" if icode in (".", "?") else icode.strip().upper()
+        observed = resolved not in ("?", ".")
+        number = (int(numbered)
+                  if numbered.lstrip("-").isdigit() else None)
+        scheme.setdefault(chain, []).append((number, icode, observed))
+    return scheme
+
+
+def classify_build_sites(scheme_chain: list, selected: set,
+                         sites: list) -> list[dict]:
+    """Terminal or internal, judged by position in the polymer, not by number.
+
+    A run is N-terminal when nothing selected precedes it and C-terminal when
+    nothing selected follows it. Sites the scheme does not place are reported
+    as ``unclassified`` rather than guessed.
+    """
+    order = {(number, icode): index
+             for index, (number, icode, _) in enumerate(scheme_chain)
+             if number is not None}
+    observed = [index for index, (number, icode, seen) in enumerate(scheme_chain)
+                if seen and number is not None and number in selected]
+    first, last = (min(observed), max(observed)) if observed else (None, None)
+    out = []
+    for number, icode in sites:
+        index = order.get((number, icode))
+        if index is None or first is None:
+            out.append({"site": f"{number}{icode}", "class": "unclassified"})
+        elif index < first:
+            out.append({"site": f"{number}{icode}", "class": "n_terminal"})
+        elif index > last:
+            out.append({"site": f"{number}{icode}", "class": "c_terminal"})
+        else:
+            out.append({"site": f"{number}{icode}", "class": "internal"})
+    return out
 
 
 def _declared(prompt: str) -> dict:
@@ -257,12 +333,23 @@ def _declared(prompt: str) -> dict:
         r"join\s+the\s+pieces\s+of\s+chain\s+(?:\*\*)?([A-Za-z0-9]+)",
         prompt, re.I))
     build_missing: dict[str, set[int]] = {}
+    # Two views of the same instruction. The integer set is what the polymer
+    # count has always used; the exact one keeps the insertion code, because
+    # "build residue 1A" and a resolved residue 1 are different residues and
+    # collapsing both to 1 makes each look like the other.
+    build_sites: dict[str, list[tuple[int, str]]] = {}
     for chain, numbers in _BUILD_MISSING.findall(prompt.replace("\n", " ")):
-        build_missing.setdefault(chain, set()).update(
-            int(value) for value in re.findall(r"-?\d+", numbers))
+        for token in re.findall(r"-?\d+[A-Za-z]?", numbers):
+            match = re.match(r"(-?\d+)([A-Za-z]?)", token)
+            number, icode = int(match.group(1)), match.group(2).upper()
+            build_missing.setdefault(chain, set()).add(number)
+            site = (number, icode)
+            if site not in build_sites.setdefault(chain, []):
+                build_sites[chain].append(site)
     return {"chains": set(ranges), "chain_order": list(ranges),
             "ranges": ranges, "selected": selected, "joined": joined,
-            "excluded": excluded, "build_missing": build_missing, "body": body}
+            "excluded": excluded, "build_missing": build_missing,
+            "build_sites": build_sites, "body": body}
 
 
 def _mentions(body: str, name: str, *, cap: bool = False) -> bool:
@@ -612,12 +699,12 @@ def audit_task_contract(task_dir: str, bundle: str,
                 "component": "polymer", "pdb_id": pdb_id,
             })
         expected_sites = {(r.chain, r.number, r.icode) for r in selected}
-        observed_sites = {(r.chain, r.number) for r in selected}
-        for chain, numbers in declared["build_missing"].items():
+        observed_sites = {(r.chain, r.number, r.icode) for r in selected}
+        for chain, sites in declared["build_sites"].items():
             in_selection = declared["selected"].get(chain, set())
             omitted = {value for start, end in declared["excluded"].get(chain, [])
                        for value in range(min(start, end), max(start, end) + 1)}
-            for number in sorted(numbers):
+            for number, icode in sorted(sites):
                 # These three used to be dropped by a silent membership test,
                 # which is how 011_membrane_6kuy came to tell an agent both to
                 # leave residues 173-182 out and to build them. A build site the
@@ -627,30 +714,33 @@ def audit_task_contract(task_dir: str, bundle: str,
                     findings.append({
                         "kind": "prompt_build_site_is_excluded",
                         "detail": (f"{pdb_id}: the prompt asks to build "
-                                   f"{chain}:{number} and also to leave it out"),
+                                   f"{chain}:{number}{icode} and also to "
+                                   "leave it out"),
                         "component": "polymer", "pdb_id": pdb_id,
-                        "site": f"{chain}:{number}",
+                        "site": f"{chain}:{number}{icode}",
                     })
                     continue
                 if number not in in_selection:
                     findings.append({
                         "kind": "prompt_build_site_outside_selection",
                         "detail": (f"{pdb_id}: the prompt asks to build "
-                                   f"{chain}:{number}, which no stated range covers"),
+                                   f"{chain}:{number}{icode}, which no stated "
+                                   "range covers"),
                         "component": "polymer", "pdb_id": pdb_id,
-                        "site": f"{chain}:{number}",
+                        "site": f"{chain}:{number}{icode}",
                     })
                     continue
-                if (chain, number) in observed_sites:
+                if (chain, number, icode) in observed_sites:
                     findings.append({
                         "kind": "prompt_build_site_is_observed",
                         "detail": (f"{pdb_id}: the prompt asks to build "
-                                   f"{chain}:{number}, which the deposit resolves"),
+                                   f"{chain}:{number}{icode}, which the "
+                                   "deposit resolves"),
                         "component": "polymer", "pdb_id": pdb_id,
-                        "site": f"{chain}:{number}",
+                        "site": f"{chain}:{number}{icode}",
                     })
                     continue
-                expected_sites.add((chain, number, ""))
+                expected_sites.add((chain, number, icode))
         if expected_sites and len(expected_sites) != len(reference_polymer):
             findings.append({
                 "kind": "reference_polymer_selection_mismatch",

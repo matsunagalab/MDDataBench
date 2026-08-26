@@ -11,6 +11,7 @@ These exercise the three shapes the filter used to swallow.
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 
@@ -134,4 +135,85 @@ def test_the_unmodified_task_is_clean():
         str(pathlib.Path(BUNDLE_ROOT) / "bsc_A02KE"),
         deposit_cache=str(DATASET / "_deposits"))
     assert report["findings"] == []
+
+# --- all three branches through audit_task_contract, without bundles --------
+
+
+def _stub_records(monkeypatch, deposit, reference):
+    """Feed audit_task_contract structures instead of files.
+
+    The excluded-site branch is covered end to end against the real 068 bundle
+    below, but the other two need a deposit that resolves or omits a specific
+    residue, which no shipped task does. Stubbing the reader exercises the same
+    audit path without inventing coordinate files.
+    """
+    from mddatabench import contract_audit as ca
+
+    def fake(path):
+        return reference if str(path).endswith("reference.pdb") else deposit
+
+    monkeypatch.setattr(ca, "_structure_records", fake)
+    monkeypatch.setattr(ca, "_deposit_path", lambda pdb_id, cache: "deposit.cif")
+    monkeypatch.setattr(ca, "_deposit_disulfide_positions", lambda *a, **k: set())
+    monkeypatch.setattr(ca, "_reference_disulfide_positions", lambda *a: set())
+    monkeypatch.setattr(ca, "_connected_metals", lambda *a, **k: set())
+    monkeypatch.setattr(ca, "_deposit_components", lambda *a, **k: [])
+
+
+def _task(tmp_path, extra_lines):
+    task = tmp_path / "task"
+    task.mkdir()
+    (task / "prompt.md").write_text(
+        "# Task 999_test\n\n"
+        "Simulate TEST, PDB entry **1XYZ**, chain **A** residues **1–5**, "
+        "in explicit solvent.\n\n"
+        "- at least **1 ns** of production MD\n\n" + extra_lines)
+    (task / "task.json").write_text(json.dumps({
+        "reference": {"pdb_ids": ["1XYZ"],
+                      "selection": {"chains": ["A"],
+                                    "ranges": {"A": [["1", "5"]]}}}}))
+    return task
+
+
+def _residues(*numbers):
+    from mddatabench.contract_audit import Residue
+
+    return [Residue("A", n, "", "ALA") for n in numbers]
+
+
+def test_a_site_outside_the_stated_range_is_reported(tmp_path, monkeypatch):
+    from mddatabench.contract_audit import audit_task_contract
+
+    _stub_records(monkeypatch, _residues(1, 2, 3, 4, 5), _residues(1, 2, 3, 4, 5))
+    task = _task(tmp_path, "Chain A does not resolve residue 99; the range "
+                           "runs through them, so build them.\n")
+    report = audit_task_contract(str(task), str(tmp_path), deposit_cache=str(tmp_path))
+    kinds = {f["kind"]: f for f in report["findings"]}
+    assert "prompt_build_site_outside_selection" in kinds
+    assert kinds["prompt_build_site_outside_selection"]["site"] == "A:99"
+
+
+def test_a_site_the_deposit_resolves_is_reported(tmp_path, monkeypatch):
+    """Asking to build a residue that has coordinates is a contradiction too."""
+    from mddatabench.contract_audit import audit_task_contract
+
+    _stub_records(monkeypatch, _residues(1, 2, 3, 4, 5), _residues(1, 2, 3, 4, 5))
+    task = _task(tmp_path, "Chain A does not resolve residue 3; the range "
+                           "runs through them, so build them.\n")
+    report = audit_task_contract(str(task), str(tmp_path), deposit_cache=str(tmp_path))
+    kinds = {f["kind"]: f for f in report["findings"]}
+    assert "prompt_build_site_is_observed" in kinds
+    assert kinds["prompt_build_site_is_observed"]["site"] == "A:3"
+
+
+def test_a_genuine_unresolved_site_is_not_reported(tmp_path, monkeypatch):
+    """The control: residue 3 absent from the deposit and present in the
+    reference is exactly what a build instruction is for."""
+    from mddatabench.contract_audit import audit_task_contract
+
+    _stub_records(monkeypatch, _residues(1, 2, 4, 5), _residues(1, 2, 3, 4, 5))
+    task = _task(tmp_path, "Chain A does not resolve residue 3; the range "
+                           "runs through them, so build them.\n")
+    report = audit_task_contract(str(task), str(tmp_path), deposit_cache=str(tmp_path))
+    assert not [f for f in report["findings"] if "build_site" in f["kind"]]
 
