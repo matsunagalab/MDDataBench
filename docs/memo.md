@@ -5,45 +5,68 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
-## 2026-08-26 — Correction: ten of those twenty prompts were right to say nothing
+## 2026-08-26 — Correction: the prompts were already right; the licence was the defect
 
-The entry below claims all twenty `build_missing` tasks needed a build
-instruction and that ten were missing one. Half of that is wrong, and the fix
-it describes made ten prompts worse until this reverted it.
+Reverted in full. The two entries below describe a change to twenty prompts
+that should not have been made, and this records why, because the reasoning
+that produced it was wrong in a way worth keeping.
 
-`selection.build_missing` in the finished contract is not a reliable statement
-that anything must be built. Counting the reference bundle's polymer residues
+`selection.build_missing` in the finished contract is not a statement that
+anything must be built. Counting the reference bundle's polymer residues
 against the deposit's observed residues inside the ranges the prompt states --
 no numbering involved, which is the only comparison the arbitrary reference
-numbering permits -- five tasks agree with their contract exactly:
+numbering permits -- five tasks agree with their contract exactly (062: 312 vs
+309, 065: 130 vs 125, 068: 73 vs 70, 076: 74 vs 68, 080: 127 vs 124), while
+seven report a non-zero value against a difference of exactly zero: 001, 004,
+008, 011, 043, 044, 045. Their references built nothing. All seven were among
+the ten given a new instruction, and on 011_membrane_6kuy that instruction
+contradicted the prompt's own "Residue 173-182 of chain A is not part of the
+reference. Leave it out."
 
-    062_metal_6w9c   312 vs 309   build 3
-    065_soluble_1a62 130 vs 125   build 5
-    068_soluble_1ail  73 vs  70   build 3
-    076_soluble_1ctf  74 vs  68   build 6
-    080_soluble_1ez3 127 vs 124   build 3
+The ten that already carried a line from the generator are the ten that need
+one. The generator's per-chain gate was right and the contract's aggregate is a
+different quantity.
 
-and seven have a difference of exactly zero while still reporting a non-zero
-`build_missing`: 001, 004, 008, 011, 043, 044, 045. Their references built
-nothing. Telling an agent to fill those gaps adds residues the reference does
-not have, which fails `monomer_count_matches_reference` -- the very check the
-change was meant to repair. On 011_membrane_6kuy it also contradicted the
-prompt's own "Residue 173-182 of chain A is not part of the reference. Leave it
-out."
+Replacing the named residues with one generic sentence was also wrong, and for
+a reason the original code had already written down. Which residues lack
+coordinates is public deposit metadata, not the hidden reference decision; the
+hidden part is only that the reference chose to build them. Naming them
+therefore costs no minimality, while the generic form adds an auth-numbering,
+insertion-code and unobserved-residue parsing subtask, loses the chain
+association on multichain systems, and -- measured -- silently broke
+`contract_audit`, whose parser matches the named wording and reported ten
+spurious `reference_polymer_selection_mismatch` findings until the revert. The
+audit is back to zero findings across all hundred tasks.
 
-Every one of those seven is in the ten this session added a sentence to. The
-ten that already carried a line from the generator are the ten that need one:
-015, 021, 022, 023, 029, 062, 065, 068, 076, 080. The generator's gate was
-right and the aggregate in the contract is not the same quantity.
+Two claims made during the investigation were themselves wrong and are
+withdrawn:
 
-So the sentence is removed from the ten that never had it, the ten real ones
-keep it in the minimal form, and `_task_builder` keeps its original gate with
-only the wording changed. Credit where due: this was caught in review, not by
-the measurement that motivated the change.
+- "MDClaw cannot build terminal residues." It can. `prepare_complex` maps
+  `build_terminal_missing_residues=True` onto
+  `ignore_terminal_missing_residues=False`; passing both to `clean_protein`
+  rebuilds 1CTF's six-residue N-terminal tail, reporting "a terminus has an
+  anchor on one side only, so these coordinates are predicted rather than
+  measured". The earlier test called `clean_protein` directly and so skipped
+  that mapping. What does block 1CTF is a different guard:
+  `PDBFIXER_MAX_MISSING_RESIDUE_SEGMENT_LENGTH` is 5 and the tail is 6, so the
+  build ends in `pdbfixer_missing_residues_out_of_scope`. MODELLER cannot take
+  it either -- loop modelling needs an anchor on both sides -- so a terminal
+  segment longer than five currently has no route.
+- Attributing the campaign's `monomer_count_matches_reference` failures on 001,
+  004, 019 and 030 to unbuilt loops. Those four references added no polymer
+  residues, so the cause is elsewhere.
 
-What survives from the entry below: the wording argument, the terminal clause,
-and the MODELLER licence work. Terminal building is confirmed on 065, 068, 076
-and 080 -- 17 residues -- and MDClaw still cannot do it.
+What survives: the MODELLER licence was genuinely absent, and that alone would
+have stopped every internal-gap rebuild. It is now in `~/.bash_profile`, where
+login and non-interactive shells can see it; `~/.bashrc` does not work because
+its interactivity guard returns before the export.
+
+Also found, not fixed: six tasks whose `selection.ranges` disagrees with their
+own prompt -- 008 (extensively), 011, 015, 043, 076, 080 -- with the prompt
+matching the bundle in each case. The scorer recomputes from the bundle and
+never reads `selection.ranges`, and the harness hands the agent `prompt.md`, so
+nothing is mis-scored today; it is a contract-integrity problem waiting for a
+future consumer.
 
 ## 2026-08-26 — Half the prompts never said to build the unresolved residues
 

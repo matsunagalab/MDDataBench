@@ -6,7 +6,7 @@ Simulate MAD structure of OXA10 class D beta-lactamase, PDB entry **1E3U**, chai
 - **310 K**, **NPT** at **1 bar**
 - at least **2.5 ns** of production MD
 
-The deposit does not resolve every residue of the stated ranges. Build the ones it leaves out, including any at the start or end of a range.
+Chain B does not resolve residues 265, 266; the range runs through them, so build them.
 
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 

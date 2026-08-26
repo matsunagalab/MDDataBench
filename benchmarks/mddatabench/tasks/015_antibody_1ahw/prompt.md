@@ -6,7 +6,7 @@ Simulate A COMPLEX OF EXTRACELLULAR DOMAIN OF TISSUE FACTOR WITH AN INHIBITORY, 
 - **300 K**, **NPT** at **1 bar**
 - at least **2.5 ns** of production MD
 
-The deposit does not resolve every residue of the stated ranges. Build the ones it leaves out, including any at the start or end of a range.
+Chain C does not resolve residues 83, 84, 85, 86, 87, 88, 89, 90; the range runs through them, so build them.
 
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 

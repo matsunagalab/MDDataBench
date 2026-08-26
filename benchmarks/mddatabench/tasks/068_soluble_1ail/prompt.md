@@ -6,7 +6,7 @@ Simulate NONSTRUCTURAL PROTEIN NS1, PDB entry **1AIL**, chain **A** residues **1
 - **300 K**, **NPT** at **1 bar**
 - at least **1 ns** of production MD
 
-The deposit does not resolve every residue of the stated ranges. Build the ones it leaves out, including any at the start or end of a range.
+Chain A does not resolve residues 71, 72, 73; the range runs through them, so build them.
 
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 

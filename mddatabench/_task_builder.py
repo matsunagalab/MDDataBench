@@ -815,23 +815,15 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
                       "single continuous chain, bonded where the removed part "
                       "was.", ""]
         if entry.get("build_missing"):
-            # Which residues have no coordinates is in the deposit, and how many
-            # is arithmetic on it; naming them hands over what the agent can read
-            # for itself. What it cannot read is the decision: that the reference
-            # built them rather than leaving the gaps, and that it built the ones
-            # at a range's ends too, which neither PDBFixer nor MODELLER does
-            # unless asked.
-            #
-            # The gate stays exactly as it was. `selection.build_missing` in the
-            # finished contract is an aggregate and carries false positives --
-            # measured 2026-08-26, seven tasks whose reference residue count
-            # equals the deposit's observed count inside the stated ranges still
-            # report a non-zero value, and 011_membrane_6kuy would be told to
-            # build residues its own prompt tells it to leave out. This per-chain
-            # entry is the one that was right.
-            lines += ["The deposit does not resolve every residue of this "
-                      "range. Build the ones it leaves out, including any at "
-                      "the start or end of the range.", ""]
+            named = entry.get("build_residues") or []
+            if named and len(named) <= 8:
+                which = ", ".join(str(n) for n in named)
+                lines += [f"Chain {entry['deposit_chain']} does not resolve "
+                          f"residue{'s' if len(named) > 1 else ''} {which}; the range "
+                          "runs through them, so build them.", ""]
+            else:
+                lines += [f"{entry['build_missing']} residues of that range are not "
+                          "resolved in the deposit. Build them.", ""]
         for span in (entry.get("omitted") or []):
             where = span[0] if span[0] == span[1] else f"{span[0]}–{span[1]}"
             lines += [f"Residue {where} of chain {entry['deposit_chain']} is not part of "
