@@ -187,6 +187,48 @@ def test_init_freezes_the_mdclaw_checkout_and_takes_write_access_away(tmp_path):
     assert (origin / "mdclaw" / "__init__.py").read_text() == "VERSION = '0'\n"
 
 
+def test_freeze_leaves_run_output_behind(tmp_path):
+    # A checkout is not only source. MDClaw writes study workspaces under
+    # `studies/` and run output under `runs/`, both inside the checkout, and
+    # neither is importable: an attempt needs the package, `skills/` and
+    # `bin/`. Measured 2026-08-27, a checkout holding 37 GB of umbrella
+    # sampling was copied whole and then hashed file by file, which took the
+    # 1 TB project quota from 81 GB free to 40 GB and paused the driver on its
+    # disk floor before one attempt dispatched.
+    origin = fake_checkout(tmp_path)
+    (origin / "studies" / "t1r" / "jobs").mkdir(parents=True)
+    (origin / "studies" / "t1r" / "jobs" / "prod.dcd").write_text("x" * 4096)
+    (origin / "runs" / "scratch").mkdir(parents=True)
+    (origin / "runs" / "scratch" / "traj.xtc").write_text("y" * 4096)
+
+    spec = tmp_path / "spec.json"
+    spec.write_text(json.dumps({
+        "experiment_id": "freeze-excludes", "replicates": 1, "tasks": [TASK],
+        "sif": "/images/mdclaw.sif", "mdclaw_cli": "/bin/true",
+        "mdclaw_source": str(origin), "cells": [cell()],
+    }))
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(spec), str(DATASET))
+
+    frozen = Path(json.loads(
+        (root / "experiment.json").read_text())["frozen_sources"][0]["frozen"])
+    assert not (frozen / "studies").exists()
+    assert not (frozen / "runs").exists()
+
+    # What an attempt imports still followed it in.
+    assert (frozen / "mdclaw" / "__init__.py").is_file()
+    assert (frozen / "skills" / "md-prepare" / "SKILL.md").is_file()
+    assert (frozen / "bin" / "mdclaw").is_file()
+
+    # The excluded trees are data, so they must not reach the digest either --
+    # otherwise the hash changes whenever the operator runs an unrelated study.
+    assert not any(part in {"studies", "runs"}
+                   for path in frozen.rglob("*") for part in path.parts)
+
+    # The origin keeps its output.
+    assert (origin / "studies" / "t1r" / "jobs" / "prod.dcd").is_file()
+
+
 def test_freeze_leaves_a_cli_outside_the_checkout_where_it_is(tmp_path):
     # Only bin/mdclaw living inside the checkout follows it into the freeze; a
     # CLI installed elsewhere is not ours to copy.

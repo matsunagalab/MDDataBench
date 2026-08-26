@@ -5,6 +5,44 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-27 — The frozen source was copying 37 GB of trajectories
+
+Launching the 100-task pass@2 campaign, the driver reported `PAUSE disk 40G <
+60G` and dispatched nothing. The cause was ours: `_freeze_source` copies the
+MDClaw checkout with `shutil.copytree`, and `FROZEN_SOURCE_EXCLUDES` listed
+only caches. The operator's checkout carries `studies/`, where MDClaw writes
+study workspaces — at the time 37 GB of TAS1R2/TAS1R3 umbrella sampling.
+
+Measured on the 1 TB project quota (`lfs quota -p 200051 /data1`):
+
+| | free |
+|---|---|
+| before `init_experiment` | 81 G |
+| after | 40 G |
+| after excluding `studies`/`runs` | 76 G |
+
+The frozen tree went from 37 GB to 20 MB. The digest loop reads every frozen
+file, so the copy was also hashing 37 GB, and `tree_sha256` would have changed
+whenever an unrelated study ran — the digest is supposed to identify the
+source the numbers belong to.
+
+Neither directory is importable. An attempt reaches MDClaw through
+`CLAUDE_PLUGIN_ROOT` and `PYTHONPATH`, which need the package, `skills/` and
+`bin/`. What is frozen is the source an attempt runs; a study workspace is
+data. `test_freeze_leaves_run_output_behind` pins both halves: the two trees
+are absent from the frozen copy and from the digest, and the package, skill
+and CLI are still there.
+
+Two notes for whoever runs the next campaign:
+
+- **`lfs quota -g` is the wrong number.** It reports 972 G where `df` and the
+  project quota report 992 G, because the group accounting has no limit set
+  (`blimit 0k`). What stops a write is the project quota on pid 200051.
+- **The driver must be started from a login shell.** `KEY_MODELLER10v8` is
+  exported in `~/.bash_profile`, which `bash -c` does not read — `bash -lc`
+  does. Started the wrong way, every MODELLER route in the campaign is inert
+  and nothing in the logs says so.
+
 ## 2026-08-26 — Correction: the prompts were already right; the licence was the defect
 
 Reverted in full. The two entries below describe a change to twenty prompts
