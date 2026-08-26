@@ -1,0 +1,362 @@
+{
+  "001_membrane_5yc8": {
+    "build_sites": [],
+    "bundle_reference_pdb_sha256": "8ef4af3026b9ee38b5767b7b886e40d572fa602a25e40494a12c7a545a692ea5",
+    "reference_delta": 0,
+    "segments": []
+  },
+  "004_membrane_5zkb": {
+    "build_sites": [],
+    "bundle_reference_pdb_sha256": "a7ba05b7b790e328c4a762c27982e2a4bfb037b5555f3df0c177cbaa0dba9c4d",
+    "reference_delta": 0,
+    "segments": []
+  },
+  "008_membrane_6i53": {
+    "build_sites": [],
+    "bundle_reference_pdb_sha256": "1f56b02ae86dae5bb744027ff91516a49c7b64a2a465a3f55520023380da2eb0",
+    "reference_delta": 0,
+    "segments": []
+  },
+  "011_membrane_6kuy": {
+    "build_sites": [],
+    "bundle_reference_pdb_sha256": "9d9ad959e155ead4e34e69320952efc051c358d6e79fded86f119af1b7a372d4",
+    "reference_delta": 0,
+    "segments": []
+  },
+  "015_antibody_1ahw": {
+    "build_sites": [
+      "C:83",
+      "C:84",
+      "C:85",
+      "C:86",
+      "C:87",
+      "C:88",
+      "C:89",
+      "C:90"
+    ],
+    "bundle_reference_pdb_sha256": "d338107f01d844dd99ab8c7d9398f39d2b5fb4dadfe57208f7f30f287d559b37",
+    "reference_delta": 8,
+    "segments": [
+      {
+        "class": "internal",
+        "site": "C:83"
+      },
+      {
+        "class": "internal",
+        "site": "C:84"
+      },
+      {
+        "class": "internal",
+        "site": "C:85"
+      },
+      {
+        "class": "internal",
+        "site": "C:86"
+      },
+      {
+        "class": "internal",
+        "site": "C:87"
+      },
+      {
+        "class": "internal",
+        "site": "C:88"
+      },
+      {
+        "class": "internal",
+        "site": "C:89"
+      },
+      {
+        "class": "internal",
+        "site": "C:90"
+      }
+    ]
+  },
+  "019_antibody_2dd8": {
+    "build_sites": [],
+    "bundle_reference_pdb_sha256": "55a78365071c4bc98f2398f6b49008b0343c618faa8fd0311ce23cafcd9eba64",
+    "reference_delta": 0,
+    "segments": []
+  },
+  "020_antibody_2vis": {
+    "build_sites": [],
+    "bundle_reference_pdb_sha256": "e2adf816e07b76db0686ac0efc48166ad0be21eb031d069a5c8ca2fd6bba6186",
+    "reference_delta": 0,
+    "segments": []
+  },
+  "021_antibody_3eoa": {
+    "build_sites": [
+      "H:137",
+      "H:138",
+      "H:139",
+      "H:140",
+      "H:141"
+    ],
+    "bundle_reference_pdb_sha256": "3c3fe7af399e783a5cf1252553c184c9fa518aa3ab3a555f403d9d190920afcc",
+    "reference_delta": 5,
+    "segments": [
+      {
+        "class": "internal",
+        "site": "H:137"
+      },
+      {
+        "class": "internal",
+        "site": "H:138"
+      },
+      {
+        "class": "internal",
+        "site": "H:139"
+      },
+      {
+        "class": "internal",
+        "site": "H:140"
+      },
+      {
+        "class": "internal",
+        "site": "H:141"
+      }
+    ]
+  },
+  "022_antibody_3rvw": {
+    "build_sites": [
+      "D:135",
+      "D:136",
+      "D:137",
+      "D:138"
+    ],
+    "bundle_reference_pdb_sha256": "5ea8a32f94963a6dd2149037b9e9bd9273eb0e789cad0139f64342a6f630298e",
+    "reference_delta": 4,
+    "segments": [
+      {
+        "class": "internal",
+        "site": "D:135"
+      },
+      {
+        "class": "internal",
+        "site": "D:136"
+      },
+      {
+        "class": "internal",
+        "site": "D:137"
+      },
+      {
+        "class": "internal",
+        "site": "D:138"
+      }
+    ]
+  },
+  "023_antibody_3wd5": {
+    "build_sites": [
+      "H:137",
+      "H:138",
+      "H:139",
+      "H:140",
+      "H:141"
+    ],
+    "bundle_reference_pdb_sha256": "8c6f765ec461a6d173da8178868a48d3091d45602efecbb2bcea17bf00555ae8",
+    "reference_delta": 5,
+    "segments": [
+      {
+        "class": "internal",
+        "site": "H:137"
+      },
+      {
+        "class": "internal",
+        "site": "H:138"
+      },
+      {
+        "class": "internal",
+        "site": "H:139"
+      },
+      {
+        "class": "internal",
+        "site": "H:140"
+      },
+      {
+        "class": "internal",
+        "site": "H:141"
+      }
+    ]
+  },
+  "029_complex_1e3u": {
+    "build_sites": [
+      "B:265",
+      "B:266"
+    ],
+    "bundle_reference_pdb_sha256": "1a21f2bb9ab31324e865f1908887687321abf8f68ff81d53f19cb202c728d284",
+    "reference_delta": 2,
+    "segments": [
+      {
+        "class": "c_terminal",
+        "site": "B:265"
+      },
+      {
+        "class": "c_terminal",
+        "site": "B:266"
+      }
+    ]
+  },
+  "030_complex_1ffw": {
+    "build_sites": [],
+    "bundle_reference_pdb_sha256": "0227660f0559af9ab92cfa1046e7f10c8ef2d6ce0e6929805685ab9d508912b7",
+    "reference_delta": 0,
+    "segments": []
+  },
+  "043_ligand_5od1": {
+    "build_sites": [],
+    "bundle_reference_pdb_sha256": "3d87a8257e0bdb196c18099ce80fb7bb1e1d5ac26fb5327f67573b26acc02b2f",
+    "reference_delta": 0,
+    "segments": []
+  },
+  "044_ligand_5oh3": {
+    "build_sites": [],
+    "bundle_reference_pdb_sha256": "c95a0c3f345775af911b8fc8f8f7f53afbe178b1fe1b2b0bae92b640494a4da6",
+    "reference_delta": 0,
+    "segments": []
+  },
+  "045_ligand_6j3o": {
+    "build_sites": [],
+    "bundle_reference_pdb_sha256": "80fa8731206f6590248ee53213a8f8f08a1251d03bc30ddb7de79329fb6a3fe1",
+    "reference_delta": 0,
+    "segments": []
+  },
+  "062_metal_6w9c": {
+    "build_sites": [
+      "C:225",
+      "C:226",
+      "C:315"
+    ],
+    "bundle_reference_pdb_sha256": "6ee50066c5382b3892059ef03e27f025d740418ea778ea8b9490aff0ec54254a",
+    "reference_delta": 3,
+    "segments": [
+      {
+        "class": "internal",
+        "site": "C:225"
+      },
+      {
+        "class": "internal",
+        "site": "C:226"
+      },
+      {
+        "class": "c_terminal",
+        "site": "C:315"
+      }
+    ]
+  },
+  "065_soluble_1a62": {
+    "build_sites": [
+      "A:126",
+      "A:127",
+      "A:128",
+      "A:129",
+      "A:130"
+    ],
+    "bundle_reference_pdb_sha256": "9d28189cc114bf50da2ddb56e2bb8d24f70be1fbfbb36bb220c42bc7b9abf93b",
+    "reference_delta": 5,
+    "segments": [
+      {
+        "class": "c_terminal",
+        "site": "A:126"
+      },
+      {
+        "class": "c_terminal",
+        "site": "A:127"
+      },
+      {
+        "class": "c_terminal",
+        "site": "A:128"
+      },
+      {
+        "class": "c_terminal",
+        "site": "A:129"
+      },
+      {
+        "class": "c_terminal",
+        "site": "A:130"
+      }
+    ]
+  },
+  "068_soluble_1ail": {
+    "build_sites": [
+      "A:71",
+      "A:72",
+      "A:73"
+    ],
+    "bundle_reference_pdb_sha256": "d04d7bd6575162a99bd16d47a3718509f322163ed67ea098f9e4fbb66284aa4d",
+    "reference_delta": 3,
+    "segments": [
+      {
+        "class": "c_terminal",
+        "site": "A:71"
+      },
+      {
+        "class": "c_terminal",
+        "site": "A:72"
+      },
+      {
+        "class": "c_terminal",
+        "site": "A:73"
+      }
+    ]
+  },
+  "076_soluble_1ctf": {
+    "build_sites": [
+      "A:47",
+      "A:48",
+      "A:49",
+      "A:50",
+      "A:51",
+      "A:52"
+    ],
+    "bundle_reference_pdb_sha256": "40f47c4b7f53db27875049fc27c4992ee332154aa7260691ef973cb6728879e9",
+    "reference_delta": 6,
+    "segments": [
+      {
+        "class": "n_terminal",
+        "site": "A:47"
+      },
+      {
+        "class": "n_terminal",
+        "site": "A:48"
+      },
+      {
+        "class": "n_terminal",
+        "site": "A:49"
+      },
+      {
+        "class": "n_terminal",
+        "site": "A:50"
+      },
+      {
+        "class": "n_terminal",
+        "site": "A:51"
+      },
+      {
+        "class": "n_terminal",
+        "site": "A:52"
+      }
+    ]
+  },
+  "080_soluble_1ez3": {
+    "build_sites": [
+      "B:24",
+      "B:25",
+      "B:26"
+    ],
+    "bundle_reference_pdb_sha256": "a87a07d2c0a9c86a003adc3e1dc55616de4b7be440164ff6bf431b77a3835c94",
+    "reference_delta": 3,
+    "segments": [
+      {
+        "class": "n_terminal",
+        "site": "B:24"
+      },
+      {
+        "class": "n_terminal",
+        "site": "B:25"
+      },
+      {
+        "class": "n_terminal",
+        "site": "B:26"
+      }
+    ]
+  }
+}
