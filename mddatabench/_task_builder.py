@@ -511,6 +511,16 @@ def merge_by_deposit_chain(entries):
         target["residues"] = (target.get("residues") or 0) + (entry.get("residues") or 0)
         if entry.get("build_missing"):
             target["build_missing"] = (target.get("build_missing") or 0) + entry["build_missing"]
+        if entry.get("build_residues"):
+            # The count was being merged and the sites were not, so a chain that
+            # gained a second reference polymer kept one list and lost the other.
+            # The sites are what the prompt is written from; the count is only
+            # upstream provenance.
+            merged_sites = list(target.get("build_residues") or [])
+            for site in entry["build_residues"]:
+                if site not in merged_sites:
+                    merged_sites.append(site)
+            target["build_residues"] = merged_sites
         # Never add author numbers together: a renumbered fusion partner makes
         # the arithmetic report 790 residues for a 160-residue insert. The
         # classifier's own count is used where it exists.
@@ -764,6 +774,65 @@ def joins_its_pieces(chosen_chains):
                      and entry.get("reference_polymers", 1) == 1)
 
 
+def _validated_build_sites(entry: dict) -> list:
+    """The residues this chain must build, or nothing, never a bare count.
+
+    Gated on ``build_residues`` and never on ``build_missing``. The two have
+    different provenance: ``build_missing`` is a length that survives being
+    merged and moved between deposit chains, and in the finished contracts it
+    reports a non-zero value for seven tasks whose reference built nothing at
+    all. Emitting prose from the count produced instructions that added
+    residues the reference does not have, failing the very composition check
+    they were meant to satisfy.
+
+    A named site that the surrounding prompt contradicts is a defect in the
+    task, not a residue to drop quietly: 011_membrane_6kuy asked an agent both
+    to leave residues out and to build them because a silent filter swallowed
+    the collision. Generation fails instead.
+    """
+    named = list(entry.get("build_residues") or [])
+    if not named:
+        return []
+    chain = entry.get("deposit_chain")
+    spans = entry.get("ranges") or []
+    omitted = {
+        value
+        for span in (entry.get("omitted") or [])
+        for value in range(min(_as_int(span[0]), _as_int(span[1])),
+                           max(_as_int(span[0]), _as_int(span[1])) + 1)
+        if _as_int(span[0]) is not None and _as_int(span[1]) is not None
+    }
+    seen: list = []
+    for site in named:
+        if site in seen:
+            raise ValueError(
+                f"chain {chain}: residue {site} is listed twice for building")
+        number = _as_int(site)
+        if number is None:
+            seen.append(site)
+            continue
+        if number in omitted:
+            raise ValueError(
+                f"chain {chain}: residue {site} is both built and omitted")
+        if spans and not any(
+                _as_int(low) is not None and _as_int(high) is not None
+                and min(_as_int(low), _as_int(high)) <= number
+                <= max(_as_int(low), _as_int(high))
+                for low, high in spans):
+            raise ValueError(
+                f"chain {chain}: residue {site} is built but lies outside "
+                f"every stated range {spans}")
+        seen.append(site)
+    return seen
+
+
+def _as_int(value):
+    """The numeric part of an author residue id, or None for a bare code."""
+    text = str(value).strip()
+    match = re.match(r"(-?\d+)", text)
+    return int(match.group(1)) if match else None
+
+
 def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonation,
                  window_ns, replicas=1, joined_chains=()):
     """The text an agent is given.  Derived, not written.
@@ -814,16 +883,12 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
             lines += [f"Join the pieces of chain {entry['deposit_chain']} into a "
                       "single continuous chain, bonded where the removed part "
                       "was.", ""]
-        if entry.get("build_missing"):
-            named = entry.get("build_residues") or []
-            if named and len(named) <= 8:
-                which = ", ".join(str(n) for n in named)
-                lines += [f"Chain {entry['deposit_chain']} does not resolve "
-                          f"residue{'s' if len(named) > 1 else ''} {which}; the range "
-                          "runs through them, so build them.", ""]
-            else:
-                lines += [f"{entry['build_missing']} residues of that range are not "
-                          "resolved in the deposit. Build them.", ""]
+        named = _validated_build_sites(entry)
+        if named:
+            which = ", ".join(str(site) for site in named)
+            lines += [f"Chain {entry['deposit_chain']} does not resolve "
+                      f"residue{'s' if len(named) > 1 else ''} {which}; the range "
+                      "runs through them, so build them.", ""]
         for span in (entry.get("omitted") or []):
             where = span[0] if span[0] == span[1] else f"{span[0]}–{span[1]}"
             lines += [f"Residue {where} of chain {entry['deposit_chain']} is not part of "

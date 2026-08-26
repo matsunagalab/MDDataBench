@@ -437,3 +437,75 @@ def test_selection_refuses_a_chain_whose_numbering_is_not_recoverable(tmp_path):
     with pytest.raises(SystemExit) as raised:
         tb.selection(record, deposit)
     assert "does not place" in str(raised.value)
+
+# --- build sites come from the named list, never from the aggregate count ---
+
+
+def test_a_count_without_names_produces_no_build_prose():
+    """The defect this exists to stop.
+
+    `build_missing` is a length that survives being merged and moved between
+    deposit chains. In the shipped contracts it reports a non-zero value for
+    seven tasks whose reference built nothing, and prose generated from it told
+    an agent to add residues the reference does not have -- failing the
+    composition check it was meant to satisfy.
+    """
+    entry = {"deposit_chain": "A", "ranges": [("16", "214")], "build_missing": 1}
+    assert tb._validated_build_sites(entry) == []
+
+
+def test_named_sites_are_returned_in_order():
+    entry = {"deposit_chain": "C", "ranges": [("5", "211")],
+             "build_residues": [83, 84, 85], "build_missing": 3}
+    assert tb._validated_build_sites(entry) == [83, 84, 85]
+
+
+def test_an_insertion_code_site_survives():
+    """036 declares 1A-79; the site model must not reduce it to an integer."""
+    entry = {"deposit_chain": "A", "ranges": [("1A", "79")],
+             "build_residues": ["1A"], "build_missing": 1}
+    assert tb._validated_build_sites(entry) == ["1A"]
+
+
+def test_a_site_that_is_also_omitted_fails_generation():
+    """011_membrane_6kuy's shape: leave these out, and also build them."""
+    entry = {"deposit_chain": "A", "ranges": [("1", "50")],
+             "omitted": [(10, 12)], "build_residues": [10]}
+    with pytest.raises(ValueError, match="both built and omitted"):
+        tb._validated_build_sites(entry)
+
+
+def test_a_site_outside_every_range_fails_generation():
+    entry = {"deposit_chain": "A", "ranges": [("1", "50")], "build_residues": [60]}
+    with pytest.raises(ValueError, match="outside every stated range"):
+        tb._validated_build_sites(entry)
+
+
+def test_a_repeated_site_fails_generation():
+    entry = {"deposit_chain": "A", "ranges": [("1", "50")], "build_residues": [20, 20]}
+    with pytest.raises(ValueError, match="listed twice"):
+        tb._validated_build_sites(entry)
+
+
+def test_merging_two_reference_chains_keeps_both_site_lists():
+    """The count was merged and the sites were not, so one list was lost."""
+    merged = tb.merge_by_deposit_chain([
+        {"deposit_chain": "A", "ranges": [("1", "50")], "residues": 50,
+         "build_missing": 1, "build_residues": [10]},
+        {"deposit_chain": "A", "ranges": [("60", "90")], "residues": 31,
+         "build_missing": 1, "build_residues": [70]},
+    ])
+    assert len(merged) == 1
+    assert merged[0]["build_residues"] == [10, 70]
+    assert merged[0]["build_missing"] == 2
+
+
+def test_merging_does_not_duplicate_a_shared_site():
+    merged = tb.merge_by_deposit_chain([
+        {"deposit_chain": "A", "ranges": [("1", "50")], "residues": 50,
+         "build_missing": 1, "build_residues": [10]},
+        {"deposit_chain": "A", "ranges": [("1", "50")], "residues": 50,
+         "build_missing": 1, "build_residues": [10]},
+    ])
+    assert merged[0]["build_residues"] == [10]
+
