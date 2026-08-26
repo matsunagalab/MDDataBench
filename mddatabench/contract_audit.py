@@ -334,7 +334,16 @@ def classify_build_sites(scheme_chain: list, selected: set,
 
 
 def _declared(prompt: str) -> dict:
-    """Structured polymer selection and named chemistry in the prompt."""
+    """Structured polymer selection and named chemistry in the prompt.
+
+    ``selected`` and ``excluded`` expand each range with integer arithmetic, so
+    residues 1, 1A and 1B share membership in both. ``build_sites`` and the
+    observed comparison are exact, which is what the current cast needs: no
+    task selects, omits or builds an insertion-coded residue. Before admitting
+    one, give these two the same ``(number, insertion_code)`` model, or a
+    selection will over-select, an omission will be missed, and a build site
+    will be classified against the wrong residue.
+    """
     ranges: dict[str, list[tuple[int, int]]] = {}
     starts = list(_CHAIN_START.finditer(prompt))
     for index, match in enumerate(starts):
