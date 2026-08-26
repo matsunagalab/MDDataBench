@@ -5,6 +5,46 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-26 — Correction: ten of those twenty prompts were right to say nothing
+
+The entry below claims all twenty `build_missing` tasks needed a build
+instruction and that ten were missing one. Half of that is wrong, and the fix
+it describes made ten prompts worse until this reverted it.
+
+`selection.build_missing` in the finished contract is not a reliable statement
+that anything must be built. Counting the reference bundle's polymer residues
+against the deposit's observed residues inside the ranges the prompt states --
+no numbering involved, which is the only comparison the arbitrary reference
+numbering permits -- five tasks agree with their contract exactly:
+
+    062_metal_6w9c   312 vs 309   build 3
+    065_soluble_1a62 130 vs 125   build 5
+    068_soluble_1ail  73 vs  70   build 3
+    076_soluble_1ctf  74 vs  68   build 6
+    080_soluble_1ez3 127 vs 124   build 3
+
+and seven have a difference of exactly zero while still reporting a non-zero
+`build_missing`: 001, 004, 008, 011, 043, 044, 045. Their references built
+nothing. Telling an agent to fill those gaps adds residues the reference does
+not have, which fails `monomer_count_matches_reference` -- the very check the
+change was meant to repair. On 011_membrane_6kuy it also contradicted the
+prompt's own "Residue 173-182 of chain A is not part of the reference. Leave it
+out."
+
+Every one of those seven is in the ten this session added a sentence to. The
+ten that already carried a line from the generator are the ten that need one:
+015, 021, 022, 023, 029, 062, 065, 068, 076, 080. The generator's gate was
+right and the aggregate in the contract is not the same quantity.
+
+So the sentence is removed from the ten that never had it, the ten real ones
+keep it in the minimal form, and `_task_builder` keeps its original gate with
+only the wording changed. Credit where due: this was caught in review, not by
+the measurement that motivated the change.
+
+What survives from the entry below: the wording argument, the terminal clause,
+and the MODELLER licence work. Terminal building is confirmed on 065, 068, 076
+and 080 -- 17 residues -- and MDClaw still cannot do it.
+
 ## 2026-08-26 — Half the prompts never said to build the unresolved residues
 
 Twenty tasks have a `build_missing` entry, meaning the reference simulated
