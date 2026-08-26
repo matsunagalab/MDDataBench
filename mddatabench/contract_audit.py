@@ -262,7 +262,7 @@ def _declared(prompt: str) -> dict:
             int(value) for value in re.findall(r"-?\d+", numbers))
     return {"chains": set(ranges), "chain_order": list(ranges),
             "ranges": ranges, "selected": selected, "joined": joined,
-            "build_missing": build_missing, "body": body}
+            "excluded": excluded, "build_missing": build_missing, "body": body}
 
 
 def _mentions(body: str, name: str, *, cap: bool = False) -> bool:
@@ -612,9 +612,45 @@ def audit_task_contract(task_dir: str, bundle: str,
                 "component": "polymer", "pdb_id": pdb_id,
             })
         expected_sites = {(r.chain, r.number, r.icode) for r in selected}
+        observed_sites = {(r.chain, r.number) for r in selected}
         for chain, numbers in declared["build_missing"].items():
-            expected_sites.update((chain, number, "") for number in numbers
-                                  if number in declared["selected"].get(chain, set()))
+            in_selection = declared["selected"].get(chain, set())
+            omitted = {value for start, end in declared["excluded"].get(chain, [])
+                       for value in range(min(start, end), max(start, end) + 1)}
+            for number in sorted(numbers):
+                # These three used to be dropped by a silent membership test,
+                # which is how 011_membrane_6kuy came to tell an agent both to
+                # leave residues 173-182 out and to build them. A build site the
+                # prompt contradicts is a defect in the prompt, not a residue to
+                # quietly skip.
+                if number in omitted:
+                    findings.append({
+                        "kind": "prompt_build_site_is_excluded",
+                        "detail": (f"{pdb_id}: the prompt asks to build "
+                                   f"{chain}:{number} and also to leave it out"),
+                        "component": "polymer", "pdb_id": pdb_id,
+                        "site": f"{chain}:{number}",
+                    })
+                    continue
+                if number not in in_selection:
+                    findings.append({
+                        "kind": "prompt_build_site_outside_selection",
+                        "detail": (f"{pdb_id}: the prompt asks to build "
+                                   f"{chain}:{number}, which no stated range covers"),
+                        "component": "polymer", "pdb_id": pdb_id,
+                        "site": f"{chain}:{number}",
+                    })
+                    continue
+                if (chain, number) in observed_sites:
+                    findings.append({
+                        "kind": "prompt_build_site_is_observed",
+                        "detail": (f"{pdb_id}: the prompt asks to build "
+                                   f"{chain}:{number}, which the deposit resolves"),
+                        "component": "polymer", "pdb_id": pdb_id,
+                        "site": f"{chain}:{number}",
+                    })
+                    continue
+                expected_sites.add((chain, number, ""))
         if expected_sites and len(expected_sites) != len(reference_polymer):
             findings.append({
                 "kind": "reference_polymer_selection_mismatch",
