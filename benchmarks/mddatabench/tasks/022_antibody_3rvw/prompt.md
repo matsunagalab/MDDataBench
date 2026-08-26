@@ -6,9 +6,9 @@ Simulate the deposited system, PDB entry **3RVW**, chain **A** residues **1–22
 - **300 K**, **NPT** at **1 bar**
 - at least **2.5 ns** of production MD
 
-Chain D does not resolve residues 135, 136, 137, 138; the range runs through them, so build them.
-
 Residue 52 is deposited as **ASN**, a modified ASN. Simulate the unmodified residue.
+
+The deposit does not resolve every residue of the stated ranges. Build the ones it leaves out, including any at the start or end of a range.
 
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 

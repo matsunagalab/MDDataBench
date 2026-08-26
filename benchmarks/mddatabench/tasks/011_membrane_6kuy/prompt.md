@@ -12,6 +12,8 @@ Residue 173–182 of chain A is not part of the reference. Leave it out.
 
 Embed it in a **DPPC** bilayer.
 
+The deposit does not resolve every residue of the stated ranges. Build the ones it leaves out, including any at the start or end of a range.
+
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 
 Leave the prepared structure, the topology, the minimised state and the production

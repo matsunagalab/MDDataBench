@@ -6,9 +6,9 @@ Simulate Non-structural protein 3, PDB entry **6W9C**, chain **C** residues **4â
 - **298 K**, **NPT** at **1 bar**
 - at least **1 ns** of production MD
 
-Chain C does not resolve residues 225, 226, 315; the range runs through them, so build them.
-
 The entry carries a structural zinc. Keep it.
+
+The deposit does not resolve every residue of the stated ranges. Build the ones it leaves out, including any at the start or end of a range.
 
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 

@@ -6,7 +6,7 @@ Simulate Crystal structure the Fab fragment of Efalizumab in complex with, PDB e
 - **300 K**, **NPT** at **1 bar**
 - at least **2.5 ns** of production MD
 
-Chain H does not resolve residues 137, 138, 139, 140, 141; the range runs through them, so build them.
+The deposit does not resolve every residue of the stated ranges. Build the ones it leaves out, including any at the start or end of a range.
 
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 
