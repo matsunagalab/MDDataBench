@@ -85,6 +85,12 @@ def _git_revision(path: Path) -> str | None:
 FROZEN_SOURCE_EXCLUDES = (
     ".git", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache",
     ".mdclaw_cache", "node_modules", ".venv",
+    # Run output that happens to live inside the checkout. What is frozen is
+    # the source an attempt imports; a study workspace is data. Measured
+    # 2026-08-27: a checkout carrying 37 GB of trajectories under `studies/`
+    # was copied whole into the experiment and then hashed file by file, which
+    # exhausted the 1 TB project quota before the first attempt dispatched.
+    "studies", "runs",
 )
 
 
