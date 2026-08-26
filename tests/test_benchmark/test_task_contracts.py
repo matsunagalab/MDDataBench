@@ -144,3 +144,45 @@ def test_prompt_states_the_conditions_that_are_scored(path):
     assert str(int(conditions["TEMP"])) in prompt
     assert conditions["ENSEMBLE"].lower() in prompt
     assert "rmsip" not in prompt, "the evaluator does the analysis, not the agent"
+
+@pytest.mark.parametrize("path", TASKS, ids=lambda p: p.parent.name)
+def test_stored_selection_mirrors_the_prompt(path):
+    """`reference.selection.ranges` must say what the prompt says.
+
+    Nothing reads the field today -- the scorer recomputes from the bundle and
+    the harness hands the agent `prompt.md` -- so a disagreement mis-scores
+    nothing now, which is exactly why six of them survived unnoticed: 008 had
+    one of chain E's ranges duplicated, chain B reduced to a single span and
+    chain D collapsed to one range spanning both, while 011, 015, 043, 076 and
+    080 each started a chain a few residues late. The generation driver that
+    produced these files is not in the repository, so this test, not the
+    generator, is what keeps the mirror honest.
+    """
+    from mddatabench.contract_audit import selection_range_findings
+
+    spec = json.loads(path.read_text())
+    findings = selection_range_findings(
+        (path.parent / "prompt.md").read_text(), spec["reference"]["selection"])
+    assert not findings, "; ".join(f["detail"] for f in findings)
+
+
+def test_an_insertion_code_range_is_compared_as_written():
+    """036 declares 1A-79; reading that as 1-79 would report a false mismatch."""
+    from mddatabench.contract_audit import declared_range_tokens
+
+    prompt = (DATASET / "tasks" / "036_ligand_1ceb" / "prompt.md").read_text()
+    assert declared_range_tokens(prompt) == {"A": [("1A", "79")]}
+
+
+@pytest.mark.parametrize("stored,why", [
+    ({"A": [["1", "10"], ["1", "10"]]}, "a duplicated range"),
+    ({"A": [["1", "10"]]}, "a dropped second range"),
+    ({"A": [["20", "30"], ["1", "10"]]}, "ranges out of declared order"),
+])
+def test_range_comparison_rejects_the_shapes_that_hid_008(stored, why):
+    """Set comparison would accept all three; 008 carried the first two."""
+    from mddatabench.contract_audit import selection_range_findings
+
+    prompt = ("Simulate X, PDB entry **1XYZ**, chain **A** residues **1–10** "
+              "and **20–30**, in explicit solvent.\n")
+    assert selection_range_findings(prompt, {"ranges": stored}), why

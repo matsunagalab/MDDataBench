@@ -149,6 +149,79 @@ _BUILD_MISSING = re.compile(
     r"residues?\s+([^.;]+).*?\bbuild\s+them\b", re.I)
 
 
+_RANGE_TOKENS = re.compile(
+    r"\*\*(-?\d+[A-Za-z]?)\s*[–—-]\s*(-?\d+[A-Za-z]?)\*\*")
+
+
+def declared_range_tokens(prompt: str) -> dict[str, list[tuple[str, str]]]:
+    """The prompt's residue ranges as written, insertion codes intact.
+
+    ``_declared`` drops the insertion letter and expands each range with
+    integer arithmetic, which is right for counting residues and wrong for
+    comparing against ``reference.selection.ranges``: task 036 declares
+    ``1A-79`` and the stored contract agrees, but the integer form reads it as
+    ``1-79`` and would report a mismatch that is not there.
+
+    Order is preserved and duplicates are kept, because the stored ranges are
+    meant to mirror the prompt exactly. Comparing as sets would accept
+    008_membrane_6i53's stored list, which repeats one of chain E's ranges and
+    drops chain D's second one.
+    """
+    out: dict[str, list[tuple[str, str]]] = {}
+    starts = list(_CHAIN_START.finditer(prompt))
+    for index, match in enumerate(starts):
+        end = starts[index + 1].start() if index + 1 < len(starts) else len(prompt)
+        clause = prompt[match.end():end].split(".", 1)[0]
+        pieces = _RANGE_TOKENS.findall(clause)
+        if pieces:
+            out.setdefault(match.group(1), []).extend(
+                (str(first), str(last)) for first, last in pieces)
+    return out
+
+
+def stored_range_tokens(selection: dict) -> dict[str, list[tuple[str, str]]]:
+    """``reference.selection.ranges`` in the same shape, for comparison."""
+    stored = selection.get("ranges") or {}
+    return {chain: [(str(first), str(last)) for first, last in spans]
+            for chain, spans in stored.items()}
+
+
+def selection_range_findings(prompt: str, selection: dict) -> list[dict]:
+    """Report where the stored selection stops mirroring the prompt.
+
+    Nothing reads ``selection.ranges`` today -- the scorer recomputes from the
+    bundle and the harness hands the agent ``prompt.md`` -- so a disagreement
+    mis-scores nothing now. It is recorded because the field claims to be the
+    prompt's selection and six tasks show it is not, which any future consumer
+    would inherit.
+    """
+    if "ranges" not in (selection or {}):
+        # Nothing claims to mirror the prompt. Every shipped contract carries
+        # the field, so this only spares synthetic fixtures that model one
+        # chemistry question and omit the selection entirely.
+        return []
+    declared = declared_range_tokens(prompt)
+    stored = stored_range_tokens(selection)
+    findings: list[dict] = []
+    if set(declared) != set(stored):
+        findings.append({
+            "kind": "selection_chains_differ_from_prompt",
+            "detail": (f"prompt declares {sorted(declared)}, "
+                       f"selection.ranges holds {sorted(stored)}"),
+            "component": "selection",
+        })
+    for chain in sorted(set(declared) & set(stored)):
+        if declared[chain] != stored[chain]:
+            findings.append({
+                "kind": "selection_ranges_differ_from_prompt",
+                "detail": (f"chain {chain}: prompt {declared[chain]}, "
+                           f"selection.ranges {stored[chain]}"),
+                "component": "selection",
+                "chain": chain,
+            })
+    return findings
+
+
 def _declared(prompt: str) -> dict:
     """Structured polymer selection and named chemistry in the prompt."""
     ranges: dict[str, list[tuple[int, int]]] = {}
@@ -477,6 +550,12 @@ def audit_task_contract(task_dir: str, bundle: str,
     declared = _declared(prompt)
     reference = _structure_records(bundle_path / "reference.pdb")
     findings = []
+    # The stored selection claims to mirror the prompt. Six tasks showed it
+    # does not, and because nothing reads the field the disagreement was
+    # invisible; report it here so a future consumer inherits the check rather
+    # than the defect.
+    findings.extend(selection_range_findings(
+        prompt, spec["reference"].get("selection") or {}))
 
     reference_polymer = [r for r in reference if _is_polymer(r)]
     declared_count = sum(len(values) for values in declared["selected"].values())
