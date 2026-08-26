@@ -188,3 +188,48 @@ def test_the_classifier_reads_position_not_residue_number():
     classified = ca.classify_build_sites(
         scheme, set(range(47, 121)), [(n, "") for n in range(47, 53)])
     assert {entry["class"] for entry in classified} == {"n_terminal"}
+
+def test_classification_follows_the_scheme_when_numbers_disagree():
+    """The discriminator: a chain whose numbering does not run in order.
+
+    Every real case in this cast has numbering that agrees with polymer order,
+    so numeric sorting gets all twenty right by accident and a regression back
+    to it would pass every other assertion here. In this scheme position 5 sits
+    between 10 and 11, which numeric comparison would place before both.
+    """
+    from mddatabench.contract_audit import classify_build_sites
+
+    scheme = [(10, "", True), (5, "", False), (11, "", True)]
+    classified = classify_build_sites(scheme, {5, 10, 11}, [(5, "")])
+    assert classified == [{"site": "5", "class": "internal"}]
+
+
+def test_an_insertion_coded_position_is_ordered_by_the_scheme():
+    """1A precedes 1 here. Sorting by number cannot express that."""
+    from mddatabench.contract_audit import classify_build_sites
+
+    scheme = [(1, "A", False), (1, "", True), (2, "", True)]
+    classified = classify_build_sites(scheme, {1, 2}, [(1, "A")])
+    assert classified == [{"site": "1A", "class": "n_terminal"}]
+
+
+def test_a_gap_ending_one_range_is_not_internal_to_another():
+    """Two separate ranges, and a gap at the end of the first.
+
+    Judging against the chain's last selected position would call this
+    internal on the strength of an observed residue in a range the construct
+    never joins to it.
+    """
+    from mddatabench.contract_audit import classify_build_sites
+
+    scheme = [(1, "", True), (2, "", False), (3, "", True), (4, "", True)]
+    classified = classify_build_sites(scheme, {1, 2, 4}, [(2, "")])
+    assert classified == [{"site": "2", "class": "c_terminal"}]
+
+
+def test_a_site_the_scheme_does_not_place_is_unclassified_not_guessed():
+    from mddatabench.contract_audit import classify_build_sites
+
+    scheme = [(1, "", True), (2, "", True)]
+    assert classify_build_sites(scheme, {1, 2}, [(99, "")]) == [
+        {"site": "99", "class": "unclassified"}]

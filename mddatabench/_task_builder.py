@@ -516,10 +516,17 @@ def merge_by_deposit_chain(entries):
             # gained a second reference polymer kept one list and lost the other.
             # The sites are what the prompt is written from; the count is only
             # upstream provenance.
+            # Deduplicate on the parsed identifier, not on raw equality:
+            # 20, "20", "020" and "20a" are one residue written four ways. The
+            # first spelling is kept so the prompt reads as the source wrote it.
             merged_sites = list(target.get("build_residues") or [])
+            present = {_site_key(site) for site in merged_sites}
             for site in entry["build_residues"]:
-                if site not in merged_sites:
-                    merged_sites.append(site)
+                key = _site_key(site)
+                if key in present:
+                    continue
+                present.add(key)
+                merged_sites.append(site)
             target["build_residues"] = merged_sites
         # Never add author numbers together: a renumbered fusion partner makes
         # the arithmetic report 790 residues for a 160-residue insert. The
@@ -804,13 +811,12 @@ def _validated_build_sites(entry: dict) -> list:
     chain = entry.get("deposit_chain")
     spans = [(_site_key(low), _site_key(high))
              for low, high in (entry.get("ranges") or [])]
-    omitted = set()
-    for span in (entry.get("omitted") or []):
-        low, high = _as_int(span[0]), _as_int(span[1])
+    omitted = [(_site_key(span[0]), _site_key(span[1]))
+               for span in (entry.get("omitted") or [])]
+    for (low, _), (high, _) in omitted:
         if low is None or high is None:
             raise ValueError(
-                f"chain {chain}: omitted span {span!r} is not a residue range")
-        omitted.update(range(min(low, high), max(low, high) + 1))
+                f"chain {chain}: an omitted span is not a residue range")
 
     seen: list = []
     for site in named:
@@ -821,7 +827,7 @@ def _validated_build_sites(entry: dict) -> list:
         if number is None:
             raise ValueError(
                 f"chain {chain}: residue {site!r} is not an author residue id")
-        if not icode and number in omitted:
+        if _site_within(number, icode, omitted):
             raise ValueError(
                 f"chain {chain}: residue {site} is both built and omitted")
         if spans and not _site_within(number, icode, spans):
@@ -841,36 +847,35 @@ def _site_key(value) -> tuple:
 def _site_within(number: int, icode: str, spans: list) -> bool:
     """Is this site inside one of the spans, without ordering by number alone?
 
-    An insertion-coded site is accepted only where an endpoint spells it
-    exactly. ``1A`` may precede or follow ``1`` depending on the deposit's own
-    scheme, which this module cannot see, so anything else is refused rather
-    than guessed.
+    A site with no insertion code is inside when its number lies strictly
+    between the endpoints' numbers, or equals an endpoint that carries no code
+    of its own -- an endpoint spelled ``1A`` names one residue, not every
+    residue numbered 1.
+
+    A coded site is inside when an endpoint spells it exactly, or when its base
+    number lies strictly between two different endpoint bases, where no
+    insertion order can place it outside. It is refused at a same-base boundary
+    and inside a same-base span such as ``1A-1C``, because only the deposit's
+    own polymer scheme can order those and this module cannot see it.
     """
     for (low, low_icode), (high, high_icode) in spans:
         if low is None or high is None:
             continue
+        first, last = min(low, high), max(low, high)
         if icode:
             if ((number, icode) == (low, low_icode)
                     or (number, icode) == (high, high_icode)):
                 return True
+            if first != last and first < number < last:
+                return True
             continue
-        first, last = min(low, high), max(low, high)
         if first < number < last:
             return True
-        # An endpoint carrying its own insertion code names one residue, not
-        # every residue sharing that number.
         if number == low and not low_icode:
             return True
         if number == high and not high_icode:
             return True
     return False
-
-
-def _as_int(value):
-    """The numeric part of an author residue id, or None for a bare code."""
-    text = str(value).strip()
-    match = re.match(r"(-?\d+)", text)
-    return int(match.group(1)) if match else None
 
 
 def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonation,

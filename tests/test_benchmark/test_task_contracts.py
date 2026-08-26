@@ -186,3 +186,39 @@ def test_range_comparison_rejects_the_shapes_that_hid_008(stored, why):
     prompt = ("Simulate X, PDB entry **1XYZ**, chain **A** residues **1–10** "
               "and **20–30**, in explicit solvent.\n")
     assert selection_range_findings(prompt, {"ranges": stored}), why
+
+def test_selection_chains_is_actually_read():
+    """The branch named after `chains` once only ever read `ranges`.
+
+    Deleting it would otherwise pass: every shipped contract supplies correct
+    data, so the cast-wide test above never exercises the disagreement.
+    """
+    from mddatabench.contract_audit import selection_range_findings
+
+    prompt = ("Simulate X, PDB entry **1XYZ**, chain **A** residues "
+              "**1A–79**, in explicit solvent.\n")
+    kinds = {f["kind"] for f in selection_range_findings(
+        prompt, {"chains": ["Z"], "ranges": {"A": [["1A", "79"]]}})}
+    assert kinds == {"selection_chains_differ_from_prompt"}
+
+
+def test_selection_chains_is_compared_as_a_set():
+    """Eight tasks store an order their prompt does not use, so order is not
+    a claim the field makes."""
+    from mddatabench.contract_audit import selection_range_findings
+
+    prompt = ("Simulate X, PDB entry **1XYZ**, chain **B** residues **1–9**, "
+              "chain **A** residues **1–9**, in explicit solvent.\n")
+    assert not selection_range_findings(prompt, {
+        "chains": ["A", "B"],
+        "ranges": {"B": [["1", "9"]], "A": [["1", "9"]]}})
+
+
+def test_range_keys_are_reported_separately_from_chains():
+    from mddatabench.contract_audit import selection_range_findings
+
+    prompt = ("Simulate X, PDB entry **1XYZ**, chain **A** residues **1–9**, "
+              "in explicit solvent.\n")
+    kinds = {f["kind"] for f in selection_range_findings(
+        prompt, {"chains": ["A"], "ranges": {"Q": [["1", "9"]]}})}
+    assert kinds == {"selection_range_chains_differ_from_prompt"}

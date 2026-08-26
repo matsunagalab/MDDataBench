@@ -239,34 +239,50 @@ def selection_range_findings(prompt: str, selection: dict) -> list[dict]:
 def deposit_polymer_scheme(path) -> dict[str, list[tuple]]:
     """Each deposit chain's residues in the order the deposit itself gives.
 
-    ``_pdbx_poly_seq_scheme`` lists every SEQRES position, observed or not, in
-    polymer order, with ``auth_seq_num`` set to ``?`` where there are no
-    coordinates. That order is the only sound one: author numbering can carry
-    insertion codes, restart, or run non-monotonically, so comparing residue
-    numbers cannot tell you which residue comes first.
+    ``_pdbx_poly_seq_scheme`` lists every SEQRES position in polymer order,
+    which is the only sound ordering: author numbering carries insertion codes
+    and can restart or run backwards, so comparing residue numbers cannot tell
+    you which residue comes first.
 
-    Returns ``{chain: [(auth_number, insertion_code, observed), ...]}`` with
-    ``auth_number`` None for an unobserved position.
+    ``pdb_seq_num`` supplies the author number for every position, resolved or
+    not. Observedness comes from the atom records, not from the scheme: the
+    wwPDB dictionary defines ``auth_seq_num`` as an author-provided number that
+    need not correspond to coordinates, so reading its ``?`` as "unobserved" is
+    an inference the dictionary does not license -- and the category carries no
+    model identifier, so it could not answer the question for an NMR entry
+    anyway. Measured over the cached deposits the two agree everywhere, which
+    is why the wrong source went unnoticed.
+
+    Returns ``{chain: [(auth_number, insertion_code, observed), ...]}``. Raises
+    when the scheme is missing or unreadable rather than returning an empty one,
+    because a silently empty scheme leaves every site unclassified.
     """
     import gemmi
 
+    path = pathlib.Path(path)
     block = gemmi.cif.read(str(path)).sole_block()
     table = block.find("_pdbx_poly_seq_scheme.",
-                       ["pdb_strand_id", "pdb_seq_num", "auth_seq_num",
-                        "pdb_ins_code"])
+                       ["pdb_strand_id", "pdb_seq_num", "pdb_ins_code"])
+    rows = list(table)
+    if not rows:
+        raise ValueError(
+            f"{path}: no _pdbx_poly_seq_scheme, so the deposit does not state "
+            "its own polymer order")
+
+    resolved = {(r.chain, r.number, r.icode) for r in _structure_records(path)}
     scheme: dict[str, list[tuple]] = {}
-    for row in table:
+    for row in rows:
         chain = str(row[0])
-        # pdb_seq_num carries the author number for every SEQRES position,
-        # observed or not; auth_seq_num is "?" exactly where the deposit has no
-        # coordinates, which is what makes a position unobserved.
-        numbered, resolved = str(row[1]), str(row[2])
-        icode = str(row[3])
+        numbered = str(row[1])
+        icode = str(row[2])
         icode = "" if icode in (".", "?") else icode.strip().upper()
-        observed = resolved not in ("?", ".")
-        number = (int(numbered)
-                  if numbered.lstrip("-").isdigit() else None)
-        scheme.setdefault(chain, []).append((number, icode, observed))
+        if not numbered.lstrip("-").isdigit():
+            raise ValueError(
+                f"{path}: chain {chain} has a non-numeric pdb_seq_num "
+                f"{numbered!r}, so its positions cannot be named")
+        number = int(numbered)
+        scheme.setdefault(chain, []).append(
+            (number, icode, (chain, number, icode) in resolved))
     return scheme
 
 
@@ -274,24 +290,43 @@ def classify_build_sites(scheme_chain: list, selected: set,
                          sites: list) -> list[dict]:
     """Terminal or internal, judged by position in the polymer, not by number.
 
-    A run is N-terminal when nothing selected precedes it and C-terminal when
-    nothing selected follows it. Sites the scheme does not place are reported
-    as ``unclassified`` rather than guessed.
+    A site is terminal when nothing selected precedes it, or nothing selected
+    follows it, *within its own run of selected positions*. Using the chain's
+    first and last selected position instead would call a gap at the end of the
+    first of two separate ranges internal, on the strength of an observed
+    residue in the second range that the construct never joins to it.
+
+    Sites the scheme does not place are reported ``unclassified`` rather than
+    guessed.
     """
     order = {(number, icode): index
-             for index, (number, icode, _) in enumerate(scheme_chain)
-             if number is not None}
-    observed = [index for index, (number, icode, seen) in enumerate(scheme_chain)
-                if seen and number is not None and number in selected]
-    first, last = (min(observed), max(observed)) if observed else (None, None)
+             for index, (number, icode, _) in enumerate(scheme_chain)}
+    chosen = [index for index, (number, icode, _) in enumerate(scheme_chain)
+              if number in selected]
+    runs: list[list[int]] = []
+    for index in chosen:
+        if runs and index == runs[-1][-1] + 1:
+            runs[-1].append(index)
+        else:
+            runs.append([index])
+    observed_in_run = [
+        [i for i in run
+         if scheme_chain[i][2] and scheme_chain[i][0] in selected]
+        for run in runs
+    ]
     out = []
     for number, icode in sites:
         index = order.get((number, icode))
-        if index is None or first is None:
+        placed = None
+        for run, seen in zip(runs, observed_in_run):
+            if index is not None and run[0] <= index <= run[-1] and seen:
+                placed = (min(seen), max(seen))
+                break
+        if index is None or placed is None:
             out.append({"site": f"{number}{icode}", "class": "unclassified"})
-        elif index < first:
+        elif index < placed[0]:
             out.append({"site": f"{number}{icode}", "class": "n_terminal"})
-        elif index > last:
+        elif index > placed[1]:
             out.append({"site": f"{number}{icode}", "class": "c_terminal"})
         else:
             out.append({"site": f"{number}{icode}", "class": "internal"})
