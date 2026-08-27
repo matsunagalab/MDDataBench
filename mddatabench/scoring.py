@@ -593,11 +593,42 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
                       f"max force {built['max_force_kj_mol_nm']:.0f} -> "
                       f"{relaxed['max_force_kj_mol_nm']:.0f} kJ/mol/nm")
 
-    water = str(amber["parameters"].get("water_model") or "").lower()
-    xmls = " ".join(amber["forcefield_provenance"].get("openmm_xml") or []).lower()
+    parameters = amber.get("parameters") if isinstance(amber, dict) else None
+    provenance = (
+        amber.get("forcefield_provenance") if isinstance(amber, dict) else None
+    )
+    water_value = parameters.get("water_model") if isinstance(parameters, dict) else None
+    xml_values = provenance.get("openmm_xml") if isinstance(provenance, dict) else None
+    water = water_value.lower() if isinstance(water_value, str) else ""
+    xmls = (
+        " ".join(xml_values).lower()
+        if isinstance(xml_values, list)
+        and all(isinstance(value, str) for value in xml_values)
+        else ""
+    )
+    metadata_errors = []
+    if not isinstance(water_value, str) or not water_value.strip():
+        metadata_errors.append("parameters.water_model is missing or not a string")
+    if (
+        not isinstance(xml_values, list)
+        or not xml_values
+        or not all(isinstance(value, str) for value in xml_values)
+    ):
+        metadata_errors.append(
+            "forcefield_provenance.openmm_xml is missing or not a non-empty string list"
+        )
     wanted = task["reference"]["reference_conditions"]["WAT"].lower()
-    check("water_model_matches_reference", wanted in water and wanted in xmls,
-          f"parameters.water_model={water!r}, forcefield xml carries {wanted}: {wanted in xmls}")
+    check(
+        "water_model_matches_reference",
+        not metadata_errors and wanted in water and wanted in xmls,
+        (
+            "amber_metadata.json cannot establish the water model: "
+            + "; ".join(metadata_errors)
+            if metadata_errors
+            else f"parameters.water_model={water!r}, forcefield xml carries "
+                 f"{wanted}: {wanted in xmls}"
+        ),
+    )
 
     temperature = float(prod_meta.get("temperature_kelvin", 0.0))
     check("thermodynamic_conditions_match_reference",
@@ -808,4 +839,3 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
             (relaxed.get("energy_per_particle_kj_mol") if minimized is not None else None),
         "minimized_max_force_kj_mol_nm":
             (relaxed.get("max_force_kj_mol_nm") if minimized is not None else None)})
-

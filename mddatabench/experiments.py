@@ -283,9 +283,11 @@ production.json
 
 `production.json` records at least `simulation_time_ns`, `temperature_kelvin`,
 `pressure_bar`, `timestep_fs`, `output_frequency_ps`, and `system_signature`
-with `ensemble` and `pressure_bar`. Paths are fixed; no benchmark reference is
-needed or permitted. The evaluator converts this portable layout to its
-internal read-only scoring view.
+with `ensemble` and `pressure_bar`. `amber_metadata.json` records
+`parameters.water_model` and `forcefield_provenance.openmm_xml`, the latter as
+a list of OpenMM XML files. Paths are fixed; no benchmark reference is needed
+or permitted. The evaluator converts this portable layout to its internal
+read-only scoring view.
 """
 
 

@@ -5,6 +5,23 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-27 — Missing portable metadata crashed the whole scorer
+
+In the live 100-task campaign, 10 `sif_only` attempts reached MD and 8 of them
+ended as `checks 0/0`, `failure_code=scorer_error`. Their agent-written
+`amber_metadata.json` files contained force-field, water, protonation,
+disulfide and simulation information, but not under MDClaw's internal
+`parameters` and `forcefield_provenance` objects. The scorer hard-subscripted
+those objects for `water_model_matches_reference`, so one unavailable check
+destroyed all twenty graded results. This made a condition with no MDClaw CLI
+or skills depend on an undocumented MDClaw output shape.
+
+The portable instructions now state the two required fields. Scoring a file
+that omits or malforms either field fails only
+`water_model_matches_reference`, with the missing field named; the other 19
+graded checks continue. Existing `cli_skill_sif` metadata already carries both
+fields, so its scoring path is unchanged.
+
 ## 2026-08-27 — The frozen source was copying 37 GB of trajectories
 
 Launching the 100-task pass@2 campaign, the driver reported `PAUSE disk 40G <
