@@ -332,11 +332,11 @@
     "deterministic_checks": [
       {
         "check_id": "monomer_count_matches_reference",
-        "check_type": "monomer_partition_rescan@1",
+        "check_type": "monomer_partition_rescan@2",
         "capability": "identity",
         "weight": 1.0,
         "category": "prep",
-        "note": "Splits both sides into covalently connected polymer chains by backbone geometry, then pairs them by canonical sequence. PDB chain IDs are not used: preparation tools relabel and reuse them, and D03's system.topology.pdb carries chains A, B and C where the reference has only A. Every later composition check runs inside a matched pair, so a multimer is N monomers instead of a special case and a failure names a chain and a residue."
+        "note": "Splits both sides into polymer backbone components using the C-N and O3'-P links declared by their force-bearing topologies, then pairs them by canonical sequence. PDB chain IDs and interatomic distances are not used: preparation tools relabel and reuse them, and D03's system.topology.pdb carries chains A, B and C where the reference has only A. Every later composition check uses exact component pairs or, when only connectivity differs, an identical full sequence in file order. A failure names the unexpected or missing declared link."
       },
       {
         "check_id": "sequence_matches_reference",

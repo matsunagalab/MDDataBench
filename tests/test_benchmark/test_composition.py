@@ -9,6 +9,8 @@ rather than from chain IDs.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from mddatabench import composition as cp
@@ -54,6 +56,73 @@ def test_repeated_chain_ids_do_not_merge_separate_monomers(tmp_path):
     residues = cp.read_residues(write(tmp_path, "c.pdb", rows))
     assert len(residues) == 2, "identical labels must not collapse into one residue"
     assert len(cp.split_monomers(residues)) == 2
+
+
+def _topology_residues(residues):
+    return [SimpleNamespace(name=residue.name, idx=index)
+            for index, residue in enumerate(residues)]
+
+
+def _link(first, second):
+    return {"kind": "peptide", "residue_indices": [first, second]}
+
+
+def test_declared_links_not_close_contacts_define_backbone_components(tmp_path):
+    close = cp.read_residues(write(
+        tmp_path, "close.pdb",
+        glycine(1, 1, (0.0, 0.0, 0.0)) + glycine(5, 2, (3.8, 0.0, 0.0))))
+    distant = cp.read_residues(write(
+        tmp_path, "distant.pdb",
+        glycine(1, 1, (0.0, 0.0, 0.0)) + glycine(5, 2, (30.0, 0.0, 0.0))))
+
+    disconnected, _ = cp.split_monomers_by_backbone_links(
+        close, _topology_residues(close), [], {"GLY"})
+    connected, _ = cp.split_monomers_by_backbone_links(
+        distant, _topology_residues(distant), [_link(0, 1)], {"GLY"})
+
+    assert [len(component) for component in disconnected] == [1, 1], \
+        "a peptide-distance contact is not a declared bond"
+    assert [len(component) for component in connected] == [2], \
+        "a declared force-bearing link remains connected at any coordinate distance"
+
+
+@pytest.mark.parametrize("submitted_names", [
+    ["ALA"],
+    ["GLY", "ALA"],
+    ["GLY", "SER"],
+])
+def test_positional_correspondence_refuses_missing_reordered_or_substituted_residues(
+        submitted_names):
+    reference = [[cp.Residue("ALA", "A", "1"), cp.Residue("GLY", "A", "2")]]
+    submitted = [[cp.Residue(name, "A", str(index + 1))
+                  for index, name in enumerate(submitted_names)]]
+    assert cp.positional_pairs_if_identical(reference, submitted) == []
+
+
+def test_positional_correspondence_accepts_only_an_identical_complete_sequence():
+    reference = [
+        [cp.Residue("ALA", "A", "1")],
+        [cp.Residue("GLY", "A", "2")],
+    ]
+    submitted = [[
+        cp.Residue("ALA", "X", "40"), cp.Residue("GLY", "X", "90"),
+    ]]
+    pairs = cp.positional_pairs_if_identical(reference, submitted)
+    assert len(pairs) == 1
+    assert [residue.canonical for residue in pairs[0][0]] == ["ALA", "GLY"]
+
+
+def test_backbone_link_comparison_names_missing_and_unexpected_declarations():
+    reference = [cp.Residue("ALA", "A", "1"), cp.Residue("GLY", "A", "2")]
+    submitted = [cp.Residue("ALA", "X", "40"), cp.Residue("GLY", "X", "90")]
+    pairs = [(reference, submitted)]
+    expected = {(0, 1, "peptide"): {"kind": "peptide", "side": "reference"}}
+    observed = {(1, 0, "peptide"): {"kind": "peptide", "side": "submission"}}
+    complete, missing, unexpected = cp.compare_backbone_links(
+        reference, submitted, pairs, expected, observed)
+    assert complete
+    assert missing == [{"kind": "peptide", "side": "reference"}]
+    assert unexpected == [{"kind": "peptide", "side": "submission"}]
 
 
 @pytest.mark.parametrize("name", ["HID", "HIE"])

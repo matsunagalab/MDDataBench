@@ -9,14 +9,15 @@ the tasks with MDClaw, because guessing them produced false failures:
   ``amber_metadata.json``, not at its top level
 - the barostat is added at run time, so the topo node's ``system.xml`` has
   none; the ensemble must be read from the prod node's metadata
-- the contract atoms must be matched by (residue number, atom name); the
-  submitted topology contains solvent, so raw atom indices do not line up
+- contract atoms are placed through an exact residue correspondence; residue
+  numbers, chain IDs and raw atom indices do not line up between the two sides
 """
 
 from __future__ import annotations
 
 from mddatabench import _threads  # noqa: F401  must precede numpy
 
+import hashlib
 import json
 import pathlib
 
@@ -104,6 +105,24 @@ def pdb_atoms(path):
     """
     return [(line[21], line[22:27].strip(), line[12:16].strip())
             for line in open(path) if line.startswith(("ATOM", "HETATM"))]
+
+
+def _describe_backbone_link(link):
+    """One retained topology link in a compact, human-readable form."""
+    labels = []
+    for name, number, chain, atom in zip(
+            link["residue_names"], link["residue_numbers"],
+            link["chains"], link["atom_names"]):
+        labels.append(f"{name}{number}{('/' + chain) if chain else ''}:{atom}")
+    return f"{link['kind']} {labels[0]}--{labels[1]}"
+
+
+def _sha256(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def _read_nodes(job_dir: pathlib.Path) -> dict:
@@ -393,19 +412,14 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     # wants the system as it was built rather than as it was handed in.
     _prepared_structure(prep)
     topology_pdb = topo / "artifacts" / "system.topology.pdb"
-    # Split on the minimised structure, not on the prepared one.  A polymer is
-    # counted by joining residues whose backbone ends are within bonding
-    # distance, and the prepared structure is the input to the build rather than
-    # its result: a construct the reference ligated -- 5ZK8 bonds residue 214 to
-    # 383, where the deposit leaves those atoms 9.63 A apart -- still carries the
-    # deposit's gap there, so it reads as two chains however correctly it was
-    # built.  Measured on that submission: prepared 197 + 76, minimised 273,
-    # reference 273, and the System's own bond graph carries the 1.335 A bond at
-    # every stage.  The minimised state is a required output and is the first
-    # artifact in which the force field has been applied.
+    # The minimised structure supplies coordinates and residue labels, but not
+    # connectivity.  Close fragment ends can sit at a peptide-bond distance
+    # without a force term, and a declared link can begin 9.63 A apart (5ZK8)
+    # before minimisation.  Split the reference by its deposited topology and
+    # the submission by the force-bearing bonds in its System instead.
     minimized_structure = minimized / "artifacts" / "minimized_structure.pdb"
-    reference_monomers = cp.split_monomers(cp.read_residues(bundle / "reference.pdb"))
-    submitted_monomers = cp.split_monomers(cp.read_residues(minimized_structure))
+    reference_residues = cp.read_residues(bundle / "reference.pdb")
+    submitted_residues = cp.read_residues(minimized_structure)
 
     # Both topologies, read rather than inferred. The reference ships its own
     # topology.prmtop and the submission ships the System that exerts force.
@@ -413,6 +427,32 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
                                            bundle / "reference.pdb")
     submitted_topology, submitted_bonds, topology_error, submitted_system = \
         tp.load_submission(topo / "artifacts" / "system.system.xml", topology_pdb)
+    reference_backbone_links = tp.backbone_links(reference_topology)
+    try:
+        reference_monomers, reference_mapped_links = \
+            cp.split_monomers_by_backbone_links(
+                reference_residues, reference_topology.residues,
+                reference_backbone_links, tp.POLYMER_RESIDUES)
+    except ValueError as exc:
+        raise SystemExit(f"reference topology cannot be mapped to reference.pdb: {exc}") \
+            from exc
+
+    submitted_backbone_links = []
+    submitted_mapped_links = {}
+    partition_error = topology_error
+    if topology_error:
+        submitted_monomers = [[residue] for residue in submitted_residues]
+    else:
+        submitted_backbone_links = tp.backbone_links(
+            submitted_topology, submitted_bonds)
+        try:
+            submitted_monomers, submitted_mapped_links = \
+                cp.split_monomers_by_backbone_links(
+                    submitted_residues, submitted_topology.residues,
+                    submitted_backbone_links, tp.POLYMER_RESIDUES)
+        except ValueError as exc:
+            partition_error = f"submitted topology cannot be mapped to the minimum: {exc}"
+            submitted_monomers = [[residue] for residue in submitted_residues]
 
     # --- the bilayer, if there is one -----------------------------------------
     # The species is graded and the count is not, beyond "there is a membrane at
@@ -453,9 +493,40 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
                                    f"{minimum:g} of the reference's {reference_count}"))
 
     pairs, mismatches = cp.match_monomers(reference_monomers, submitted_monomers)
-    check("monomer_count_matches_reference", not mismatches,
-          f"{len(reference_monomers)} reference monomer(s), {len(submitted_monomers)} submitted"
-          + ("; " + "; ".join(mismatches) if mismatches else "; all sequences pair up"))
+    comparison_pairs = pairs
+    correspondence_kind = "component pairing"
+    if mismatches and not partition_error:
+        positional = cp.positional_pairs_if_identical(
+            reference_monomers, submitted_monomers)
+        if positional:
+            comparison_pairs = positional
+            correspondence_kind = "identical full sequence in file order"
+
+    complete_links, missing_links, unexpected_links = cp.compare_backbone_links(
+        reference_residues, submitted_residues, comparison_pairs,
+        reference_mapped_links, submitted_mapped_links)
+    connectivity_ok = (not partition_error and complete_links
+                       and not missing_links and not unexpected_links)
+    component_detail = (
+        f"backbone component sizes reference "
+        f"{[len(monomer) for monomer in reference_monomers]}, submitted "
+        f"{[len(monomer) for monomer in submitted_monomers]}")
+    if partition_error:
+        component_detail += f"; not comparable: {partition_error}"
+    elif not complete_links:
+        component_detail += "; declared links not comparable: no complete residue correspondence"
+        if mismatches:
+            component_detail += "; " + "; ".join(mismatches)
+    else:
+        if unexpected_links:
+            component_detail += "; unexpected link(s): " + ", ".join(
+                _describe_backbone_link(link) for link in unexpected_links[:4])
+        if missing_links:
+            component_detail += "; missing link(s): " + ", ".join(
+                _describe_backbone_link(link) for link in missing_links[:4])
+        if not missing_links and not unexpected_links:
+            component_detail += "; declared backbone links agree"
+    check("monomer_count_matches_reference", connectivity_ok, component_detail)
 
     # Positions whose protonation is a metal-site modelling decision. Taken from
     # the built structures, which still carry the deposit's coordinates, and
@@ -472,8 +543,12 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     # and reports them as composition differences.
     submitted_metals = cp.read_metals(minimized_structure)
     reference_metals = cp.read_metals(bundle / "reference.pdb")
-    submitted_ligands = cp.metal_ligand_positions(submitted_monomers, submitted_metals)
-    reference_ligands = cp.metal_ligand_positions(reference_monomers, reference_metals)
+    comparison_reference_monomers = [pair[0] for pair in comparison_pairs]
+    comparison_submitted_monomers = [pair[1] for pair in comparison_pairs]
+    submitted_ligands = cp.metal_ligand_positions(
+        comparison_submitted_monomers, submitted_metals)
+    reference_ligands = cp.metal_ligand_positions(
+        comparison_reference_monomers, reference_metals)
     # A catalytic cysteine-histidine pair is exempted for the same reason the
     # metal ligands are: there is no settled target. The literature disagrees
     # with itself about whether such a pair is a thiolate-imidazolium ion pair
@@ -483,11 +558,12 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     # no exemption on any solved job, and its 3.5 A test flips with the frame
     # (6W9C's pair is 3.30 A minimised, 3.68 A on the topology) while the
     # reference finds the same pair at 2.98-3.11 A, the range 3.5 A was set on.
-    reference_dyads = cp.catalytic_dyad_positions(reference_monomers, reference_metals)
+    reference_dyads = cp.catalytic_dyad_positions(
+        comparison_reference_monomers, reference_metals)
 
     findings = {"sequence": [], "atom_counts": [], "elements": []}
     exempt_total = 0
-    for reference_monomer, submitted_monomer in pairs:
+    for reference_monomer, submitted_monomer in comparison_pairs:
         exempt = (submitted_ligands.get(id(submitted_monomer), set())
                   | reference_ligands.get(id(reference_monomer), set())
                   | reference_dyads.get(id(reference_monomer), set()))
@@ -498,22 +574,30 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
             findings[key].extend(value)
 
     residue_total = sum(len(m) for m in reference_monomers)
-    check("sequence_matches_reference", not mismatches and not findings["sequence"],
+    complete_residue_correspondence = (
+        sum(len(reference) for reference, _ in comparison_pairs) == residue_total
+        and sum(len(submitted) for _, submitted in comparison_pairs)
+        == sum(len(monomer) for monomer in submitted_monomers))
+    check("sequence_matches_reference",
+          complete_residue_correspondence and not findings["sequence"],
           f"{sum(len(m) for m in submitted_monomers)} residues (expect {residue_total}) "
-          f"in {len(submitted_monomers)} monomer(s)"
-          + ("; not compared: no monomer pairing" if mismatches else
+          f"in {len(submitted_monomers)} backbone component(s)"
+          + ("; not compared: no exact residue correspondence"
+             if not complete_residue_correspondence else
              f"; sequence differs at {findings['sequence'][:4]}" if findings["sequence"]
-             else "; identical after canonicalising protonation"))
+             else f"; identical after canonicalising protonation ({correspondence_kind})"))
 
     # Per-residue atom counts. Tautomer-blind by construction (HID and HIE have
     # the same formula) and sensitive to every ionisation and bonding variant,
     # which is what the old total-atom tolerance of +/-2 was silently letting
     # through: one HIP costs exactly one hydrogen.
-    check("residue_atom_counts_match_reference", not mismatches and not findings["atom_counts"],
+    check("residue_atom_counts_match_reference",
+          complete_residue_correspondence and not findings["atom_counts"],
           f"{residue_total} residues compared per monomer"
           + (f", {exempt_total} exempt as metal ligands or a catalytic dyad"
              if exempt_total else "")
-          + ("; not compared: no monomer pairing" if mismatches else
+          + ("; not compared: no exact residue correspondence"
+             if not complete_residue_correspondence else
              f"; {len(findings['atom_counts'])} differ: {findings['atom_counts'][:4]}"
              if findings["atom_counts"] else "; every residue matches, tautomers tolerated"))
 
@@ -674,13 +758,13 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     # the wrong residue and says nothing: on 1AHW it reported 1908 of 1908
     # matched with 1266 of them up to 88.8 A from the atom they name.
     own_list, missing = cp.contract_correspondence(
-        indices, reference_atoms, pdb_atoms(minimized_structure), pairs)
+        indices, reference_atoms, pdb_atoms(minimized_structure), comparison_pairs)
     # dtype, because an empty list is float64 and indexing traj.xyz with it
     # raises instead of leaving the `if missing:` branch below to report it.
     own_indices = np.array(own_list, dtype=int)
     check("contract_atoms_resolvable", not missing,
-          f"{len(own_list)}/{len(indices)} contract atoms placed through the monomer "
-          f"pairing" + (f"; {missing[:3]}" if missing else ""))
+          f"{len(own_list)}/{len(indices)} contract atoms placed through "
+          f"{correspondence_kind}" + (f"; {missing[:3]}" if missing else ""))
 
     # Thinned to the reference windows' 10 ps so both sides carry the same number
     # of samples; measured, the statistics move by less than 0.02 across strides
@@ -862,6 +946,14 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
           else "no metal ion in the submitted topology")
 
     return _report(task, results, {
+        "submitted_backbone_connectivity": ({
+            "schema_version": 1,
+            "source": "submitted_openmm_system_force_bearing_bonds",
+            "topology_pdb_sha256": _sha256(topology_pdb),
+            "topology_atoms": len(submitted_topology.atoms),
+            "topology_residues": len(submitted_topology.residues),
+            "links": submitted_backbone_links,
+        } if not topology_error else None),
         "fluctuation_rank_correlation": agreement,
         "n_frames": int(traj.n_frames),
         "built_energy_per_atom_kj_mol": built.get("energy_per_particle_kj_mol"),

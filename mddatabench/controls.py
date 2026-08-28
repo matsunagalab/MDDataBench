@@ -54,6 +54,7 @@ from mddatabench import composition as cp
 from mddatabench import dynamics as dy
 from mddatabench import execution as ex
 from mddatabench import scoring as sc
+from mddatabench import topology as tp
 from mddatabench.scoring import find_node
 
 
@@ -131,9 +132,23 @@ def run_negative_controls(job_dir: str, bundle: str, task_file: str) -> dict:
     # "228 absent" and unrunnable here.
     minimized = find_node(job_dir, "min") / "artifacts" / "minimized_structure.pdb"
     reference_atoms = sc.pdb_atoms(bundle / "reference.pdb")
-    reference_monomers = cp.split_monomers(cp.read_residues(bundle / "reference.pdb"))
-    submitted_monomers = cp.split_monomers(cp.read_residues(minimized))
-    pairs, _ = cp.match_monomers(reference_monomers, submitted_monomers)
+    reference_residues = cp.read_residues(bundle / "reference.pdb")
+    submitted_residues = cp.read_residues(minimized)
+    reference_topology = tp.load_reference(
+        tp.find_reference_topology(bundle), bundle / "reference.pdb")
+    submitted_topology, submitted_bonds, topology_error, _ = tp.load_submission(
+        find_node(job_dir, "topo") / "artifacts" / "system.system.xml", topology)
+    if topology_error:
+        return {"task_id": task["task_id"], "unrunnable": topology_error}
+    reference_monomers, _ = cp.split_monomers_by_backbone_links(
+        reference_residues, reference_topology.residues,
+        tp.backbone_links(reference_topology), tp.POLYMER_RESIDUES)
+    submitted_monomers, _ = cp.split_monomers_by_backbone_links(
+        submitted_residues, submitted_topology.residues,
+        tp.backbone_links(submitted_topology, submitted_bonds), tp.POLYMER_RESIDUES)
+    pairs, mismatches = cp.match_monomers(reference_monomers, submitted_monomers)
+    if mismatches:
+        pairs = cp.positional_pairs_if_identical(reference_monomers, submitted_monomers)
     own, missing = cp.contract_correspondence(
         indices, reference_atoms, sc.pdb_atoms(minimized), pairs)
     if missing:

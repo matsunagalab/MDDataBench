@@ -60,7 +60,9 @@ def test_every_check_is_categorised_and_versioned(path):
     for check in checks:
         assert check["category"] in ("prep", "md", "precondition", "diagnostic"), \
             check["check_id"]
-        assert check["check_type"].endswith("@1"), (
+        expected_version = (
+            "@2" if check["check_id"] == "monomer_count_matches_reference" else "@1")
+        assert check["check_type"].endswith(expected_version), (
             f"{check['check_id']}: check types are versioned so a scorer fix "
             "does not silently rescore old submissions")
     assert any(c["category"] == "prep" for c in checks)

@@ -1,8 +1,9 @@
 """Compare a submitted system's composition against the MDDB reference.
 
-Everything here works per monomer, not per file.  A monomer is a covalently
-connected polymer chain, found from peptide/phosphodiester geometry rather than
-from PDB chain IDs: preparation tools relabel and reuse chain IDs (MDClaw's own
+Everything here works per polymer component, not per file.  The scorer finds a
+component from peptide/phosphodiester links declared by the force-bearing
+topology rather than from coordinates or PDB chain IDs: preparation tools
+relabel and reuse chain IDs (MDClaw's own
 ``chain_identity_map.json`` says "PDB chain IDs are MD compatibility labels and
 may be reused"), and D03's ``system.topology.pdb`` already carries chains A, B
 and C where the reference has only A.  Zipping two residue lists in file order
@@ -248,6 +249,82 @@ def split_monomers(residues):
     return monomers
 
 
+def split_monomers_by_backbone_links(residues, topology_residues, links,
+                                     polymer_residue_names):
+    """Split residues using only backbone links declared by a topology.
+
+    Match only polymer residues between coordinates and topology.  Ligands stay
+    as coordinate-file components: three Cineca references store one PDB
+    ``LIG`` as two topology residues, and that storage detail is not a polymer
+    break.  This is positional correspondence within two views of the same
+    polymer, not a sequence alignment.  Refusing a mismatch prevents a declared
+    bond from being attached to the wrong residue after a deletion or reordering.
+
+    Returns ``(components, mapped_links)``.  ``mapped_links`` keys each retained
+    link by the zero-based positions of its two residues in ``residues`` and
+    keeps the authoritative link record as its value.
+    """
+    polymer_residue_names = {name.strip().upper() for name in polymer_residue_names}
+    coordinate_polymer = [
+        (position, residue) for position, residue in enumerate(residues)
+        if residue.name.strip().upper() in polymer_residue_names
+    ]
+    topology_polymer = [
+        residue for residue in topology_residues
+        if residue.name.strip().upper() in polymer_residue_names
+    ]
+    if len(topology_polymer) != len(coordinate_polymer):
+        raise ValueError(
+            "coordinate/topology polymer residue count differs: "
+            f"{len(coordinate_polymer)} vs {len(topology_polymer)}")
+    for ordinal, ((_, coordinate), topology) in enumerate(
+            zip(coordinate_polymer, topology_polymer)):
+        topology_name = CANONICAL_RESIDUE.get(
+            topology.name.strip().upper(), topology.name.strip().upper())
+        if coordinate.canonical != topology_name:
+            raise ValueError(
+                f"coordinate/topology polymer order differs at position {ordinal + 1}: "
+                f"{coordinate.canonical} vs {topology_name}")
+
+    position_by_topology_index = {
+        topology.idx: position
+        for (position, _), topology in zip(coordinate_polymer, topology_polymer)
+    }
+    mapped = {}
+    for link in links:
+        first, second = link["residue_indices"]
+        if first not in position_by_topology_index or second not in position_by_topology_index:
+            continue
+        # Keep direction and chemistry in the key.  C(i)--N(j) is not the same
+        # declaration as C(j)--N(i), even though both connect the same two
+        # residue vertices and therefore produce the same component count.
+        edge = (position_by_topology_index[first],
+                position_by_topology_index[second], link["kind"])
+        mapped[edge] = link
+
+    parent = list(range(len(residues)))
+
+    def root(position):
+        while parent[position] != position:
+            parent[position] = parent[parent[position]]
+            position = parent[position]
+        return position
+
+    for first, second, _ in mapped:
+        first_root, second_root = root(first), root(second)
+        if first_root != second_root:
+            parent[second_root] = first_root
+
+    groups = collections.defaultdict(list)
+    for position, residue in enumerate(residues):
+        groups[root(position)].append((position, residue))
+    components = [
+        [residue for _, residue in group]
+        for group in sorted(groups.values(), key=lambda rows: rows[0][0])
+    ]
+    return components, mapped
+
+
 def _linked(first, second):
     for tail, head in (("C", "N"), ("O3'", "P")):
         a, b = first.atom(tail), second.atom(head)
@@ -259,6 +336,61 @@ def _linked(first, second):
 
 def canonical_sequence(monomer):
     return tuple(r.canonical for r in monomer)
+
+
+def positional_pairs_if_identical(reference, submission):
+    """One conservative residue pairing when only connectivity differs.
+
+    A wrong backbone link changes the component partition and used to prevent
+    sequence, composition and trajectory checks from measuring anything.  The
+    flattened file-order correspondence is safe only when both complete
+    canonical sequences are identical.  Missing, reordered or substituted
+    residues therefore return no pair; this is deliberately not an alignment.
+    """
+    reference_flat = [residue for monomer in reference for residue in monomer]
+    submission_flat = [residue for monomer in submission for residue in monomer]
+    if (len(reference_flat) == len(submission_flat)
+            and canonical_sequence(reference_flat) == canonical_sequence(submission_flat)):
+        return [(reference_flat, submission_flat)]
+    return []
+
+
+def compare_backbone_links(reference_residues, submitted_residues, pairs,
+                           reference_links, submitted_links):
+    """Compare declared links through an already established residue pairing.
+
+    Returns ``(complete, missing, unexpected)``.  The link records in the last
+    two lists are the authoritative topology records, suitable for both a
+    concise check detail and the retained evaluator evidence.
+    """
+    reference_positions = {id(residue): position
+                           for position, residue in enumerate(reference_residues)}
+    submitted_positions = {id(residue): position
+                           for position, residue in enumerate(submitted_residues)}
+    correspondence = {}
+    for reference_monomer, submitted_monomer in pairs:
+        if len(reference_monomer) != len(submitted_monomer):
+            return False, [], []
+        for reference_residue, submitted_residue in zip(reference_monomer,
+                                                        submitted_monomer):
+            correspondence[reference_positions[id(reference_residue)]] = \
+                submitted_positions[id(submitted_residue)]
+    complete = (len(correspondence) == len(reference_residues)
+                == len(submitted_residues))
+    if not complete:
+        return False, [], []
+
+    translated_reference = {}
+    for (first, second, kind), link in reference_links.items():
+        translated = (correspondence[first], correspondence[second], kind)
+        translated_reference[translated] = link
+    missing = [translated_reference[edge]
+               for edge in sorted(translated_reference.keys() - submitted_links.keys(),
+                                  key=str)]
+    unexpected = [submitted_links[edge]
+                  for edge in sorted(submitted_links.keys() - translated_reference.keys(),
+                                     key=str)]
+    return True, missing, unexpected
 
 
 def residue_formula(residue):
@@ -327,9 +459,9 @@ def contract_correspondence(indices, reference_rows, submitted_rows, pairs):
     submission keeps the deposit's numbering, and 5ZK8 runs 18-214 and 383-458
     against a reference renumbered 1..273.
 
-    Anchored on the monomer pairing instead, which ``match_monomers`` makes from
-    canonical sequence and ``split_monomers`` makes from backbone geometry, so
-    neither residue numbers nor chain labels are read across the two sides.
+    Anchored on the component pairing instead, which ``match_monomers`` makes
+    from canonical sequence after the scorer splits on declared backbone links,
+    so neither residue numbers nor chain labels are read across the two sides.
     Within one file ``(chain, residue number, atom name)`` does address one atom,
     and that is all it is used for here.
 

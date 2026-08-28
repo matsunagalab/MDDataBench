@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import numpy as np
 import openmm as mm
@@ -89,7 +90,7 @@ def _bundle(root, *, reference_profile=None, atom_indices=None):
     return root
 
 
-def _make_every_other_check_pass(monkeypatch):
+def _make_every_other_check_pass(monkeypatch, *, connectivity_mismatch=False):
     reference, submitted = _Monomer(), _Monomer()
     system = mm.System()
     system.addParticle(1.0)
@@ -98,17 +99,36 @@ def _make_every_other_check_pass(monkeypatch):
     system.addForce(nonbonded)
 
     monkeypatch.setattr(sc.cp, "read_residues", lambda _path: [])
-    monomers = iter(([reference], [submitted]))
-    monkeypatch.setattr(sc.cp, "split_monomers", lambda _residues: next(monomers))
+    monomers = iter((([reference], {}), ([submitted], {})))
+    monkeypatch.setattr(
+        sc.cp, "split_monomers_by_backbone_links",
+        lambda *_args: next(monomers),
+    )
     monkeypatch.setattr(
         sc.cp, "match_monomers", lambda _reference, _submitted: (
-            [(reference, submitted)], []
+            ([], ["component partition differs"])
+            if connectivity_mismatch else ([(reference, submitted)], [])
         ),
+    )
+    monkeypatch.setattr(
+        sc.cp, "positional_pairs_if_identical",
+        lambda *_args: [(reference, submitted)] if connectivity_mismatch else [],
     )
     monkeypatch.setattr(sc.cp, "compare_monomer", lambda *_args, **_kwargs: {
         "sequence": [], "atom_counts": [], "elements": [],
     })
     monkeypatch.setattr(sc.cp, "element_totals", lambda _monomers: {})
+    monkeypatch.setattr(
+        sc.cp, "compare_backbone_links", lambda *_args: (
+            (True, [], [{
+                "kind": "peptide",
+                "residue_names": ["ALA", "GLY"],
+                "residue_numbers": [1, 2],
+                "chains": ["A", "A"],
+                "atom_names": ["C", "N"],
+            }]) if connectivity_mismatch else (True, [], [])
+        )
+    )
     monkeypatch.setattr(sc.cp, "read_metals", lambda _path: [])
     monkeypatch.setattr(sc.cp, "metal_ligand_positions", lambda *_args: {})
     monkeypatch.setattr(sc.cp, "catalytic_dyad_positions", lambda *_args: {})
@@ -119,10 +139,12 @@ def _make_every_other_check_pass(monkeypatch):
     )
 
     monkeypatch.setattr(sc.tp, "find_reference_topology", lambda bundle: bundle)
-    monkeypatch.setattr(sc.tp, "load_reference", lambda *_args: object())
+    topology = SimpleNamespace(atoms=[], residues=[])
+    monkeypatch.setattr(sc.tp, "load_reference", lambda *_args: topology)
     monkeypatch.setattr(
-        sc.tp, "load_submission", lambda *_args: (object(), [], None, system)
+        sc.tp, "load_submission", lambda *_args: (topology, [], None, system)
     )
+    monkeypatch.setattr(sc.tp, "backbone_links", lambda *_args: [])
     monkeypatch.setattr(sc.tp, "coordination_shell", lambda *_args, **_kwargs: {})
     monkeypatch.setattr(
         sc,
@@ -201,6 +223,27 @@ def test_mdclaw_amber_shape_keeps_the_water_check_passing(tmp_path, monkeypatch)
     )
     assert water["passed"] is True
     assert report["passed"] == report["total"] == 20
+
+
+def test_one_wrong_backbone_link_does_not_erase_independent_checks(
+        tmp_path, monkeypatch):
+    _make_every_other_check_pass(monkeypatch, connectivity_mismatch=True)
+    report = score_portable(
+        _submission(tmp_path / "submission", {
+            "parameters": {"water_model": "tip3p"},
+            "forcefield_provenance": {"openmm_xml": ["amber14/tip3p.xml"]},
+        }),
+        _bundle(tmp_path / "bundle"),
+        _task(),
+    )
+
+    failed = [check for check in report["checks"] if not check["passed"]]
+    assert [check["check_id"] for check in failed] == [
+        "monomer_count_matches_reference",
+    ]
+    assert "unexpected link(s): peptide ALA1/A:C--GLY2/A:N" in failed[0]["detail"]
+    assert report["passed"] == 19
+    assert report["total"] == 20
 
 
 def test_null_rmsf_outside_the_contract_does_not_destroy_the_score(

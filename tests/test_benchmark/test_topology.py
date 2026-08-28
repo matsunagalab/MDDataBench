@@ -73,6 +73,32 @@ def test_bonds_are_read_from_the_system_not_from_conect():
         "the structure carries no CONECT-derived bonds of its own"
 
 
+def test_only_declared_inter_residue_backbone_bonds_are_retained():
+    structure = build([
+        ("C", "C", "ALA", 1, "A", (0.0, 0.0, 0.0)),
+        ("S", "SG", "ALA", 1, "A", (0.0, 2.0, 0.0)),
+        ("N", "N", "GLY", 2, "A", (1.33, 0.0, 0.0)),
+        ("S", "SG", "GLY", 2, "A", (0.0, 4.0, 0.0)),
+    ])
+    links = tp.backbone_links(
+        structure, {frozenset((0, 2)), frozenset((1, 3))})
+    assert len(links) == 1, "a disulfide must not merge polymer backbone components"
+    assert links[0]["kind"] == "peptide"
+    assert links[0]["atom_indices"] == [0, 2]
+    assert links[0]["residue_indices"] == [0, 1]
+
+
+def test_phosphodiester_link_is_retained_in_its_declared_direction():
+    structure = build([
+        ("O", "O3'", "DA", 1, "A", (0.0, 0.0, 0.0)),
+        ("P", "P", "DT", 2, "A", (1.6, 0.0, 0.0)),
+    ])
+    links = tp.backbone_links(structure, {frozenset((0, 1))})
+    assert [(link["kind"], link["atom_names"]) for link in links] == [
+        ("phosphodiester", ["O3'", "P"]),
+    ]
+
+
 def test_four_bonds_on_sulfur_is_not_a_valence_violation():
     """A sulfonamide, a sulfate and DMSO all carry four bonds on S."""
     structure = build([
@@ -110,4 +136,3 @@ def test_a_ligand_does_not_shift_the_polymer_positions():
     positions = tp.protein_residue_positions(structure)
     assert sorted(positions.values()) == [1, 2]
     assert positions[2] == 2, "the glycine is the second polymer residue, not the third"
-

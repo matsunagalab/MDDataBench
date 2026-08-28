@@ -293,6 +293,60 @@ def force_bearing_bonds(system, structure):
     return pairs
 
 
+def backbone_links(structure, bonds=None):
+    """Declared inter-residue peptide and phosphodiester links.
+
+    ``bonds`` follows the same rule as the chemistry checks below: a submission
+    passes the force-bearing pairs extracted from its System, while a reference
+    passes ``None`` and therefore uses the bonds in its deposited topology.  A
+    short C--N contact is deliberately not evidence here; the five membrane
+    submissions measured on 2026-08-28 contain real, unwanted peptide terms,
+    while other close fragment ends do not.
+
+    The returned dictionaries are small and JSON-serialisable so the evaluator
+    can retain the scientific evidence after the much larger System XML is
+    reclaimed.
+    """
+    atoms = structure.atoms
+    if bonds is None:
+        bonds = {frozenset((bond.atom1.idx, bond.atom2.idx))
+                 for bond in structure.bonds}
+    links = []
+    for pair in bonds:
+        if len(pair) != 2:
+            continue
+        one, two = (atoms[index] for index in sorted(pair))
+        if one.residue.idx == two.residue.idx:
+            continue
+        one_name = one.residue.name.strip().upper()
+        two_name = two.residue.name.strip().upper()
+        oriented = None
+        if one_name in PROTEIN_RESIDUES and two_name in PROTEIN_RESIDUES:
+            if one.name == "C" and two.name == "N":
+                oriented = (one, two, "peptide")
+            elif two.name == "C" and one.name == "N":
+                oriented = (two, one, "peptide")
+        elif one_name in NUCLEIC_RESIDUES and two_name in NUCLEIC_RESIDUES:
+            if one.name in ("O3'", "O3*") and two.name == "P":
+                oriented = (one, two, "phosphodiester")
+            elif two.name in ("O3'", "O3*") and one.name == "P":
+                oriented = (two, one, "phosphodiester")
+        if oriented is None:
+            continue
+        tail, head, kind = oriented
+        links.append({
+            "kind": kind,
+            "atom_indices": [int(tail.idx), int(head.idx)],
+            "atom_names": [tail.name, head.name],
+            "residue_indices": [int(tail.residue.idx), int(head.residue.idx)],
+            "residue_names": [tail.residue.name, head.residue.name],
+            "residue_numbers": [int(tail.residue.number), int(head.residue.number)],
+            "chains": [tail.residue.chain or "", head.residue.chain or ""],
+        })
+    return sorted(links, key=lambda link: (
+        link["residue_indices"], link["atom_indices"]))
+
+
 def sulfur_bonds(structure, bonds=None):
     """Every S-S bond, as a set of residue-index pairs.  Zero is a real answer.
 

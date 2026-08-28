@@ -702,6 +702,16 @@ def finalize_attempt(attempt_dir: str, score_file: str = None,
         return {"success": True, **_json(result_file), "already_finalized": True}
     manifest = _json(attempt / "manifest.json")
     report = _json(Path(score_file)) if score_file and Path(score_file).is_file() else None
+    connectivity = ((report or {}).get("diagnostics") or {}).get(
+        "submitted_backbone_connectivity")
+    connectivity_file = None
+    if isinstance(connectivity, dict):
+        # The submitted System is up to 85 MB for one membrane attempt and may
+        # be reclaimed after sealing.  Preserve the small evaluator-derived
+        # C--N/O3'--P bond record so the scientific basis of the connectivity
+        # score survives without retaining every OpenMM force parameter.
+        connectivity_file = attempt / "evaluation" / "backbone_connectivity.json"
+        _write_json(connectivity_file, connectivity)
     total = int((report or {}).get("total") or 0)
     passed_checks = int((report or {}).get("passed") or 0)
     passed = bool(total and passed_checks == total)
@@ -742,7 +752,11 @@ def finalize_attempt(attempt_dir: str, score_file: str = None,
                 "input_tokens": None, "output_tokens": None,
                 "reasoning_tokens": None, "provenance": "unavailable"},
         },
-        "artifacts": {"score": str(Path(score_file).resolve()) if report else None},
+        "artifacts": {
+            "score": str(Path(score_file).resolve()) if report else None,
+            "backbone_connectivity": (
+                str(connectivity_file.resolve()) if connectivity_file else None),
+        },
         "finished_at": finished_at,
     }
     _write_json(result_file, result)

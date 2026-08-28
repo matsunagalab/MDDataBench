@@ -5,6 +5,88 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-28 — Deleted submitted Systems were reproducible from the DAG
+
+This corrects the narrower claim below that the cleanup made the historical
+connectivity audit impossible.  The XML bytes were gone, but completed min
+nodes retained both `system_xml_sha256` and `topology_pdb_sha256`, while the
+topo input, `amber_metadata.json`, surviving topology PDB, frozen MDClaw source
+and exact SIF remained.  Rebuilding a topo branch from the same solv parent
+reproduced the submitted OpenMM System byte for byte in all 196 attempts that
+had recorded a System hash.  The force-bearing C--N/O3'--P links were extracted
+only after that match and retained at
+`evaluation/backbone_connectivity.json`; regenerated XMLs were then discarded.
+The records contain 47,681 backbone links in total.  A rebuilt topology PDB
+often had numerically different post-relaxation coordinates (only 28/196
+reruns matched its bytes), so extraction deliberately paired the
+byte-identical rebuilt System with the original topology PDB that survived and
+still matched its recorded hash.
+
+Three more attempts (011 r2, 038 r1 and 075 r2) completed topo but never ran
+min, so no node recorded their System digest.  Their Systems were rebuilt and
+their links retained under `evaluation/reconstructed_systems/`, explicitly as
+`reconstructed_unverified`, not published as authoritative canonical evidence.
+The rebuilt topology PDB matched exactly for 011 but not 038 or 075.  The only
+remaining pass2 attempt, 043 r2, never created a topo node and therefore had no
+System to recover.  One verified exception required its surviving
+attempt-local source overlay: 043 r1 had excluded ligand 9RQ from an old
+digit-prefixed GLYCAM heuristic before its original build.  Using the frozen
+base alone reproduced the old failure; using the source that actually ran
+reproduced the recorded System hash.
+
+For `full100-sifonly`, original System XMLs survived for three attempts (011
+r2, 037 r2 and 090 r2); their connectivity was extracted directly and retained
+in the same canonical JSON form.  The other sif-only attempts have neither an
+authoritative System nor a recorded digest with which a rerun could be
+validated.  This recovery restores the historical connectivity evidence, not
+the deleted trajectories, so it does not by itself make all twenty checks
+fully rescored.
+
+## 2026-08-28 — Polymer connectivity now comes from the force-bearing topology
+
+Across the two completed 200-attempt campaigns, 21 attempts failed
+`monomer_count_matches_reference`, 13 of them membrane.  The old scorer split
+the minimised PDB at a 2 A backbone-distance threshold.  That was not the
+question the check claimed to ask.  Measured on two replicates of 001, the
+correct run leaves C214--N380 at 13.663 A and has components `[199, 79]`, while
+the failed run carries a real peptide term, minimises that pair to 1.359 A and
+has one `[278]` component.  011 likewise carries a declared C227--N365 link at
+1.363 A.  Conversely, 5ZK8's correct System declares its C214--N383 link while
+the deposited coordinates begin 9.63 A apart.  One distance rule cannot decide
+both cases.
+
+Revision `monomer_partition_rescan@2` therefore reads only inter-residue C--N
+and O3'--P links: from the deposited prmtop/tpr/psf for the reference and from
+the force-bearing bond/constraint set of the submitted OpenMM System.  Close
+contacts without a declared bond stay disconnected; disulfides and other
+crosslinks do not merge backbone components.  The legacy check id is retained
+for result compatibility, but its detail now reports component sizes and names
+unexpected or missing links.  All 101 reference bundles mapped successfully;
+three Cineca topologies split one coordinate-file `LIG` into two topology
+residues, which is intentionally irrelevant because only polymer residues are
+mapped to the backbone graph.
+
+One connectivity error used to erase the residue pairing and then fail sequence,
+per-residue composition and three MD checks as unevaluable.  The revised scorer
+uses a file-order correspondence only when the two complete canonical residue
+sequences are exactly identical.  Connectivity still fails, but the independent
+checks measure their own properties.  A missing, reordered or substituted
+residue gets no such correspondence; this is not a sequence alignment.
+
+The campaign cleanup script had removed every `*.xml`, including the scientific
+evidence needed to audit this change: `full100-pass2` retains 0/200 submitted
+System XMLs, and `full100-sifonly` retains them for three attempts.  Keeping every
+membrane System would cost about 17 GB per 200 attempts, so the scorer now puts a
+small JSON record of the submitted System's backbone links in its diagnostics
+and `finalize_attempt` seals a copy at
+`evaluation/backbone_connectivity.json`.  The three surviving sif-only Systems
+were audited without PDB bond inference: 011 `[140, 45, 79]`, 037 `[131, 1]`
+and 090 `[63]` all agree with their references.  A full rescore was not possible
+because the retained 011 trajectory is truncated.  The 400 completed campaign
+results remain immutable results of the previous scorer revision and were not
+revised; future campaigns carry both the @2 contract and retained connectivity
+evidence.
+
 ## 2026-08-28 — Two unreadable reference forms erased twenty checks
 
 In the running pass@2 campaign, 18 of 161 completed `cli_skill_sif` attempts

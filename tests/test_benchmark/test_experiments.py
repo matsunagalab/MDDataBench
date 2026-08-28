@@ -247,7 +247,15 @@ def test_partial_prep_or_md_score_is_binary_zero_and_tables_keep_partial_score(t
     reports = [
         {"passed": 2, "total": 2, "checks": [
             {"check_id": "prep", "category": "prep", "weight": 1, "passed": True},
-            {"check_id": "md", "category": "md", "weight": 1, "passed": True}]},
+            {"check_id": "md", "category": "md", "weight": 1, "passed": True}],
+         "diagnostics": {"submitted_backbone_connectivity": {
+             "schema_version": 1,
+             "source": "submitted_openmm_system_force_bearing_bonds",
+             "topology_atoms": 2,
+             "topology_residues": 2,
+             "links": [{"kind": "peptide", "atom_indices": [0, 1],
+                        "residue_indices": [0, 1]}],
+         }}},
         {"passed": 1, "total": 2, "checks": [
             {"check_id": "prep_bad", "category": "prep", "weight": 1, "passed": False},
             {"check_id": "md", "category": "md", "weight": 1, "passed": True}]},
@@ -262,6 +270,12 @@ def test_partial_prep_or_md_score_is_binary_zero_and_tables_keep_partial_score(t
     assert second["attempt_score"] == 0
     assert second["check_score"] == 0.5
     assert second["failure_stage"] == "prep"
+    evidence = json.loads(
+        (dirs[0] / "evaluation" / "backbone_connectivity.json").read_text())
+    first = json.loads((dirs[0] / "result.json").read_text())
+    assert evidence["links"][0]["kind"] == "peptide"
+    assert first["artifacts"]["backbone_connectivity"].endswith(
+        "evaluation/backbone_connectivity.json")
     summary = ex.collect_experiment(str(root))
     assert summary["success"]
     overall = next(row for row in summary["summary"] if row["axis"] == "all")
