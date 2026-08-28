@@ -74,13 +74,17 @@ def _submission(root, amber_metadata):
     return root
 
 
-def _bundle(root):
+def _bundle(root, *, reference_profile=None, atom_indices=None):
+    reference_profile = reference_profile or [0.1]
+    atom_indices = atom_indices or [0]
     root.mkdir()
     (root / "reference.pdb").write_text("END\n")
     (root / "reference.prmtop").write_text("")
-    (root / "pca_atom_indices.json").write_text(json.dumps({"atom_indices": [0]}))
+    (root / "pca_atom_indices.json").write_text(json.dumps({
+        "atom_indices": atom_indices,
+    }))
     (root / "reference_fluctuation.json").write_text(json.dumps({
-        "y": {"rmsf": {"data": [0.1]}},
+        "y": {"rmsf": {"data": reference_profile}},
     }))
     return root
 
@@ -197,3 +201,52 @@ def test_mdclaw_amber_shape_keeps_the_water_check_passing(tmp_path, monkeypatch)
     )
     assert water["passed"] is True
     assert report["passed"] == report["total"] == 20
+
+
+def test_null_rmsf_outside_the_contract_does_not_destroy_the_score(
+    tmp_path, monkeypatch
+):
+    _make_every_other_check_pass(monkeypatch)
+    report = score_portable(
+        _submission(tmp_path / "submission", {
+            "parameters": {"water_model": "tip3p"},
+            "forcefield_provenance": {"openmm_xml": ["amber14/tip3p.xml"]},
+        }),
+        _bundle(
+            tmp_path / "bundle",
+            reference_profile=[None, 0.1],
+            atom_indices=[1],
+        ),
+        _task(),
+    )
+
+    profile = next(
+        check for check in report["checks"]
+        if check["check_id"] == "fluctuation_profile_matches_reference"
+    )
+    assert profile["passed"] is True
+    assert "1/1 reference contract atoms" in profile["detail"]
+    assert "1/2 full-system entries" in profile["detail"]
+    assert report["passed"] == report["total"] == 20
+
+
+def test_null_rmsf_inside_the_contract_fails_only_the_profile_check(
+    tmp_path, monkeypatch
+):
+    _make_every_other_check_pass(monkeypatch)
+    report = score_portable(
+        _submission(tmp_path / "submission", {
+            "parameters": {"water_model": "tip3p"},
+            "forcefield_provenance": {"openmm_xml": ["amber14/tip3p.xml"]},
+        }),
+        _bundle(tmp_path / "bundle", reference_profile=[None]),
+        _task(),
+    )
+
+    failed = [check for check in report["checks"] if not check["passed"]]
+    assert [check["check_id"] for check in failed] == [
+        "fluctuation_profile_matches_reference"
+    ]
+    assert "0/1 reference contract atoms" in failed[0]["detail"]
+    assert report["passed"] == 19
+    assert report["total"] == 20

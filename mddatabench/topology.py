@@ -113,6 +113,26 @@ def read_topology(path):
     raise SystemExit(f"{path.name}: unsupported topology format")
 
 
+def _reference_atom_names_match(topology_atom, coordinate_atom):
+    """Whether two names identify the same atom at this residue position.
+
+    Amber writes methyl hydrogens as ``HG21`` while the older PDB convention
+    writes the same atom as ``1HG2``.  Accept only that exact leading-to-trailing
+    digit move, for a topology atom known to be hydrogen and at the same residue;
+    broader name normalisation would weaken the atom-order guard this serves.
+    """
+    if topology_atom.name == coordinate_atom.name:
+        return True
+    pdb_name = coordinate_atom.name
+    return (
+        topology_atom.atomic_number == 1
+        and pdb_name[:1] in "123"
+        and pdb_name[1:] + pdb_name[0] == topology_atom.name
+        and topology_atom.residue.idx == coordinate_atom.residue.idx
+        and topology_atom.residue.name == coordinate_atom.residue.name
+    )
+
+
 def load_reference(topology_path, pdb_path):
     """The reference's own topology, carrying its structure's coordinates.
 
@@ -130,8 +150,11 @@ def load_reference(topology_path, pdb_path):
         raise SystemExit(
             f"{topology_path.name} has {len(structure.atoms)} atoms and "
             f"{pdb_path.name} has {len(coordinates.atoms)}; the bundle is inconsistent")
-    mismatched = [i for i, (a, b) in enumerate(zip(structure.atoms, coordinates.atoms))
-                  if a.name != b.name]
+    mismatched = [
+        i
+        for i, (a, b) in enumerate(zip(structure.atoms, coordinates.atoms))
+        if not _reference_atom_names_match(a, b)
+    ]
     if mismatched:
         raise SystemExit(
             f"{topology_path.name} and {pdb_path.name} disagree on atom order at "

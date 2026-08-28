@@ -100,6 +100,54 @@ def test_a_polymer_topology_with_no_bonds_is_refused(tmp_path, monkeypatch):
     assert "bond" in str(raised.value)
 
 
+def _reference_with_hydrogen_names(monkeypatch, topology_name, pdb_name):
+    import types
+
+    topology_residue = types.SimpleNamespace(name="THR", idx=0)
+    pdb_residue = types.SimpleNamespace(name="THR", idx=0)
+    topology_atom = types.SimpleNamespace(
+        name=topology_name,
+        atomic_number=1,
+        residue=topology_residue,
+    )
+    pdb_atom = types.SimpleNamespace(name=pdb_name, residue=pdb_residue)
+    topology = types.SimpleNamespace(
+        atoms=[topology_atom],
+        residues=[topology_residue],
+        bonds=[object()],
+        coordinates=None,
+    )
+    coordinates = types.SimpleNamespace(
+        atoms=[pdb_atom],
+        coordinates=[[1.0, 2.0, 3.0]],
+    )
+    monkeypatch.setattr(tp, "read_topology", lambda _path: topology)
+    monkeypatch.setattr("parmed.load_file", lambda _path: coordinates)
+    return topology
+
+
+def test_leading_digit_pdb_hydrogen_name_preserves_the_atom_order_guard(
+    tmp_path, monkeypatch
+):
+    topology = _reference_with_hydrogen_names(monkeypatch, "HG21", "1HG2")
+
+    loaded = tp.load_reference(
+        tmp_path / "reference.prmtop", tmp_path / "reference.pdb"
+    )
+
+    assert loaded is topology
+    assert loaded.coordinates == [[1.0, 2.0, 3.0]]
+
+
+def test_a_genuinely_different_hydrogen_is_still_refused(tmp_path, monkeypatch):
+    _reference_with_hydrogen_names(monkeypatch, "HG21", "2HG2")
+
+    with pytest.raises(SystemExit, match="disagree on atom order"):
+        tp.load_reference(
+            tmp_path / "reference.prmtop", tmp_path / "reference.pdb"
+        )
+
+
 def test_no_frames_means_no_frame_selector(monkeypatch, tmp_path):
     """n_frames defaults to zero because nothing reads the frames any more.
     The selector was still being computed, and computing it divided by zero."""

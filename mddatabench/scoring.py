@@ -689,8 +689,27 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     own_xyz = traj.xyz[::stride][:, own_indices, :] * 10.0
 
     calibration = task["reference"].get("md_calibration") or {}
-    reference_profile = np.array(json.loads(
-        (bundle / "reference_fluctuation.json").read_text())["y"]["rmsf"]["data"]) * 10.0
+    full_reference_profile = np.asarray(json.loads(
+        (bundle / "reference_fluctuation.json").read_text())["y"]["rmsf"]["data"],
+        dtype=float)
+    # The MDDB analysis is full-system and uses null for atoms it did not
+    # analyse (mostly solvent and lipid in eight membrane references).  The
+    # calibrated measurement is over the PCA contract atoms, all of which are
+    # defined in those eight bundles, so select that set before doing arithmetic.
+    reference_profile = full_reference_profile[indices] * 10.0
+    reference_profile_defined = np.isfinite(reference_profile)
+    full_reference_profile_defined = int(np.isfinite(full_reference_profile).sum())
+    reference_profile_detail = (
+        f"{int(reference_profile_defined.sum())}/{len(reference_profile)} reference "
+        f"contract atoms have defined RMSF; "
+        f"{full_reference_profile_defined}/"
+        f"{len(full_reference_profile)} full-system entries are defined"
+    )
+    reference_profile_suffix = (
+        f"; {reference_profile_detail}"
+        if full_reference_profile_defined != len(full_reference_profile)
+        else ""
+    )
 
     # A range over a hundred windows is not the range of the population, and the
     # difference is measurable: held-out reference windows fall outside the range
@@ -751,9 +770,17 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
                   f"not evaluable: {len(missing)} of {len(indices)} reference contract "
                   f"atoms could not be placed in the submission; {missing[:2]}")
         agreement = None
+    elif not reference_profile_defined.all():
+        agreement = None
+        check(
+            "fluctuation_profile_matches_reference",
+            False,
+            "not measurable without changing the calibrated atom set: "
+            + reference_profile_detail,
+        )
     else:
         agreement = dy.profile_agreement(dy.atom_fluctuations(own_xyz),
-                                         reference_profile[indices])
+                                         reference_profile)
         # One-sided: agreement above the floor is agreement, and a profile that
         # matched better than any reference window would be no complaint.
         floor = (widened(calibration.get("rank_correlation"),
@@ -764,8 +791,11 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
               f"from the reference's own 1 ns windows "
               f"(n={calibration.get('windows')}, widened by "
               f"{slack_for('rank_correlation')} window SD)"
+              f"{reference_profile_suffix}"
               if agreement is not None and floor is not None else
               "not measurable: the profiles could not be compared")
+
+    if not missing:
         banded("fluctuation_magnitude_is_physical", dy.total_fluctuation(own_xyz),
                calibration.get("total_fluctuation_angstrom"),
                "total_fluctuation_angstrom", " A")

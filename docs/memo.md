@@ -5,6 +5,33 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-28 — Two unreadable reference forms erased twenty checks
+
+In the running pass@2 campaign, 18 of 161 completed `cli_skill_sif` attempts
+were sealed as `checks 0/0` after their MD had run.  Eight whole membrane tasks
+(007--014) reached a `TypeError` while reading the reference RMSF, and both
+replicates of 061 reached an atom-order `SystemExit`; the failures made the
+membrane axis read 5/10 while nucleic and soluble read 12/12.
+
+The membrane references carry `null` for 87--91% of their full-system RMSF
+profiles.  Those entries are outside the benchmark's calibrated PCA contract
+set: all eight bundles have zero nulls at their 792--5094 selected indices.
+The scorer nevertheless multiplied the full object array before selecting the
+contract atoms.  It now converts null to NaN, selects the calibrated set, and
+reports both the contract and full-system coverage.  A future null inside the
+contract fails only `fluctuation_profile_matches_reference`; it does not
+silently shrink the calibrated atom set, and the magnitude and radius checks
+still run.
+
+For 061, the topology and PDB have the same 7286 atoms and the same residue at
+every index.  All 815 name differences are hydrogens written as Amber `HG21`
+versus leading-digit PDB `1HG2` (and equivalents).  The order guard now accepts
+only that exact digit move for a topology atom known to be hydrogen at the same
+residue position.  Replaying one failed attempt per cause produced ordinary
+20-check reports (007: 13/20; 061: 18/20) instead of exceptions.  At verification
+time all 175 existing 20-check results were on unaffected tasks; their finite
+profile and exact-name paths are unchanged.
+
 ## 2026-08-27 — Missing portable metadata crashed the whole scorer
 
 In the live 100-task campaign, 10 `sif_only` attempts reached MD and 8 of them
