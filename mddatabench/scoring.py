@@ -18,6 +18,7 @@ from __future__ import annotations
 from mddatabench import _threads  # noqa: F401  must precede numpy
 
 import hashlib
+import itertools
 import json
 import pathlib
 
@@ -252,8 +253,61 @@ def _prepared_structure(prep: pathlib.Path) -> pathlib.Path:
     raise SystemExit(f"no prepared structure under {prep}")
 
 
+def _polymer_monomers(monomers):
+    """Polymer components, in the order used by topology endpoint labels."""
+    return [monomer for monomer in monomers if monomer and all(
+        residue.name.strip().upper() in tp.POLYMER_RESIDUES for residue in monomer)]
+
+
+def _candidate_monomer_correspondences(reference_monomers, submitted_monomers):
+    """Enumerate sequence-preserving copy pairings, deterministically."""
+    reference_groups, submitted_groups = {}, {}
+    for index, monomer in enumerate(reference_monomers):
+        reference_groups.setdefault(cp.canonical_sequence(monomer), []).append(index)
+    for index, monomer in enumerate(submitted_monomers):
+        submitted_groups.setdefault(cp.canonical_sequence(monomer), []).append(index)
+    if (set(reference_groups) != set(submitted_groups)
+            or any(len(reference_groups[key]) != len(submitted_groups[key])
+                   for key in reference_groups)):
+        return
+
+    groups = sorted(reference_groups, key=repr)
+    options = [
+        [dict(zip(reference_groups[key], permutation))
+         for permutation in itertools.permutations(submitted_groups[key])]
+        for key in groups
+    ]
+    for choices in itertools.product(*options):
+        correspondence = {}
+        for choice in choices:
+            correspondence.update(choice)
+        yield correspondence
+
+
+def _best_disulfide_correspondence(expected, observed, reference_monomers,
+                                    submitted_monomers):
+    """Compare a complete S-S set under every interchangeable-copy pairing."""
+    best = None
+    for correspondence in _candidate_monomer_correspondences(
+            reference_monomers, submitted_monomers):
+        translated = {
+            frozenset((correspondence[monomer], position)
+                      for monomer, position in edge)
+            for edge in expected
+        }
+        missing, unexpected = translated - observed, observed - translated
+        tie_break = tuple(correspondence[index]
+                          for index in range(len(reference_monomers)))
+        candidate = (len(missing) + len(unexpected), tie_break,
+                     translated, missing, unexpected)
+        if best is None or candidate[:2] < best[:2]:
+            best = candidate
+    return best
+
+
 def _check_topology_chemistry(check, submitted, submitted_bonds, reference,
-                              spec_valid):
+                              spec_valid, reference_monomers,
+                              submitted_monomers):
     """Faults that are wrong on their own terms, then the disulfide comparison.
 
     The two are separate on purpose and one fault can cost both.  A bond between
@@ -286,27 +340,38 @@ def _check_topology_chemistry(check, submitted, submitted_bonds, reference,
           f"no repeated atom names, no valence violations, and no covalent bond "
           f"between two ligands of the same metal across {len(submitted.atoms)} atoms")
 
-    expected, reference_count, reference_dropped = tp.sulfur_bond_positions(reference)
-    observed, submitted_count, submitted_dropped = tp.sulfur_bond_positions(
-        submitted, submitted_bonds)
+    expected, reference_sizes, reference_dropped = \
+        tp.sulfur_bond_monomer_positions(reference)
+    observed, submitted_sizes, submitted_dropped = \
+        tp.sulfur_bond_monomer_positions(submitted, submitted_bonds)
+    reference_polymer = _polymer_monomers(reference_monomers)
+    submitted_polymer = _polymer_monomers(submitted_monomers)
+    aligned = (reference_sizes == [len(monomer) for monomer in reference_polymer]
+               and submitted_sizes == [len(monomer) for monomer in submitted_polymer])
+    best = (_best_disulfide_correspondence(
+        expected, observed, reference_polymer, submitted_polymer) if aligned else None)
+    matches = best is not None and not best[3] and not best[4]
     detail = (f"reference topology has {len(expected)} S-S bond(s) "
-              f"{tp.describe_position_pairs(expected)}; the submitted System has "
-              f"{len(observed)} {tp.describe_position_pairs(observed)}")
-    if expected != observed:
-        detail += "; sets differ"
-        # Positions are re-derived on each side, so they only line up while the
-        # two contain the same polymer residues. Say which it is rather than
-        # blaming the bonds for a residue-count difference.
-        if reference_count != submitted_count:
-            detail += (f" -- but the polymer residue counts differ "
-                       f"({submitted_count} vs {reference_count}), so the "
-                       "positions are not aligned and the comparison is unsafe")
+              f"{tp.describe_monomer_position_pairs(expected)}; the submitted System has "
+              f"{len(observed)} {tp.describe_monomer_position_pairs(observed)}")
+    if not aligned:
+        detail += ("; sets are not comparable because topology component sizes "
+                   f"{reference_sizes} / {submitted_sizes} do not match the "
+                   "coordinate component partition")
+    elif best is None:
+        detail += "; sets are not comparable because no complete monomer correspondence exists"
+    elif not matches:
+        detail += "; sets differ after the closest whole-set monomer pairing"
+        if best[3]:
+            detail += f"; missing {tp.describe_monomer_position_pairs(best[3])}"
+        if best[4]:
+            detail += f"; unexpected {tp.describe_monomer_position_pairs(best[4])}"
     for label, dropped in (("reference", reference_dropped),
                            ("submission", submitted_dropped)):
         if dropped:
             detail += (f"; {len(dropped)} {label} S-S bond(s) touch a residue "
                        f"outside the polymer and were not compared: {dropped[:3]}")
-    check("disulfide_bonds_match_reference", expected == observed, detail)
+    check("disulfide_bonds_match_reference", matches, detail)
 
 
 # What the scorer needs the submission's DAG to have produced.  A run that
@@ -615,8 +680,9 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
         check("topology_is_chemically_valid", False, topology_error)
         check("disulfide_bonds_match_reference", False, topology_error)
     else:
-        _check_topology_chemistry(check, submitted_topology, submitted_bonds,
-                                  reference_topology, spec_valid)
+        _check_topology_chemistry(
+            check, submitted_topology, submitted_bonds, reference_topology,
+            spec_valid, reference_monomers, submitted_monomers)
 
     # --- the force field, from the System itself ------------------------------
     # Reading the System is a precondition, not an achievement: a file that will

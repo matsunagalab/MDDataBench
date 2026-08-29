@@ -16,6 +16,8 @@ pytestmark = pytest.mark.slow
 parmed = pytest.importorskip("parmed")
 mm = pytest.importorskip("openmm")
 
+from mddatabench import composition as cp  # noqa: E402
+from mddatabench import scoring as sc  # noqa: E402
 from mddatabench import topology as tp  # noqa: E402
 
 
@@ -86,6 +88,75 @@ def test_only_declared_inter_residue_backbone_bonds_are_retained():
     assert links[0]["kind"] == "peptide"
     assert links[0]["atom_indices"] == [0, 2]
     assert links[0]["residue_indices"] == [0, 1]
+
+
+def test_disulfide_endpoints_keep_both_monomers():
+    structure = build([
+        ("N", "N", "CYS", 1, "A", (0.0, 0.0, 0.0)),
+        ("C", "C", "CYS", 1, "A", (1.3, 0.0, 0.0)),
+        ("S", "SG", "CYS", 1, "A", (0.0, 2.0, 0.0)),
+        ("N", "N", "CYS", 2, "A", (2.6, 0.0, 0.0)),
+        ("C", "C", "CYS", 2, "A", (3.9, 0.0, 0.0)),
+        ("S", "SG", "CYS", 2, "A", (2.0, 2.0, 0.0)),
+        ("N", "N", "CYS", 1, "B", (0.0, 10.0, 0.0)),
+        ("C", "C", "CYS", 1, "B", (1.3, 10.0, 0.0)),
+        ("S", "SG", "CYS", 1, "B", (2.0, 4.0, 0.0)),
+        ("N", "N", "CYS", 2, "B", (2.6, 10.0, 0.0)),
+        ("C", "C", "CYS", 2, "B", (3.9, 10.0, 0.0)),
+        ("S", "SG", "CYS", 2, "B", (4.0, 4.0, 0.0)),
+    ])
+    bonds = {
+        frozenset((1, 3)),       # A1:C--A2:N
+        frozenset((7, 9)),       # B1:C--B2:N
+        frozenset((5, 8)),       # A2:SG--B1:SG
+    }
+    edges, sizes, dropped = tp.sulfur_bond_monomer_positions(structure, bonds)
+    assert sizes == [2, 2]
+    assert edges == {frozenset(((0, 2), (1, 1)))}
+    assert dropped == []
+
+
+def _monomer(names):
+    return [cp.Residue(name, "A", str(position))
+            for position, name in enumerate(names, start=1)]
+
+
+def _edge(first, second):
+    return frozenset((first, second))
+
+
+def test_whole_disulfide_set_selects_the_identical_copy_permutation():
+    """Swapping only L copies defeats independent H/L zip pairing."""
+    heavy = ["CYS", "CYS", "CYS"]
+    light = ["CYS", "CYS", "GLY", "CYS"]
+    reference = [_monomer(heavy), _monomer(light),
+                 _monomer(heavy), _monomer(light)]
+    submitted = [_monomer(heavy), _monomer(light),
+                 _monomer(heavy), _monomer(light)]
+    expected = {
+        _edge((0, 1), (0, 2)), _edge((1, 1), (1, 2)),
+        _edge((2, 1), (2, 2)), _edge((3, 1), (3, 2)),
+        _edge((0, 3), (1, 4)), _edge((2, 3), (3, 4)),
+    }
+    observed = {
+        _edge((0, 1), (0, 2)), _edge((1, 1), (1, 2)),
+        _edge((2, 1), (2, 2)), _edge((3, 1), (3, 2)),
+        _edge((0, 3), (3, 4)), _edge((2, 3), (1, 4)),
+    }
+
+    best = sc._best_disulfide_correspondence(
+        expected, observed, reference, submitted)
+    assert best[0] == 0
+    assert best[1] == (0, 3, 2, 1)
+    assert not best[3] and not best[4]
+
+    changed = set(observed)
+    changed.remove(_edge((2, 3), (1, 4)))
+    changed.add(_edge((2, 3), (1, 3)))
+    mismatch = sc._best_disulfide_correspondence(
+        expected, changed, reference, submitted)
+    assert mismatch[0] == 2
+    assert len(mismatch[3]) == len(mismatch[4]) == 1
 
 
 def test_phosphodiester_link_is_retained_in_its_declared_direction():

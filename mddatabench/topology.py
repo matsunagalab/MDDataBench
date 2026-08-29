@@ -473,8 +473,67 @@ def sulfur_bond_positions(structure, bonds=None):
     return pairs, len(positions), sorted(dropped)
 
 
+def sulfur_bond_monomer_positions(structure, bonds=None):
+    """S-S edges as pairs of ``(monomer, position)`` polymer endpoints.
+
+    Monomers are the connected components made by declared peptide and
+    phosphodiester bonds, in file order.  Both the monomer index and the
+    residue position are zero/one based respectively.  This keeps inter-chain
+    disulfides while giving the scorer a frame it can translate through its
+    sequence-based monomer correspondence.
+
+    Returns ``(pairs, component_sizes, dropped)``.  ``dropped`` has the same
+    meaning as in :func:`sulfur_bond_positions`.
+    """
+    polymer = [residue for residue in structure.residues
+               if residue.name.strip().upper() in POLYMER_RESIDUES]
+    parent = {residue.idx: residue.idx for residue in polymer}
+
+    def root(index):
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    for link in backbone_links(structure, bonds):
+        first, second = link["residue_indices"]
+        if first not in parent or second not in parent:
+            continue
+        first_root, second_root = root(first), root(second)
+        if first_root != second_root:
+            parent[second_root] = first_root
+
+    groups = collections.defaultdict(list)
+    for residue in polymer:
+        groups[root(residue.idx)].append(residue.idx)
+    components = sorted(groups.values(), key=lambda group: group[0])
+    endpoint = {
+        residue_index: (monomer_index, position)
+        for monomer_index, component in enumerate(components)
+        for position, residue_index in enumerate(component, start=1)
+    }
+
+    pairs, dropped = set(), []
+    for pair in sulfur_bonds(structure, bonds):
+        mapped = [endpoint.get(index) for index in pair]
+        if all(value is not None for value in mapped):
+            pairs.add(frozenset(mapped))
+        else:
+            dropped.append("-".join(
+                f"{structure.residues[index].name}{structure.residues[index].number}"
+                for index in sorted(pair)))
+    return pairs, [len(component) for component in components], sorted(dropped)
+
+
 def describe_position_pairs(pairs):
     return sorted("-".join(str(x) for x in sorted(pair)) for pair in pairs)
+
+
+def describe_monomer_position_pairs(pairs):
+    """Compact labels for pairs returned by ``sulfur_bond_monomer_positions``."""
+    return sorted("--".join(f"M{monomer + 1}:{position}"
+                            for monomer, position in sorted(pair))
+                  for pair in pairs)
 
 
 def metal_bridging_bonds(structure, cutoff=METAL_LIGAND_ANGSTROM, bonds=None):

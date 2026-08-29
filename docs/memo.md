@@ -5,6 +5,27 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-29 — Disulfides are compared through the whole monomer pairing
+
+S-S endpoints are now expressed as `(polymer component, position in component)`
+from the force-bearing topology.  The scorer enumerates the sequence-preserving
+copy permutations and chooses by the complete S-S edge-set difference, so both
+ends of an inter-chain bond move together with their monomers.  The H x2/L x2
+fixture has four candidate pairings; swapping only the L copies defeats the old
+independent zip but the whole-set comparison finds the exact pairing, while a
+changed inter-chain endpoint still produces one missing and one unexpected
+edge.  The focused SIF test was:
+
+```bash
+singularity exec --bind /home/yasu/tmp /home/yasu/tmp/mdclaw/mdclaw/mdclaw.sif \
+  env PYTHONPATH=/home/yasu/tmp/mdclaw/MDDataBench \
+  python -m pytest tests/test_benchmark/test_topology.py -q -p no:cacheprovider
+```
+
+It passed 9/9.  Attempts 008r1/r2 and 019 were not replayed: their retained
+trees contain score/reconstruction evidence, but the recorded job and topology
+paths under `/data1/.../full100-pass2` no longer exist.
+
 ## 2026-08-29 — 027 passed 20/20 with pi + DeepSeek on the laboratory cluster, after five rikyu-only assumptions were fixed
 
 `outputs/runs/lab-deepseek-n4-20260829b`, `cli_skill_sif`, pi +
