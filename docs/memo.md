@@ -5,6 +5,26 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-29 — Task 087 now names its three S–S bonds and reduced pair
+
+The fetched `bsc:A02MP` force-bearing TPR carries polymer-position pairs
+24–84, 56–112 and 63–72. Because selected 1GQV chain A begins at author
+residue 0, these are author-numbered Cys23–Cys83, Cys55–Cys111 and
+Cys62–Cys71. The deposited fourth pair, raw polymer positions 38–97, is
+author Cys37–Cys96 and is absent from the reference. This corrects the
+numbering shorthand called out in
+`/home/yasu/tmp/full100-pass2/.reconciliation.md` while retaining the chemical
+mismatch documented for 087r1/r2 in
+`/home/yasu/tmp/full100-pass2/.codex_findings.md` and Cluster C of
+`/home/yasu/tmp/full100-pass2/.claude_findings.md`.
+
+The prompt now requires exactly the three reference bonds and instructs that
+Cys37/Cys96 remain free and reduced. The author-numbered decisions are stored
+in `reference.selection.stated_disulfides`, using the builder path introduced
+for task 016. This supersedes the reference-replacement recommendation in fix 8
+of `/home/yasu/tmp/full100-pass2/.codex_fix_plan.md`. All five fetched bundle
+files still match the recorded SHA-256 values; no reference or hash changed.
+
 ## 2026-08-29 — Task 016 now requires the reference's reduced Cys7/Cys96
 
 The fetched `inr:A00MF` force-bearing PSF has zero S–S bonds, while 1AY7
