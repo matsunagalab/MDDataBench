@@ -614,6 +614,29 @@ def modified_residues(deposit, chains):
     return out
 
 
+def _is_protonated_his(residue):
+    """Whether a HIS-named residue carries the HIP side-chain proton."""
+    atom_names = {atom[0].strip().upper() for atom in residue.atoms}
+    if {"HD1", "HE2"} <= atom_names:
+        return True
+    formula = collections.Counter(atom[1].strip().upper() for atom in residue.atoms)
+    return formula == collections.Counter({"C": 6, "H": 8, "N": 3, "O": 1})
+
+
+def _reference_seqres_position(entry, position):
+    """Map a position in one reference monomer through its retained spans."""
+    spans = entry.get("seqres_spans") or []
+    if not spans and entry.get("seqres_start") is not None:
+        return entry["seqres_start"] + position - 1
+    remaining = position
+    for low, high in spans:
+        length = high - low + 1
+        if remaining <= length:
+            return low + remaining - 1
+        remaining -= length
+    return None
+
+
 def stated_protonation(reference_pdb, deposit=None, chains=None):
     """Ionisation variants a prompt has to state, in the deposit's numbering.
 
@@ -655,15 +678,18 @@ def stated_protonation(reference_pdb, deposit=None, chains=None):
         entry = chains[index] if chains and index < len(chains) else None
         for position, residue in enumerate(monomer, start=1):
             name = residue.name.strip().upper()
-            if name not in IONISATION or (id(monomer), position) in exempt:
+            variant = "HIP" if name == "HIS" and _is_protonated_his(residue) else name
+            if variant not in IONISATION or (id(monomer), position) in exempt:
                 continue
             number = None
-            if entry and entry.get("seqres_start") is not None:
+            if entry:
                 mapping = mappings.get(entry.get("deposit_chain")) or {}
-                number, _ = auth_number(mapping, entry["seqres_start"] + position - 1)
+                seqres_position = _reference_seqres_position(entry, position)
+                if seqres_position is not None:
+                    number, _ = auth_number(mapping, seqres_position)
             out.append({"chain": entry.get("deposit_chain") if entry else residue.chain,
                         "residue": number, "name": name,
-                        "meaning": IONISATION[name],
+                        "meaning": IONISATION[variant],
                         "reference_residue": residue.resseq})
     return [entry for entry in out if entry["residue"] is not None]
 

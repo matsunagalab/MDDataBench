@@ -5,6 +5,27 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-29 — Task 014 now discloses its HIS-named HIP chemistry
+
+The task's recorded `mmb:A023S` bundle was fetched again with
+`mddatabench fetch_benchmark_reference`; all five fetched SHA-256 values match
+the task contract.  Its reference residue 255 is named HIS but carries both
+HD1 and HE2 and the internal-residue formula C6 H8 N3 O (18 atoms), whereas the
+other HIS residues have seven hydrogens.  Mapping reference position 255 across
+the retained SEQRES spans 9–216 and 323–410 gives deposit SEQRES position 369,
+author residue A:264.  The existing builder now emits:
+
+```text
+Residue 264 of chain A is a protonated histidine.
+```
+
+The atom-name signature is preferred and the exact internal-HIP formula is the
+fallback.  Neutral HIS is unchanged; metal-ligand and catalytic-dyad exemptions
+still take precedence.  `tests/test_benchmark/test_task_builder.py` passed 52/52
+inside the SIF.  Attempt 014r1 was not replayed because its retained attempt
+tree has only score/reconstruction evidence and its recorded `/data1/...` job
+directory no longer exists.
+
 ## 2026-08-29 — Disulfides are compared through the whole monomer pairing
 
 S-S endpoints are now expressed as `(polymer component, position in component)`

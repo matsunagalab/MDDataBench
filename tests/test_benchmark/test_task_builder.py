@@ -35,6 +35,25 @@ def deposit(tmp_path, seqres, observed, name="dep.pdb"):
     return str(path)
 
 
+def his_reference(tmp_path, hydrogens, name="reference.pdb"):
+    """One internal HIS residue with a chosen hydrogen naming/formula."""
+    atoms = [
+        ("N", "N"), ("CA", "C"), ("C", "C"), ("O", "O"),
+        ("CB", "C"), ("CG", "C"), ("ND1", "N"), ("CD2", "C"),
+        ("CE1", "C"), ("NE2", "N"),
+        *((atom_name, "H") for atom_name in hydrogens),
+    ]
+    rows = []
+    for serial, (atom_name, element) in enumerate(atoms, start=1):
+        rows.append(
+            f"ATOM  {serial:5d} {atom_name:>4s} HIS A{1:4d}    "
+            f"{0.0:8.3f}{0.0:8.3f}{0.0:8.3f}  1.00  0.00          {element:>2s}"
+        )
+    path = tmp_path / name
+    path.write_text("\n".join(rows) + "\nEND\n")
+    return str(path)
+
+
 def test_seqres_positions_are_not_residue_numbers(tmp_path):
     """6WRH's reference covers SEQRES 7-318, which is author 4-315. A contract
     stating SEQRES indices would be wrong for every deposit whose numbering does
@@ -111,6 +130,63 @@ def test_an_unbuildable_force_field_is_not_named():
     by design."""
     assert tb.buildable_force_field(["Amber Parm99"]) is None
     assert tb.buildable_force_field(["Amber ff14SB"]) == "Amber ff14SB"
+
+
+def _stated_his(tmp_path, hydrogens, monkeypatch=None, exemption=None):
+    reference = his_reference(tmp_path, hydrogens)
+    source = deposit(tmp_path, {"A": ["HIS"]}, {"A": [(107, "HIS")]})
+    chains = [{"deposit_chain": "A", "seqres_start": 1,
+               "seqres_spans": [(1, 1)]}]
+    if exemption:
+        from mddatabench import composition as cp
+
+        for function in ("metal_ligand_positions", "catalytic_dyad_positions"):
+            if function == exemption:
+                monkeypatch.setattr(
+                    cp, function,
+                    lambda monomers, _metals: {id(monomers[0]): {1}},
+                )
+            else:
+                monkeypatch.setattr(cp, function, lambda _monomers, _metals: {})
+    return tb.stated_protonation(reference, source, chains)
+
+
+def test_his_with_both_ring_protons_is_disclosed_as_protonated(tmp_path):
+    result = _stated_his(
+        tmp_path, ["HN", "HA", "HB1", "HB2", "HD1", "HD2", "HE1", "HE2"])
+    assert result == [{
+        "chain": "A", "residue": "107", "name": "HIS",
+        "meaning": "protonated histidine", "reference_residue": "1",
+    }]
+
+
+def test_neutral_his_is_not_disclosed(tmp_path):
+    result = _stated_his(
+        tmp_path, ["HN", "HA", "HB1", "HB2", "HD2", "HE1", "HE2"])
+    assert result == []
+
+
+def test_hip_formula_is_a_fallback_when_ring_proton_names_are_absent(tmp_path):
+    result = _stated_his(tmp_path, [f"H{index}" for index in range(1, 9)])
+    assert result[0]["meaning"] == "protonated histidine"
+
+
+@pytest.mark.parametrize("exemption", [
+    "metal_ligand_positions", "catalytic_dyad_positions",
+])
+def test_hip_like_his_exemptions_still_win(tmp_path, monkeypatch, exemption):
+    result = _stated_his(
+        tmp_path, ["HN", "HA", "HB1", "HB2", "HD1", "HD2", "HE1", "HE2"],
+        monkeypatch, exemption)
+    assert result == []
+
+
+def test_reference_position_skips_a_removed_fusion_span():
+    entry = {"seqres_spans": [(9, 216), (323, 410)]}
+    assert tb._reference_seqres_position(entry, 208) == 216
+    assert tb._reference_seqres_position(entry, 209) == 323
+    assert tb._reference_seqres_position(entry, 255) == 369
+    assert tb._reference_seqres_position(entry, 296) == 410
 
 
 def test_a_named_chain_is_used_only_when_the_deposit_has_it(tmp_path):
@@ -551,4 +627,3 @@ def test_build_prompt_refuses_a_site_its_own_prompt_omits():
         _build_prompt_for(
             {"deposit_chain": "A", "ranges": [["1", "100"]],
              "omitted": [(10, 12)], "build_missing": 1, "build_residues": [10]})
-
