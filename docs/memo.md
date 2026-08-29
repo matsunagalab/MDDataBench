@@ -5,6 +5,18 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-29 — Each attempt now owns its temporary directory
+
+`run_attempt_agent` creates `workspace/.mddatabench/tmp` and exports that same
+path as `TMPDIR`, `TMP`, and `TEMP`.  The directory remains with the attempt for
+postmortem inspection.  The runner test launched two replicas, observed two
+distinct existing paths, and passed 30/30 experiment tests in the SIF.  A small
+fake-pi replay also required a `*/workspace/.mddatabench/tmp` value, wrote
+`solv.phaseb-replay` there, exited successfully, and verified that its sentinel
+`/tmp/solv.phaseb-20260829-replay-leak` was not created.  The agent prompt now
+requires ad-hoc logs and temporary files under `$TMPDIR` rather than a fixed
+name in global `/tmp`.
+
 ## 2026-08-29 — Task 014 now discloses its HIS-named HIP chemistry
 
 The task's recorded `mmb:A023S` bundle was fetched again with

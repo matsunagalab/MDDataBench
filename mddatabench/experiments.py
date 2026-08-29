@@ -269,6 +269,8 @@ wall-time limit.
 These operational limits do not relax the scientific requirements. Do not
 shorten the requested minimum production duration or alter the requested force
 field, solvent, ensemble, temperature, or pressure to fit the limits.
+Put ad-hoc logs and temporary files under `$TMPDIR`; never use a fixed
+`/tmp/<name>` shared with other attempts.
 """.strip()
 
 
@@ -559,6 +561,8 @@ def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
                 "timeout_seconds": effective_timeout,
                 "md_time_limit": manifest["environment"]["md_time_limit"]}
     stdout_path, stderr_path = attempt / "agent.stdout.jsonl", attempt / "agent.stderr.log"
+    attempt_tmp = workspace / ".mddatabench" / "tmp"
+    attempt_tmp.mkdir(parents=True, exist_ok=True)
     environment = os.environ.copy()
     harness_path = Path(command[0])
     path_dirs = [str(workspace / ".mddatabench" / "bin")]
@@ -582,7 +586,10 @@ def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
                         "MDDATABENCH_CONDITION": manifest["condition"],
                         "MDDATABENCH_MD_TIME_LIMIT": manifest["environment"]["md_time_limit"],
                         "PATH": os.pathsep.join(dict.fromkeys(path_dirs)),
-                        "PYTHONNOUSERSITE": "1"})
+                        "PYTHONNOUSERSITE": "1",
+                        "TMPDIR": str(attempt_tmp),
+                        "TMP": str(attempt_tmp),
+                        "TEMP": str(attempt_tmp)})
     environment.pop("PYTHONPATH", None)
     # The sbatch shim forwards to the real binary; not every cluster keeps it
     # in /usr/bin (the laboratory cluster installs Slurm under /usr/local).

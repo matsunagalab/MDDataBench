@@ -72,6 +72,8 @@ def test_init_builds_three_isolated_replicates_per_cell(tmp_path):
         assert "hard 00:20:00" in agent_prompt
         assert "do not relax the scientific requirements" in agent_prompt.lower()
         assert "Do not\nshorten the requested minimum production duration" in agent_prompt
+        assert "under `$TMPDIR`" in agent_prompt
+        assert "fixed\n`/tmp/<name>`" in agent_prompt
         assert not list(workspace.rglob("task.json"))
         assert (workspace / ".mddatabench/bin/sbatch").stat().st_mode & 0o111
         assert str(Path(ex.__file__).resolve().parents[1]) not in (
@@ -383,6 +385,29 @@ def test_sif_only_does_not_inherit_user_path_or_pythonpath(tmp_path, monkeypatch
     assert "/poison" not in captured["PATH"]
     assert "PYTHONPATH" not in captured
     assert captured["PYTHONNOUSERSITE"] == "1"
+
+
+def test_each_attempt_launch_gets_its_own_existing_tmpdir(tmp_path, monkeypatch):
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 2)), str(DATASET))
+    launched = []
+
+    def fake_run(*args, **kwargs):
+        launched.append(kwargs["env"])
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(ex.subprocess, "run", fake_run)
+    for manifest in attempts(root):
+        ex.run_attempt_agent(str(manifest.parent), timeout_seconds=1)
+
+    temp_dirs = []
+    for environment in launched:
+        assert environment["TMP"] == environment["TEMP"] == environment["TMPDIR"]
+        temporary = Path(environment["TMPDIR"])
+        assert temporary.is_dir()
+        assert temporary.parts[-3:] == ("workspace", ".mddatabench", "tmp")
+        temp_dirs.append(temporary)
+    assert len(set(temp_dirs)) == 2
 
 
 def test_codex_no_skill_uses_empty_home_but_preserves_auth_home(tmp_path, monkeypatch):
