@@ -5,6 +5,68 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-30 — Five pass2 failures replayed on the laboratory cluster after the fixes: 4/5 pass
+
+`outputs/runs/lab-deepseek-n4-20260829c`, pi + `deepseek-cloudflare/deepseek-v4-flash`,
+`cli_skill_sif`, frozen mdclaw `3439e0d` (phase a), MDDataBench `97686f4` (phases b + c),
+MD on n4, `--max-agents 1`. One representative per fix:
+
+| task | exercised fix | result | agent wall |
+|---|---|---|---|
+| 043_ligand_5od1 | digit-first glycan guess removed (9RQ) | **20/20** | 1016 s |
+| 029_complex_1e3u | task corrected to A+C, contact audit | **20/20** | 1026 s |
+| 024_antibody_5cba | insertion-code-safe Packmol solvation | **20/20** | 1270 s |
+| 016_antibody_1ay7 | prompt states Cys7/Cys96 reduced; S–S via monomer pairing | **20/20** | 2451 s |
+| 001_membrane_5yc8 | separate range components + TIP3P patch | 16/20 | 2074 s |
+
+001 failed only through `--join-range-pieces`: the agent read "chain A residues 16–214
+and 380–458" as one chain and opted into the join, recreating the LYS214-C–SER380-N
+bond the new default had removed; the other three failures are that bond's knock-ons
+(residue atom counts at the junction, one O, S–S correspondence). All four md-side
+checks passed and the agent took 2074 s where pass2 membrane attempts had a 3893 s
+median — the bundled DPPC/TIP3P patch hit. The skill rule was reworded the same night
+(mdclaw `5f406aa`: join only for "join the pieces" / "single continuous chain";
+"residues 16-214 and 380-458" means keep apart). 001's first Slurm chain also failed
+for lack of `--nv` in the agent-written script; it noticed and resubmitted.
+
+Every previous failure in these five tasks was on the prep side; all five now pass the
+eight md checks, including the final-1 ns block estimator with the global factor G.
+## 2026-08-30 — 016_antibody_1ay7 attempt: CYX→CYS demotion leaves thiols deprotonated
+
+Attempt 016 (1AY7, barstar complex, chain A 1–96 + chain B 1–89, TIP3P, 300 K
+NPT, >=2.5 ns prod) hit a reproducible chemistry/topology fault worth writing
+across attempts, in case the same task pattern recurs.
+
+Root cause: the deposit's Cys7–Cys96 (chain A) SG atoms sit 2.035 Å apart (a
+native disulfide). pdb2pqr (`--protonation-method standard`) names them CYX;
+`prepare_complex --disulfide-pairs '[]'` correctly demotes CYX→CYS in
+`merged.pdb`, but the demotion only renames — it does NOT rebuild the thiol
+proton (`HG`). The demoted Cys7/96 therefore enter `build_amber_system` as
+CYS with SG but no HG, still 2.035 Å apart. openff-pablo's `add_disulfide_crosslink`
+(CCD patch) sees the deprotonated SG pair and forms an SG–SG bond;
+`SystemGenerator.create_system` then dies with
+`No template found for residue 95 (CYS) ... the atoms and bonds in the residue
+match CCYX, but the set of externally bonded atoms is missing 1 S atom`.
+`--disulfide-bonds '[]'` on the topo node did NOT help: the crosslink is formed
+geometrically by pablo, independent of the declared bond list.
+
+Fix (worked first try): branch prep and force the two named sites protonated
+with `--protonation-states '{"A:7":"CYS","A:96":"CYS"}'`. The CYS spec in
+`mdclaw/structure/protonation.py` has `modeller_variant=CYS` / `present={HG}`,
+so the Modeller pass rebuilds the thiol H. With HG present on both SG, pablo's
+crosslink condition (leaving atoms absent) is false, no SG–SG bond forms, and
+the topology validation reports `observed_system_harmonic_sg_sg_bond_count: 0`.
+Lesson: a "reduced-cysteine, no disulfide" request must protonate the CYS
+explicitly via `--protonation-states`, or the build fails/misparametrizes once
+the deposit has native SS geometry.
+
+Submitted chain (all on `all`/n4, 8 h wall each, CUDA via `--nv` SIF):
+min_001 136026 -> afterok -> eq_001 136027 (300 K, 1 bar, 1 ns NVT + 1 ns NPT)
+-> afterok -> prod_001 136028 (3.0 ns, 300 K, NPT 1 bar, dcd every 10 ps).
+Topology: ff14SB + TIP3P (ff19SB+TIP3P is blocked; TIP3P request therefore
+forces the ff14SB+TIP3P pairing), HMR on (4 amu, 4 fs), PME 1.0 nm, HBonds.
+Box 83.88 Å cubic, 61807 atoms, 52 Na+/39 Cl- (solute −13).
+
 ## 2026-08-29 — Task 042 now specifies its buildable flattened peptide
 
 The hidden component behind 042r1/r2 in
