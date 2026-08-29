@@ -489,6 +489,46 @@ def test_scorer_submission_uses_afterany_and_last_captured_job(tmp_path, monkeyp
     assert "finalize_attempt" in script
 
 
+def test_scorer_accounts_for_the_complete_md_job_chain(tmp_path, monkeypatch):
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 1)), str(DATASET))
+    attempt = attempts(root)[0].parent
+    for job_id in ("111", "222", "333"):
+        ex.record_sbatch(str(attempt), [f"{job_id}.sbatch"],
+                         f"Submitted batch job {job_id}\n", 0)
+    ex._append_event(attempt, "sbatch", job_id="999", returncode=1)
+
+    monkeypatch.setattr(
+        ex.subprocess, "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=0, stdout="444\n", stderr=""),
+    )
+    submitted = ex.submit_attempt_scorer(str(attempt), str(tmp_path), "/image.sif")
+    script = Path(submitted["script"]).read_text()
+    assert "#SBATCH --dependency=afterany:333" in script
+    assert "sacct -X -n -P -j 111,222,333 --format=" in script
+    assert "999" not in script
+
+    (attempt / "md_sacct.txt").write_text(
+        "111|COMPLETED|2026-08-24T10:00:00|2026-08-24T10:01:00|"
+        "2026-08-24T10:03:00|120|cpu=8,gres/gpu=1,mem=64G\n"
+        "222|FAILED|2026-08-24T10:00:00|2026-08-24T10:02:00|"
+        "2026-08-24T10:02:30|30|cpu=8,gres/gpu=1,mem=64G\n"
+        "333|CANCELLED by 42|2026-08-24T10:00:00|2026-08-24T10:03:00|"
+        "2026-08-24T10:03:10|10|cpu=8,gres/gpu=1,mem=64G\n"
+    )
+    score = attempt / "score.json"
+    score.write_text(json.dumps({"passed": 1, "total": 1, "checks": []}))
+    result = ex.finalize_attempt(str(attempt), str(score))
+    metrics = result["metrics"]
+    assert [job["job_id"] for job in metrics["md_jobs"]] == ["111", "222", "333"]
+    assert [job["state"] for job in metrics["md_jobs"]] == [
+        "COMPLETED", "FAILED", "CANCELLED",
+    ]
+    assert metrics["md_queue_seconds"] == 360.0
+    assert metrics["md_run_seconds"] == metrics["gpu_seconds"] == 160.0
+
+
 def test_scorer_submit_failure_is_sealed_as_infra_zero(tmp_path, monkeypatch):
     root = tmp_path / "experiment"
     ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 1)), str(DATASET))
@@ -554,6 +594,17 @@ def test_slurm_accounting_is_converted_to_queue_runtime_and_gpu_seconds(tmp_path
         "md_queue_seconds": 120.0,
         "md_run_seconds": 600.0,
         "gpu_seconds": 600.0,
+        "md_jobs": [{
+            "job_id": "1",
+            "state": "COMPLETED",
+            "submitted_at": "2026-08-24T10:00:00",
+            "started_at": "2026-08-24T10:02:00",
+            "ended_at": "2026-08-24T10:12:00",
+            "queue_seconds": 120.0,
+            "run_seconds": 600.0,
+            "gpus": 1,
+            "gpu_seconds": 600.0,
+        }],
         "slurm_metrics_provenance": "sacct",
     }
 

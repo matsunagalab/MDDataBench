@@ -668,9 +668,15 @@ def _events(attempt: Path) -> list[dict]:
     return rows
 
 
+def md_job_ids(attempt: Path) -> list[str]:
+    """Every successful agent-submitted Slurm job, in submission order."""
+    return [str(row["job_id"]) for row in _events(attempt)
+            if row.get("event") == "sbatch" and row.get("returncode") == 0
+            and row.get("job_id")]
+
+
 def last_md_job_id(attempt: Path) -> str | None:
-    jobs = [row.get("job_id") for row in _events(attempt)
-            if row.get("event") == "sbatch" and row.get("job_id")]
+    jobs = md_job_ids(attempt)
     return jobs[-1] if jobs else None
 
 
@@ -819,27 +825,46 @@ def _node_wall_seconds(job_dir: Path) -> dict:
 
 
 def _slurm_metrics(path: Path) -> dict:
+    unavailable = {"md_queue_seconds": None, "md_run_seconds": None,
+                   "gpu_seconds": None, "md_jobs": [],
+                   "slurm_metrics_provenance": "unavailable"}
     if not path.is_file():
-        return {"md_queue_seconds": None, "md_run_seconds": None,
-                "gpu_seconds": None, "slurm_metrics_provenance": "unavailable"}
+        return unavailable
     rows = [line.split("|") for line in path.read_text().splitlines() if line.strip()]
-    if not rows or len(rows[0]) < 7:
-        return {"md_queue_seconds": None, "md_run_seconds": None,
-                "gpu_seconds": None, "slurm_metrics_provenance": "unavailable"}
-    _, _, submitted, started, _, elapsed, tres = rows[0][:7]
-    try:
-        runtime = float(elapsed)
-    except ValueError:
-        runtime = None
-    queue = None
-    try:
-        queue = (datetime.fromisoformat(started) - datetime.fromisoformat(submitted)).total_seconds()
-    except ValueError:
-        pass
-    match = re.search(r"(?:gres/gpu|gpu)=(\d+)", tres)
-    gpus = int(match.group(1)) if match else None
-    return {"md_queue_seconds": queue, "md_run_seconds": runtime,
-            "gpu_seconds": runtime * gpus if runtime is not None and gpus is not None else None,
+    jobs = []
+    for row in rows:
+        if len(row) < 7:
+            continue
+        job_id, state, submitted, started, ended, elapsed, tres = row[:7]
+        try:
+            runtime = float(elapsed)
+        except ValueError:
+            runtime = None
+        queue = _elapsed_between(submitted, started)
+        match = re.search(r"(?:gres/gpu|gpu)=(\d+)", tres)
+        gpus = int(match.group(1)) if match else None
+        jobs.append({
+            "job_id": job_id,
+            "state": state.split("+", 1)[0].split()[0].upper() if state.strip() else None,
+            "submitted_at": submitted or None,
+            "started_at": started or None,
+            "ended_at": ended or None,
+            "queue_seconds": queue,
+            "run_seconds": runtime,
+            "gpus": gpus,
+            "gpu_seconds": (runtime * gpus
+                            if runtime is not None and gpus is not None else None),
+        })
+    if not jobs:
+        return unavailable
+
+    def total(key):
+        values = [job[key] for job in jobs if job[key] is not None]
+        return sum(values) if values else None
+
+    return {"md_queue_seconds": total("queue_seconds"),
+            "md_run_seconds": total("run_seconds"),
+            "gpu_seconds": total("gpu_seconds"), "md_jobs": jobs,
             "slurm_metrics_provenance": "sacct"}
 
 
@@ -899,6 +924,13 @@ def submit_attempt_scorer(attempt_dir: str, bundle_root: str, sif: str,
                                 failure_detail="the agent submitted no Slurm job")
     if not re.fullmatch(r"\d+(?:_\d+)?", str(job_id)):
         raise ValueError(f"unsafe Slurm job id {job_id!r}")
+    accounting_job_ids = md_job_ids(attempt)
+    if str(job_id) not in accounting_job_ids:
+        accounting_job_ids.append(str(job_id))
+    if any(not re.fullmatch(r"\d+(?:_\d+)?", value)
+           for value in accounting_job_ids):
+        raise ValueError(f"unsafe Slurm job ids {accounting_job_ids!r}")
+    accounting_jobs = ",".join(accounting_job_ids)
     task_file = Path(manifest["paths"]["task_file"])
     reference = manifest["reference"]
     bundle = Path(bundle_root).resolve() / f"{reference['node']}_{reference['accession']}"
@@ -928,7 +960,7 @@ def submit_attempt_scorer(attempt_dir: str, bundle_root: str, sif: str,
 #SBATCH --error={logs}/scorer_%j.err
 
 set +e
-sacct -X -n -P -j {job_id} --format=JobIDRaw,State,Submit,Start,End,ElapsedRaw,AllocTRES > {q(str(attempt / 'md_sacct.txt'))}
+sacct -X -n -P -j {accounting_jobs} --format=JobIDRaw,State,Submit,Start,End,ElapsedRaw,AllocTRES > {q(str(attempt / 'md_sacct.txt'))}
 singularity exec --bind {q(bind_arg)} --env PYTHONPATH={q(str(source))} \\
   --env OPENBLAS_NUM_THREADS=1 --env OMP_NUM_THREADS=1 {q(str(Path(sif).resolve()))} \\
   python -m mddatabench {score_tool} {score_flag} {q(str(submission))} \\
@@ -950,6 +982,7 @@ fi
                                capture_output=True, check=False)
     scorer_job = completed.stdout.strip().split(";", 1)[0] if completed.returncode == 0 else None
     _append_event(attempt, "scorer_submitted", md_job_id=str(job_id),
+                  md_job_ids=accounting_job_ids,
                   scorer_job_id=scorer_job, dependency=f"afterany:{job_id}",
                   returncode=completed.returncode)
     if completed.returncode:

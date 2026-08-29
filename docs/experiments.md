@@ -136,7 +136,8 @@ Outputs under `summary/` are:
 - `failures.csv`: failure stage and code counts for later paper plots.
 
 Token fields are nullable and include provenance because not every harness
-reports usage. Slurm queue/runtime/GPU estimates come from `sacct`; per-node
+reports usage. Slurm queue/runtime/GPU estimates come from `sacct` for every
+job in the submitted MD dependency chain, with job states retained; per-node
 wall times come from MDClaw node metadata. `collect_experiment` reports
 incomplete attempt IDs and returns unsuccessful until every planned attempt has
 a terminal result.

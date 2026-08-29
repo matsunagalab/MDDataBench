@@ -5,6 +5,21 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-29 — Slurm accounting now covers the complete MD dependency chain
+
+The scorer still depends with `afterany` on only the final submitted MD job,
+but its `sacct -X` query now receives every successful sbatch job ID in event
+order.  The retained result includes each job's ID, normalized state, submit,
+start and end timestamps, queue/run/GPU values, plus attempt-level sums.  A
+three-job fixture (`COMPLETED` minimisation, `FAILED` equilibration, `CANCELLED`
+production) queried `111,222,333`, preserved all three states, and summed 360 s
+queue time and 160 s run/GPU time; the failed submission event `999` was not
+included.  The one-row accounting result remains numerically unchanged.  The
+focused experiment suite passed 31/31 in the SIF.  Historical 038r1 and 075r2
+were not replayed because their job trees are gone; this change preserves the
+evidence on the next run and makes no claim about why those upstream jobs
+failed.
+
 ## 2026-08-29 — Each attempt now owns its temporary directory
 
 `run_attempt_agent` creates `workspace/.mddatabench/tmp` and exports that same
