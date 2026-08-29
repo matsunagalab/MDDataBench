@@ -5,6 +5,15 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-30 — Experiment workspaces cannot live inside the source checkout
+
+A five-task replay placed its experiment below the MDDataBench checkout. The
+agent then discovered the checkout's `CLAUDE.md` and wrote a defect report into
+`docs/memo.md`, crossing the evaluator/solver boundary. `init_experiment` now
+rejects the checkout itself and every descendant before reading the spec or
+creating files. README and the experiment guide require an external campaign
+directory.
+
 ## 2026-08-30 — Five pass2 failures replayed on the laboratory cluster after the fixes: 4/5 pass
 
 `outputs/runs/lab-deepseek-n4-20260829c`, pi + `deepseek-cloudflare/deepseek-v4-flash`,

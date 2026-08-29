@@ -93,6 +93,10 @@ requirement and explicitly forbids shortening the requested minimum production
 duration or changing the requested force field, solvent, ensemble, temperature,
 or pressure to fit the budget.
 
+The experiment directory must be outside the MDDataBench checkout.
+`init_experiment` rejects the checkout itself and every path below it so attempt
+workspaces cannot expose writable benchmark sources.
+
 Initialize immutable attempt manifests and isolated workspaces:
 
 ```bash

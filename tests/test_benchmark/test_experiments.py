@@ -96,6 +96,16 @@ def test_init_builds_three_isolated_replicates_per_cell(tmp_path):
             assert "CLAUDE_PLUGIN_ROOT=" in wrapper.read_text()
 
 
+def test_init_refuses_an_experiment_inside_the_mddatabench_checkout():
+    source_tree = Path(ex.__file__).resolve().parents[1]
+    experiment = source_tree / "tests" / "__experiment_must_be_external__"
+
+    with pytest.raises(ValueError, match="outside the MDDataBench source checkout"):
+        ex.init_experiment(str(experiment), "unused-spec.json", str(DATASET))
+
+    assert not experiment.exists()
+
+
 def test_sif_only_refuses_the_mdclaw_image_as_its_runtime(tmp_path):
     spec = tmp_path / "spec.json"
     spec.write_text(json.dumps({"tasks": [TASK], "replicates": 3,

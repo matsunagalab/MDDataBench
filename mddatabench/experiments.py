@@ -305,6 +305,12 @@ def init_experiment(experiment_dir: str, spec_file: str,
                     dataset_dir: str = "benchmarks/mddatabench") -> dict:
     """Create immutable manifests and isolated workspaces for a campaign."""
     root = Path(experiment_dir).resolve()
+    source_tree = Path(__file__).resolve().parents[1]
+    if root == source_tree or source_tree in root.parents:
+        raise ValueError(
+            "experiment directory must be outside the MDDataBench source "
+            f"checkout ({source_tree}): {root}"
+        )
     if root.exists() and any(root.iterdir()):
         raise ValueError(f"experiment directory is not empty: {root}")
     spec_path, dataset = Path(spec_file).resolve(), Path(dataset_dir).resolve()

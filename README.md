@@ -80,8 +80,11 @@ The shortest safe workflow is:
 1. Copy [`examples/experiment-rikyu.json`](examples/experiment-rikyu.json) and
    edit its task and cell lists. Each cell selects one capability condition,
    harness, and model. `replicates: 3` runs three independent attempts.
-2. Initialize isolated workspaces. Agents receive `prompt.md`, never the hidden
-   task contract or reference trajectory.
+2. Choose an experiment directory outside the MDDataBench checkout, then
+   initialize isolated workspaces. `init_experiment` rejects the checkout and
+   its descendants so an agent cannot discover or edit benchmark source files.
+   Agents receive `prompt.md`, never the hidden task contract or reference
+   trajectory.
 3. Run one pilot attempt with `--limit 1` before launching the full matrix.
 4. Re-run without `--limit` to launch the remaining agents. Preparation runs on
    the login node; agents submit MD through Slurm. An evaluator-owned scorer is
