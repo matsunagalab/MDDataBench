@@ -5,6 +5,22 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-29 — Task 016 now requires the reference's reduced Cys7/Cys96
+
+The fetched `inr:A00MF` force-bearing PSF has zero S–S bonds, while 1AY7
+`struct_conn` deposits the chain-A Cys7–Cys96 bond. This is the mismatch behind
+016r1/r2 in `/home/yasu/tmp/full100-pass2/.codex_findings.md` and Cluster C of
+`/home/yasu/tmp/full100-pass2/.claude_findings.md`. Under the maintainer's
+reference-is-fetched decision, the prompt now instructs the agent to simulate
+Cys7 and Cys96 as free reduced cysteines and explicitly forbids a disulfide
+between them. This supersedes the reference-replacement recommendation in fix 8
+of `/home/yasu/tmp/full100-pass2/.codex_fix_plan.md`.
+
+The same fact is stored in `reference.selection.stated_disulfides` and emitted
+by `_task_builder.build_prompt`; the following standard-state sentence applies
+to every other ionisable side chain. The five fetched bundle files still match
+their recorded SHA-256 values, so no reference or contract hash changed.
+
 ## 2026-08-29 — Task 012 now states the construct in its fetched reference
 
 The maintainer chose the existing MDDB reference as the task target: references

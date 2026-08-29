@@ -398,6 +398,21 @@ def test_it_says_every_other_when_something_was_named():
     assert "Simulate every other ionisable side chain" in text
 
 
+def test_a_reduced_disulfide_is_an_instruction_not_a_hint():
+    metadata = {"WAT": "TIP3P", "TEMP": 300, "ENSEMBLE": "NPT"}
+    chains = [{"deposit_chain": "A", "ranges": [["1", "96"]]}]
+    text = tb.build_prompt(
+        "t", "Protein", "1AY7", metadata, chains, {}, [], 1.0,
+        disulfides={"formed": [], "reduced": [
+            {"chain": "A", "residues": ["7", "96"]},
+        ]},
+    )
+
+    assert ("Simulate Cys7 and Cys96 of chain A as free (reduced) cysteines; "
+            "do not form a disulfide bond between them.") in text
+    assert "Simulate every other ionisable side chain" in text
+
+
 # --- a repeated residue used to shift every later anchor -----------------------
 # The mapping walked SEQRES and the observed residues together, advancing past
 # every mismatch. 1AHW chain C is SEQRES "S G T T N T" against an observed

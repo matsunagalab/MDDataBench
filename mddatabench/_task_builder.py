@@ -905,7 +905,7 @@ def _site_within(number: int, icode: str, spans: list) -> bool:
 
 
 def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonation,
-                 window_ns, replicas=1, joined_chains=()):
+                 window_ns, replicas=1, joined_chains=(), disulfides=None):
     """The text an agent is given.  Derived, not written.
 
     ``joined_chains`` names the deposit chains whose pieces the reference holds
@@ -1012,6 +1012,19 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
         where = (f"Residue {entry['residue']} of chain {entry['chain']}"
                  if entry.get("chain") else f"Residue {entry['residue']}")
         lines += [f"{where} is a {entry['meaning']}.", ""]
+    disulfides = disulfides or {}
+    formed = disulfides.get("formed") or []
+    reduced = disulfides.get("reduced") or []
+    if formed:
+        pairs = ", ".join(
+            f"Cys{pair['residues'][0]}–Cys{pair['residues'][1]} of chain "
+            f"{pair['chain']}" for pair in formed)
+        lines += [f"Form exactly these disulfide bonds: {pairs}.", ""]
+    for pair in reduced:
+        first, second = pair["residues"]
+        lines += [f"Simulate Cys{first} and Cys{second} of chain {pair['chain']} as "
+                  "free (reduced) cysteines; do not form a disulfide bond between "
+                  "them.", ""]
     # Everything the previous line did not name is standard, and saying so is
     # the point: a pKa predictor will disagree with the reference somewhere.
     # MDClaw runs pdb2pqr+propka at pH 7.4 and it neutralised two aspartates of
@@ -1019,7 +1032,8 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
     # composition difference the prompt never asked for. Every reference in the
     # cast carries hydrogens, so "standard except where stated" is measured
     # rather than assumed.
-    lines += [("Simulate every other ionisable side chain" if protonation
+    lines += [("Simulate every other ionisable side chain"
+               if protonation or formed or reduced
                else "Simulate every ionisable side chain")
               + " in its standard state at pH 7: charged aspartate, glutamate, "
                 "lysine and arginine, and neutral histidine and cysteine.", ""]

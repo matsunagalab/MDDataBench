@@ -216,6 +216,21 @@ def test_selection_chains_is_compared_as_a_set():
         "ranges": {"B": [["1", "9"]], "A": [["1", "9"]]}})
 
 
+@pytest.mark.parametrize("path", TASKS, ids=lambda p: p.parent.name)
+def test_stored_disulfide_decisions_are_in_the_prompt(path):
+    task = load(path)
+    stated = task["reference"]["selection"].get("stated_disulfides") or {}
+    prompt = (path.parent / "prompt.md").read_text()
+    for decision in ("formed", "reduced"):
+        for pair in stated.get(decision, []):
+            first, second = pair["residues"]
+            assert f"Cys{first}" in prompt and f"Cys{second}" in prompt
+    if stated.get("formed"):
+        assert "Form exactly these disulfide bonds" in prompt
+    if stated.get("reduced"):
+        assert "free (reduced) cysteines" in prompt
+
+
 def test_range_keys_are_reported_separately_from_chains():
     from mddatabench.contract_audit import selection_range_findings
 
