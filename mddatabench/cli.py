@@ -84,7 +84,7 @@ def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
 
 
 def submit_attempt_scorer(attempt_dir: str, bundle_root: str, sif: str,
-                          partition: str = "gpu", time_limit: str = "00:15:00",
+                          partition: str = None, time_limit: str = "00:15:00",
                           memory: str = "32G", cpus_per_task: int = 4,
                           md_job_id: str = None) -> dict:
     """Submit an afterany scorer/collector for an attempt's final MD job."""

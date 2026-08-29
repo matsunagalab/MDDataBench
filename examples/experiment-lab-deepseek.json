@@ -1,0 +1,20 @@
+{
+  "experiment_id": "mddatabench-lab-deepseek-pilot",
+  "replicates": 1,
+  "agent_timeout_seconds": 3600,
+  "md_time_limit": "00:20:00",
+  "tasks": [
+    "027_complex_1b6c"
+  ],
+  "sif": "/home/yasu/tmp/mdclaw/mdclaw/mdclaw.sif",
+  "mdclaw_cli": "/home/yasu/tmp/mdclaw/mdclaw/bin/mdclaw",
+  "mdclaw_source": "/home/yasu/tmp/mdclaw/mdclaw",
+  "cells": [
+    {
+      "condition": "cli_skill_sif",
+      "harness": "pi",
+      "model": "deepseek-cloudflare/deepseek-v4-flash",
+      "skill_source": "user"
+    }
+  ]
+}

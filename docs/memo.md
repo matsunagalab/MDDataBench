@@ -5,6 +5,58 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-29 — 027 passed 20/20 with pi + DeepSeek on the laboratory cluster, after five rikyu-only assumptions were fixed
+
+`outputs/runs/lab-deepseek-n4-20260829b`, `cli_skill_sif`, pi +
+`deepseek-cloudflare/deepseek-v4-flash` (non-reasoning), frozen mdclaw `580d80d`,
+MD pinned to `n4` through the shim (`MDDATABENCH_MD_NODELIST=n4`,
+`MDDATABENCH_MD_PARTITION=all`). **Attempt score 1, 20/20**: agent 1072 s wall
+(bootstrap → prep → solv → topo → min/eq/prod chain 136015→136016→136017, then
+exit), scorer 136018 `afterany`, result at 08:34 UTC — the eq + 2.6 ns
+production chain on one GTX 1080-class GPU took about 65 min. Solvent clock
+2517/2600 ps, RMSF rank correlation 0.834, Rg 24.42 Å inside the reference
+window, density 1.0013 g/mL. The agent chose 0.15 M NaCl for "neutralised"
+without reading source, which the same model failed to do earlier in the day
+against the pre-`580d80d` skills (MDDataBench D01 attempt in
+`~/tmp/mddatabench_runs`; 25 min grepping `mdclaw/solvation` for an add-ion
+tool).
+
+**Four attempts died before this one, none for scientific reasons.** The
+runner had been developed on Rikyu and encoded that host:
+
+| assumption | laboratory cluster | symptom | fix |
+|---|---|---|---|
+| `node` reachable from the sanitized PATH | lives in `~/.local/share/pi-node` | pi exit 127 in 0.02 s | add `which node` dir for pi |
+| system `python3` new enough for `bin/mdclaw` host tools | `/usr/bin/python3` is 3.8 | `inspect_cluster` import failure, agent burns budget | add operator `which python3` dir |
+| `/usr/bin/sbatch` | `/usr/local/bin/sbatch` | every submission would fail | `MDDATABENCH_REAL_SBATCH` defaults to `which sbatch` |
+| partition `gpu` for the scorer | only `all` | scorer sbatch rejected | `MDDATABENCH_SCORER_PARTITION` |
+| per-command watchdog | `pi_shell_timeout.sh` matched only MDPrepBench paths | agent's `find / -name sbatch` sat on NFS for 11 min | case also matches `*/MDDataBench/outputs/runs/*` |
+
+Also: the scorer looks for `<bundle-root>/<node>_<accession>`, while the
+bundles here were fetched to `outputs/references/<node>/<accession>`; a symlink
+bridges the two for now. Operator lesson recorded twice today: anything left in
+the agent workspace gets read — a reference bundle staged there for scoring
+convenience contaminated one D01 attempt, and a leftover session log from that
+attempt was parsed by the next.
+
+## 2026-08-29 — Added the laboratory pi + DeepSeek campaign path
+
+The laboratory `~/.pi/agent` configuration currently names
+`deepseek-cloudflare/deepseek-v4-flash`, marks it non-reasoning, and uses the
+MDPrepBench shell watchdog.  A separate experiment example now selects that
+fully-qualified model, omits Rikyu's incompatible `thinking: high`, and points
+at the laboratory MDClaw checkout, CLI, and SIF.  Its `skill_source: user`
+keeps pi's user-wide `~/.pi` skill discovery instead of passing the frozen
+checkout through `--skill`.  The documented pilot uses one agent and exports
+`PI_CMD_TIMEOUT_SECONDS=600`; whole-attempt and Slurm limits remain separate.
+The laboratory source root also contains a 5.2 GB SIF and old `outputs/` and
+`benchmark_runs/`; source freezing now excludes them because the image is a
+separate dependency and prior attempts are data, not importable
+source.  The image remains selectable through the existing top-level `sif`
+field; the scorer receives the same path separately through
+`run_experiment --scorer-sif`.  This is configuration enablement only: no
+benchmark attempt or scientific score was produced in this change.
+
 ## 2026-08-28 — Deleted submitted Systems were reproducible from the DAG
 
 This corrects the narrower claim below that the cleanup made the historical

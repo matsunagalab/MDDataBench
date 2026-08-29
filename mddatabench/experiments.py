@@ -85,12 +85,15 @@ def _git_revision(path: Path) -> str | None:
 FROZEN_SOURCE_EXCLUDES = (
     ".git", "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache",
     ".mdclaw_cache", "node_modules", ".venv",
+    # Images are passed as dependencies, not imported as source. The laboratory
+    # checkout keeps its 5.2 GB image at the source root.
+    "*.sif", "*.sif.*",
     # Run output that happens to live inside the checkout. What is frozen is
     # the source an attempt imports; a study workspace is data. Measured
     # 2026-08-27: a checkout carrying 37 GB of trajectories under `studies/`
     # was copied whole into the experiment and then hashed file by file, which
     # exhausted the 1 TB project quota before the first attempt dispatched.
-    "studies", "runs",
+    "studies", "runs", "outputs", "benchmark_runs",
 )
 
 
@@ -188,6 +191,11 @@ def _normalise_spec(spec: dict, experiment_dir: Path, dataset_dir: Path) -> dict
         harness, model = str(cell.get("harness") or ""), str(cell.get("model") or "")
         if not harness or not model:
             raise ValueError("every cell needs harness and fully-qualified model")
+        skill_source = str(cell.get("skill_source") or "frozen_source")
+        if skill_source not in {"frozen_source", "user"}:
+            raise ValueError("skill_source must be frozen_source or user")
+        if skill_source == "user" and harness != "pi":
+            raise ValueError("user skill_source is supported only for pi")
         cell_limit = str(cell.get("md_time_limit") or md_time_limit)
         if not re.fullmatch(r"[0-9:-]+", cell_limit):
             raise ValueError("cell md_time_limit must be a Slurm time value")
@@ -209,7 +217,7 @@ def _normalise_spec(spec: dict, experiment_dir: Path, dataset_dir: Path) -> dict
             if full and runtime == Path(full).resolve():
                 raise ValueError("sif_only runtime_sif must differ from the MDClaw SIF")
         normal_cells.append({**cell, "condition": condition, "harness": harness,
-                             "model": model})
+                             "model": model, "skill_source": skill_source})
     return {
         **spec,
         "schema_version": 1,
@@ -382,11 +390,12 @@ def init_experiment(experiment_dir: str, spec_file: str,
                         f"exec {shlex.quote(str(Path(mdclaw_cli).resolve()))} \"$@\"\n")
                     (bin_dir / "mdclaw").chmod(0o755)
                 if cell["condition"] == "cli_skill_sif":
-                    project_skills = Path(environment_spec["mdclaw_source"]) / "skills"
-                    agents_dir = workspace / ".agents"
-                    agents_dir.mkdir()
-                    os.symlink(project_skills.resolve(), agents_dir / "skills",
-                               target_is_directory=True)
+                    if cell["skill_source"] != "user":
+                        project_skills = Path(environment_spec["mdclaw_source"]) / "skills"
+                        agents_dir = workspace / ".agents"
+                        agents_dir.mkdir()
+                        os.symlink(project_skills.resolve(), agents_dir / "skills",
+                                   target_is_directory=True)
                 capabilities = [f"Condition: {cell['condition']}"]
                 capabilities += [
                     f"Agent/preparation wall limit: {environment_spec['agent_timeout_seconds']} s",
@@ -398,6 +407,8 @@ def init_experiment(experiment_dir: str, spec_file: str,
                                      f"MDClaw source overlay: {environment_spec['mdclaw_source']}"]
                     if cell["condition"] == "cli_skill_sif":
                         capabilities.append(
+                            "MDClaw skills: pi user-wide discovery"
+                            if cell["skill_source"] == "user" else
                             f"MDClaw project skills: {environment_spec['mdclaw_source']}/skills")
                 else:
                     capabilities += [f"Runtime SIF: {environment_spec['runtime_sif']}",
@@ -415,6 +426,7 @@ def init_experiment(experiment_dir: str, spec_file: str,
                                         _harness_version(cell["harness"])),
                     "model": cell["model"],
                     "thinking": cell.get("thinking"),
+                    "skill_source": cell["skill_source"],
                     "replicate": replicate,
                     "pass_rule": PASS_RULE,
                     "created_at": _now(),
@@ -442,7 +454,9 @@ def init_experiment(experiment_dir: str, spec_file: str,
                         "bundle_sha256": task["reference"]["bundle"]["sha256"],
                     },
                     "environment": environment_spec,
-                    "exposed": (["task_prompt.md", "mdclaw_cli", "mdclaw_skill", "sif"]
+                    "exposed": (["task_prompt.md", "mdclaw_cli",
+                                 ("pi_user_skills" if cell["skill_source"] == "user"
+                                  else "mdclaw_skill"), "sif"]
                                 if cell["condition"] == "cli_skill_sif" else
                                 ["task_prompt.md", "mdclaw_cli", "sif"]
                                 if cell["condition"] == "cli_sif" else
@@ -470,7 +484,7 @@ def _harness_command(manifest: dict, workspace: Path) -> list[str]:
         if condition != "cli_skill_sif":
             command += ["--no-skills", "--no-extensions", "--no-prompt-templates",
                         "--no-context-files"]
-        else:
+        elif manifest.get("skill_source") != "user":
             command += ["--skill", str(skill_root)]
         return command
     if harness in {"claude", "claude-code"}:
@@ -553,6 +567,14 @@ def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
         path_dirs.append(str(Path(singularity).parent))
     if manifest["harness"] == "pi" and harness_path.is_absolute():
         path_dirs.append(str(harness_path.parent))
+        node = shutil.which("node")  # pi is a `#!/usr/bin/env node` script
+        if node:
+            path_dirs.append(str(Path(node).parent))
+    if manifest["condition"] != "sif_only":
+        # bin/mdclaw runs Slurm tools with the host python3; keep the operator's.
+        host_python = shutil.which("python3")
+        if host_python:
+            path_dirs.append(str(Path(host_python).parent))
     path_dirs += ["/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin",
                   "/sbin", "/bin"]
     environment.update({"MDDATABENCH_EVENT_LOG": str(
@@ -562,6 +584,10 @@ def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
                         "PATH": os.pathsep.join(dict.fromkeys(path_dirs)),
                         "PYTHONNOUSERSITE": "1"})
     environment.pop("PYTHONPATH", None)
+    # The sbatch shim forwards to the real binary; not every cluster keeps it
+    # in /usr/bin (the laboratory cluster installs Slurm under /usr/local).
+    environment.setdefault("MDDATABENCH_REAL_SBATCH",
+                           shutil.which("sbatch") or "/usr/bin/sbatch")
     if manifest["harness"] == "codex" and manifest["condition"] != "cli_skill_sif":
         isolated_home = workspace / ".mddatabench" / "home"
         isolated_home.mkdir(exist_ok=True)
@@ -849,10 +875,14 @@ def _submission_dir(workspace: Path, condition: str) -> Path:
 
 
 def submit_attempt_scorer(attempt_dir: str, bundle_root: str, sif: str,
-                          partition: str = "gpu", time_limit: str = "00:15:00",
+                          partition: str = None, time_limit: str = "00:15:00",
                           memory: str = "32G", cpus_per_task: int = 4,
                           md_job_id: str = None) -> dict:
-    """Submit an evaluator-owned scorer with ``afterany`` on the agent's MD job."""
+    """Submit an evaluator-owned scorer with ``afterany`` on the agent's MD job.
+
+    ``partition`` defaults to ``$MDDATABENCH_SCORER_PARTITION``, then ``gpu``.
+    """
+    partition = partition or os.environ.get("MDDATABENCH_SCORER_PARTITION", "gpu")
     attempt = Path(attempt_dir).resolve()
     manifest = _json(attempt / "manifest.json")
     job_id = md_job_id or last_md_job_id(attempt)

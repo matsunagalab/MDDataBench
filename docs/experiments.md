@@ -51,7 +51,8 @@ For `sif_only`, use a separate `runtime_sif` that does not contain MDClaw. The
 runner rejects the MDClaw SIF itself for this condition: merely hiding the host
 CLI would not prevent an agent from invoking the package baked into the image.
 Skill-enabled attempts explicitly load `mdclaw_source/skills` from this checkout
-for each harness; they do not rely on a copy under the user's home directory.
+for each harness by default. A pi cell may instead set `"skill_source": "user"`
+to use normal user-wide discovery, as the laboratory DeepSeek example does.
 No-skill Codex attempts additionally use an empty per-attempt `HOME` while
 preserving `CODEX_HOME` for authentication.
 
@@ -65,6 +66,17 @@ without copying credentials:
 ```bash
 mddatabench model_inventory --harness pi --out model-inventory.json
 ```
+
+On the laboratory PC cluster, use
+[`examples/experiment-lab-deepseek.json`](../examples/experiment-lab-deepseek.json).
+Its configured model is non-reasoning, so the cell has no `thinking` field.
+It sets `skill_source` to `user`, matching the MDClaw skill installed under the
+laboratory pi user's `~/.pi`; no checkout-local `--skill` flag is added.
+The local endpoint has previously been sensitive to concurrent agents; begin
+with `--max-agents 1 --limit 1` and set `PI_CMD_TIMEOUT_SECONDS=600` for the
+command watchdog named by the local pi `shellPath`. Select the agent image with
+the experiment JSON's top-level `sif` field and pass the same path to
+`run_experiment --scorer-sif`.
 
 The example fixes both the login-node agent/preparation budget and every MD
 Slurm allocation at 20 minutes. The agent is launched under GNU `timeout`, which

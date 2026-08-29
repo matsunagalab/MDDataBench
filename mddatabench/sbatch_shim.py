@@ -28,6 +28,23 @@ def _without_time_limit(arguments: list[str]) -> list[str]:
     return result
 
 
+def _without_node_target(arguments: list[str]) -> list[str]:
+    """Remove agent-provided partition/node choices when the operator pins them."""
+    result, skip = [], False
+    for argument in arguments:
+        if skip:
+            skip = False
+            continue
+        if argument in {"--partition", "-p", "--nodelist", "-w"}:
+            skip = True
+            continue
+        if argument.startswith(("--partition=", "--nodelist=")) or (
+                argument.startswith(("-p", "-w")) and len(argument) > 2):
+            continue
+        result.append(argument)
+    return result
+
+
 def _record(path: Path, arguments: list[str], stdout: str, returncode: int) -> None:
     match = re.search(r"Submitted batch job\s+(\d+)", stdout)
     row = {"at": datetime.now(timezone.utc).isoformat(), "event": "sbatch",
@@ -42,7 +59,17 @@ def main(argv=None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     real = os.environ.get("MDDATABENCH_REAL_SBATCH", "/usr/bin/sbatch")
     limit = os.environ.get("MDDATABENCH_MD_TIME_LIMIT", "00:20:00")
-    submitted = [f"--time={limit}", *_without_time_limit(arguments)]
+    partition = os.environ.get("MDDATABENCH_MD_PARTITION")
+    nodelist = os.environ.get("MDDATABENCH_MD_NODELIST")
+    scheduler_args = [f"--time={limit}"]
+    if partition:
+        scheduler_args.append(f"--partition={partition}")
+    if nodelist:
+        scheduler_args.append(f"--nodelist={nodelist}")
+    cleaned = _without_time_limit(arguments)
+    if partition or nodelist:
+        cleaned = _without_node_target(cleaned)
+    submitted = [*scheduler_args, *cleaned]
     completed = subprocess.run([real, *submitted], text=True, capture_output=True,
                                check=False)
     sys.stdout.write(completed.stdout)

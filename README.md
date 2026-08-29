@@ -135,6 +135,43 @@ The example uses 20-minute limits for agent/preparation and each MD Slurm job.
 The evaluator-owned scorer keeps its separate 15-minute limit. Change campaign
 limits in the spec only before initializing a campaign.
 
+### Run pi + DeepSeek on the laboratory PC cluster
+
+The laboratory pi configuration currently selects
+`deepseek-cloudflare/deepseek-v4-flash`. Start from
+[`examples/experiment-lab-deepseek.json`](examples/experiment-lab-deepseek.json),
+which points at the local MDClaw checkout and SIF. The model is configured as
+non-reasoning, so this example deliberately omits `thinking`; do not retain
+Rikyu's `"thinking": "high"` when copying its example. Its
+`"skill_source": "user"` leaves pi's normal user-wide skill discovery enabled,
+for the MDClaw skill installed under `~/.pi`.
+
+```bash
+export PI_CMD_TIMEOUT_SECONDS=600
+
+mddatabench model_inventory --harness pi --out /tmp/lab-pi-models.json
+
+mddatabench init_experiment \
+  --experiment-dir /home/yasu/tmp/mddatabench-runs/lab-deepseek-pilot \
+  --spec-file examples/experiment-lab-deepseek.json \
+  --dataset-dir benchmarks/mddatabench
+
+mddatabench run_experiment \
+  --experiment-dir /home/yasu/tmp/mddatabench-runs/lab-deepseek-pilot \
+  --bundle-root /home/yasu/tmp/mddatabench-references \
+  --scorer-sif /home/yasu/tmp/mdclaw/mdclaw/mdclaw.sif \
+  --max-agents 1 --limit 1
+```
+
+`PI_CMD_TIMEOUT_SECONDS` is consumed by the `shellPath` wrapper configured in
+`~/.pi/agent/settings.json`; it bounds a single agent shell command, while the
+experiment's `agent_timeout_seconds` bounds the whole attempt. Keep
+`--max-agents 1` for this shared local model endpoint unless concurrency has
+been revalidated. Re-run the same `run_experiment` command without `--limit`
+after the pilot succeeds. To use another image, change the top-level `sif`
+field in the experiment JSON and pass the same path to
+`run_experiment --scorer-sif`.
+
 ## What is here
 
 ```

@@ -148,6 +148,21 @@ def test_skill_condition_loads_the_current_project_skill_explicitly(tmp_path, ha
     assert not any(value.startswith(str(tmp_path / "mdclaw") + "/") for value in command)
 
 
+def test_pi_user_skill_condition_keeps_normal_user_wide_discovery(tmp_path):
+    user_cell = {**cell(), "skill_source": "user"}
+    spec = write_spec(tmp_path, [user_cell], 1)
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(spec), str(DATASET))
+    manifest_path = attempts(root)[0]
+    manifest = json.loads(manifest_path.read_text())
+    command = ex.run_attempt_agent(str(manifest_path.parent), dry_run=True)["command"]
+
+    assert manifest["skill_source"] == "user"
+    assert "--skill" not in command
+    assert "--no-skills" not in command
+    assert not (Path(manifest["paths"]["workspace"]) / ".agents/skills").exists()
+
+
 def test_init_freezes_the_mdclaw_checkout_and_takes_write_access_away(tmp_path):
     # An agent reaches MDClaw through CLAUDE_PLUGIN_ROOT and PYTHONPATH. Left
     # pointing at the operator's checkout, an attempt could edit the package it
@@ -200,6 +215,12 @@ def test_freeze_leaves_run_output_behind(tmp_path):
     (origin / "studies" / "t1r" / "jobs" / "prod.dcd").write_text("x" * 4096)
     (origin / "runs" / "scratch").mkdir(parents=True)
     (origin / "runs" / "scratch" / "traj.xtc").write_text("y" * 4096)
+    (origin / "benchmark_runs" / "old-attempt").mkdir(parents=True)
+    (origin / "benchmark_runs" / "old-attempt" / "traj.xtc").write_text("z" * 4096)
+    (origin / "outputs" / "old-attempt").mkdir(parents=True)
+    (origin / "outputs" / "old-attempt" / "traj.xtc").write_text("o" * 4096)
+    (origin / "mdclaw.sif").write_text("image dependency, not source")
+    (origin / "mdclaw.sif.bak").write_text("old image dependency, not source")
 
     spec = tmp_path / "spec.json"
     spec.write_text(json.dumps({
@@ -214,6 +235,10 @@ def test_freeze_leaves_run_output_behind(tmp_path):
         (root / "experiment.json").read_text())["frozen_sources"][0]["frozen"])
     assert not (frozen / "studies").exists()
     assert not (frozen / "runs").exists()
+    assert not (frozen / "benchmark_runs").exists()
+    assert not (frozen / "outputs").exists()
+    assert not (frozen / "mdclaw.sif").exists()
+    assert not (frozen / "mdclaw.sif.bak").exists()
 
     # What an attempt imports still followed it in.
     assert (frozen / "mdclaw" / "__init__.py").is_file()
@@ -222,11 +247,15 @@ def test_freeze_leaves_run_output_behind(tmp_path):
 
     # The excluded trees are data, so they must not reach the digest either --
     # otherwise the hash changes whenever the operator runs an unrelated study.
-    assert not any(part in {"studies", "runs"}
+    assert not any(part in {"studies", "runs", "outputs", "benchmark_runs"}
                    for path in frozen.rglob("*") for part in path.parts)
 
     # The origin keeps its output.
     assert (origin / "studies" / "t1r" / "jobs" / "prod.dcd").is_file()
+    assert (origin / "benchmark_runs" / "old-attempt" / "traj.xtc").is_file()
+    assert (origin / "outputs" / "old-attempt" / "traj.xtc").is_file()
+    assert (origin / "mdclaw.sif").is_file()
+    assert (origin / "mdclaw.sif.bak").is_file()
 
 
 def test_freeze_leaves_a_cli_outside_the_checkout_where_it_is(tmp_path):
@@ -395,6 +424,27 @@ def test_standalone_sbatch_shim_overrides_agent_time_limit(tmp_path, monkeypatch
     assert "Submitted batch job 12345" in capsys.readouterr().out
 
 
+def test_standalone_sbatch_shim_pins_operator_partition_and_node(monkeypatch):
+    from mddatabench import sbatch_shim
+
+    captured = {}
+    monkeypatch.setenv("MDDATABENCH_MD_PARTITION", "all")
+    monkeypatch.setenv("MDDATABENCH_MD_NODELIST", "n4")
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = argv
+        return SimpleNamespace(returncode=0, stdout="Submitted batch job 12345\n",
+                               stderr="")
+
+    monkeypatch.setattr(sbatch_shim.subprocess, "run", fake_run)
+    arguments = ["--partition", "gpu", "--nodelist=other", "--gpus", "1", "job.sbatch"]
+    assert sbatch_shim.main(arguments) == 0
+    assert captured["argv"] == [
+        "/usr/bin/sbatch", "--time=00:20:00", "--partition=all", "--nodelist=n4",
+        "--gpus", "1", "job.sbatch",
+    ]
+
+
 def test_scorer_submission_uses_afterany_and_last_captured_job(tmp_path, monkeypatch):
     root = tmp_path / "experiment"
     ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 1)), str(DATASET))
@@ -495,6 +545,19 @@ def test_pi_inventory_records_models_but_not_credentials(tmp_path, monkeypatch):
     inventory = ex.model_inventory()
     assert inventory["models"][0]["id"] == "rikyu/kimi-k3"
     assert "secret" not in json.dumps(inventory)
+
+
+def test_lab_deepseek_example_uses_the_configured_non_reasoning_model():
+    spec = json.loads(Path("examples/experiment-lab-deepseek.json").read_text())
+    assert spec["cells"] == [{
+        "condition": "cli_skill_sif",
+        "harness": "pi",
+        "model": "deepseek-cloudflare/deepseek-v4-flash",
+        "skill_source": "user",
+    }]
+    assert spec["mdclaw_cli"] == "/home/yasu/tmp/mdclaw/mdclaw/bin/mdclaw"
+    assert spec["mdclaw_source"] == "/home/yasu/tmp/mdclaw/mdclaw"
+    assert spec["sif"] == "/home/yasu/tmp/mdclaw/mdclaw/mdclaw.sif"
 
 
 def test_portable_missing_submission_becomes_a_full_zero():
