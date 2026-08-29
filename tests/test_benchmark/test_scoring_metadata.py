@@ -41,6 +41,7 @@ def _task():
             },
             "md_calibration": {
                 "windows": 10,
+                "window_ns": 0.02,
                 "slack_window_sd": {
                     "rank_correlation": 0.0,
                     "total_fluctuation_angstrom": 0.0,

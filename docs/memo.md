@@ -5,6 +5,104 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-29 — RMSF uses one replica-derived factor and the final complete block
+
+No pass2 result or per-task rerun was used to set the allowance. For each of
+the 39 task manifests with multiple MDDB replicas, let `m_tr` be the median
+`total_fluctuation_angstrom` over the stored windows for task `t`, replica
+`r`. The prespecified pooled log variance was
+
+```text
+sigma_global^2 = sum_t sum_r (log(m_tr) - mean_r(log(m_tr)))^2
+                 / sum_t (R_t - 1)
+               = 0.1604757949568146 / 77
+               = 0.0020841012332053844
+sigma_global   = 0.04565195760540159
+G              = exp(1.96 sigma_global) = 1.0936030954161982
+```
+
+All 116 replica medians were finite, so there were no mechanical exclusions.
+The exact included manifest list was:
+
+```text
+015 inr:A00KU R=3   016 inr:A00MF R=3   017 inr:A00KV R=3
+018 inr:A00KW R=3   019 inr:A00KY R=3   020 inr:A00L1 R=3
+021 inr:A00L4 R=3   022 inr:A00LC R=3   023 inr:A00LF R=2
+024 inr:A00LO R=3   031 mmb:A02JY R=3   032 mmb:A02JZ R=3
+033 mmb:A057R R=3   034 mmb:A057Y R=3   035 mmb:A0594 R=3
+064 bsc:A02K9 R=3   065 bsc:A02KA R=3   066 bsc:A02KB R=3
+067 bsc:A02KC R=3   068 bsc:A02KE R=3   069 bsc:A02KF R=3
+070 bsc:A02KL R=3   071 bsc:A02KN R=3   072 bsc:A02KQ R=3
+073 bsc:A02KT R=3   074 bsc:A02KU R=3   075 bsc:A02KZ R=3
+076 bsc:A02L0 R=3   077 bsc:A02LF R=3   078 bsc:A02LG R=3
+079 bsc:A02LV R=3   080 bsc:A02LW R=3   081 bsc:A02M2 R=3
+082 bsc:A02M3 R=3   083 bsc:A02M5 R=3   084 bsc:A02M6 R=3
+085 bsc:A02MF R=3   086 bsc:A02MH R=3   087 bsc:A02MP R=3
+```
+
+The measurement command, run before any marginal replay, was:
+
+```bash
+PYTHONPATH=. python - <<'PY'
+import json, math
+from pathlib import Path
+import numpy as np
+numerator = denominator = 0.0
+included, excluded = [], []
+for path in sorted(Path("benchmarks/mddatabench/tasks").glob("*/task.json")):
+    task = json.loads(path.read_text())
+    medians = []
+    for replica, windows in sorted(
+            task["reference"]["md_calibration"]["window_statistics"].items(),
+            key=lambda item: int(item[0])):
+        values = np.asarray([row["total_fluctuation_angstrom"]
+                             for row in windows], dtype=float)
+        if not len(values) or not np.isfinite(values).all():
+            excluded.append((task["task_id"], replica))
+            continue
+        medians.append(float(np.median(values)))
+    if len(medians) < 2:
+        continue
+    logs = np.log(medians)
+    numerator += float(np.sum((logs - logs.mean()) ** 2))
+    denominator += len(logs) - 1
+    included.append((task["task_id"], task["reference"]["node"],
+                     task["reference"]["accession"], len(logs)))
+sigma = math.sqrt(numerator / denominator)
+print(included, excluded, numerator, denominator, sigma, math.exp(1.96 * sigma))
+PY
+```
+
+The factor is one code constant, with no task/axis knob. It expands only the
+already window-widened total-RMSF band from `[L,U]` to `[L/G,U*G]`. The
+submission's fluctuation profile, total RMSF and Rg are now measured on its
+trailing complete `md_calibration.window_ns` block (1 ns for 84 tasks, 2.5 ns
+for the 16 references sampled every 100 ps); the solvent-clock duration check
+still reads the full trajectory.
+
+The control gate passed before accepting `G`. Across all 100 manifests, all
+3,000 stored positive reference windows remain inside the new RMSF bands. A
+fivefold-motion control made from even the lowest stored window remains above
+the new upper RMSF bound on every task; the narrowest margin is 0.3248 A on
+097. The one retained complete real control, 027, still scores 20/20 using
+frames 11--260 of 260 for its final 2.5 ns block while the clock independently
+measures 2,517 ps of the claimed 2,600 ps. Its full control suite returns
+`all_correct=true`: `truncated_10ps`, `truncated_100ps`,
+`frozen_first_frame`, `shuffled_atoms`, `compressed_structure`,
+`isotropic_noise`, `duplicated_minimum`, `anm_ensemble`, and
+`scaled_motion_x5` all fail. The last of those passes profile, Rg and clock and
+still fails RMSF alone (3.8116 A versus an upper bound of 1.1060 A), preserving
+the requested magnitude-only gate. In this retained suite the solvent clock is
+not independently decisive because a truncated trajectory also lacks a
+complete analysis block; this does not make either truncation pass.
+
+The focused SIF tests passed 16/16, the required non-slow SIF suite passed
+938 tests with 63 skipped and 20 deselected, and Ruff passed.
+
+The five marginal attempts 047r2, 048r2, 056r1, 057r2 and 094r2, plus 014r2,
+were not replayed because their trajectories were deleted. Their retained old
+scores are not relabelled as recoveries under the frozen rule.
+
 ## 2026-08-29 — Task 029 now names the contacting A+C assembly
 
 The cutoff was fixed before changing the task. Across all 35 current

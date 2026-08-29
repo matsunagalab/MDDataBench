@@ -16,7 +16,12 @@ import pytest
 pytestmark = pytest.mark.slow
 mm = pytest.importorskip("openmm")
 
-from mddatabench.scoring import _load_system, widened_calibration_band  # noqa: E402
+from mddatabench.scoring import (  # noqa: E402
+    GLOBAL_REPLICA_FLUCTUATION_FACTOR,
+    _load_system,
+    last_complete_window_slice,
+    widened_calibration_band,
+)
 
 
 def serialise(system):
@@ -32,7 +37,24 @@ def write(tmp_path, name, text):
 def test_fluctuation_magnitude_has_more_room_below_than_above():
     assert widened_calibration_band(
         [1.0, 2.0], "total_fluctuation_angstrom", 4.0, 0.1
-    ) == pytest.approx([0.5, 2.4])
+    ) == pytest.approx([
+        0.5 / GLOBAL_REPLICA_FLUCTUATION_FACTOR,
+        2.4 * GLOBAL_REPLICA_FLUCTUATION_FACTOR,
+    ])
+
+
+def test_last_complete_one_ns_block_is_trailing_and_deterministic():
+    block, detail = last_complete_window_slice(253, 10.0, 1.0)
+
+    assert block == slice(153, 253)
+    assert "frames 154--253 of 253" in detail
+
+
+def test_a_trajectory_shorter_than_one_block_has_no_analysis_window():
+    block, detail = last_complete_window_slice(99, 10.0, 1.0)
+
+    assert block is None
+    assert "fewer than the 100 needed" in detail
 
 
 def test_other_measured_bands_remain_symmetric():

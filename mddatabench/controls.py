@@ -164,6 +164,18 @@ def run_negative_controls(job_dir: str, bundle: str, task_file: str) -> dict:
     # so measuring every frame here would let a run near a band edge come out
     # differently in the two tools.
     stride = max(1, int(round(10.0 / (interval or 10.0))))
+    window_ns = float(calibration.get("window_ns") or 1.0)
+    analysis_slice, analysis_window_detail = sc.last_complete_window_slice(
+        traj.n_frames, interval, window_ns)
+    if analysis_slice is None:
+        return {"task_id": task["task_id"], "unrunnable": analysis_window_detail}
+
+    def trajectory_window_xyz(sub_traj):
+        block, _ = sc.last_complete_window_slice(
+            sub_traj.n_frames, interval, window_ns)
+        if block is None:
+            return None
+        return sub_traj.xyz[block][::stride][:, own, :] * 10.0
 
     # The clock is a ratio against what the run claimed, and the scorer takes
     # that claim from the production node rather than assuming one nanosecond.
@@ -173,16 +185,24 @@ def run_negative_controls(job_dir: str, bundle: str, task_file: str) -> dict:
     def judge(name, must_pass, xyz, sub_traj, claimed_ns=None):
         """Every md gate that can be evaluated without an energy log or a box."""
         gates = {}
-        agreement = dy.profile_agreement(dy.atom_fluctuations(xyz), profile)
-        floor = bands["rank_correlation"]
-        gates["fluctuation_profile"] = bool(
-            floor and agreement is not None and agreement >= floor[0])
-        total = float(dy.total_fluctuation(xyz))
-        band = bands["total_fluctuation_angstrom"]
-        gates["fluctuation_magnitude"] = bool(band and band[0] <= total <= band[1])
-        rgyr = float(dy.radius_of_gyration(xyz).mean())
-        band = bands["radius_of_gyration_angstrom"]
-        gates["radius_of_gyration"] = bool(band and band[0] <= rgyr <= band[1])
+        agreement = total = rgyr = None
+        if xyz is None:
+            gates.update({"fluctuation_profile": False,
+                          "fluctuation_magnitude": False,
+                          "radius_of_gyration": False})
+        else:
+            agreement = dy.profile_agreement(dy.atom_fluctuations(xyz), profile)
+            floor = bands["rank_correlation"]
+            gates["fluctuation_profile"] = bool(
+                floor and agreement is not None and agreement >= floor[0])
+            total = float(dy.total_fluctuation(xyz))
+            band = bands["total_fluctuation_angstrom"]
+            gates["fluctuation_magnitude"] = bool(
+                band and band[0] <= total <= band[1])
+            rgyr = float(dy.radius_of_gyration(xyz).mean())
+            band = bands["radius_of_gyration_angstrom"]
+            gates["radius_of_gyration"] = bool(
+                band and band[0] <= rgyr <= band[1])
         if sub_traj is None:
             gates["solvent_clock"] = False
             clock = {"measurable": False, "reason": "synthetic ensemble: no solvent"}
@@ -212,17 +232,17 @@ def run_negative_controls(job_dir: str, bundle: str, task_file: str) -> dict:
                 "radius_of_gyration_angstrom": rgyr,
                 "elapsed_ps": clock.get("elapsed_ps")}
 
-    real = traj.xyz[::stride][:, own, :] * 10.0
+    real = trajectory_window_xyz(traj)
     fitted_real = dy.fitted(real)
     mean_structure = fitted_real.mean(axis=0)
     frames_ps = max(1, int(round(100.0 / (interval or 10.0))))     # ~100 ps
     tenth_ps = max(1, int(round(10.0 / (interval or 10.0))))       # ~10 ps
     results = [
         judge("real_full_run", True, real, traj),
-        judge("truncated_100ps", False, traj.xyz[:frames_ps][::stride][:, own, :] * 10.0,
-              traj[:frames_ps]),
-        judge("truncated_10ps", False, traj.xyz[:tenth_ps][::stride][:, own, :] * 10.0,
-              traj[:tenth_ps]),
+        judge("truncated_100ps", False,
+              trajectory_window_xyz(traj[:frames_ps]), traj[:frames_ps]),
+        judge("truncated_10ps", False,
+              trajectory_window_xyz(traj[:tenth_ps]), traj[:tenth_ps]),
         # The three below keep the real solvent, so the clock passes and the
         # verdict rests on the structure gates. Handing them no trajectory would
         # fail them on the clock alone, and the gates they exist to test would
@@ -254,6 +274,7 @@ def run_negative_controls(job_dir: str, bundle: str, task_file: str) -> dict:
             "slack_window_sd": calibration.get("slack_window_sd"),
             "minimum_clock_fraction": fraction,
             "frame_interval_ps": interval,
+            "analysis_window": analysis_window_detail,
             "claimed_ns": claimed,
             "results": results,
             "all_correct": all(r["correct"] for r in results),

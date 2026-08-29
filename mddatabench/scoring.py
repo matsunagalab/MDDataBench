@@ -39,6 +39,11 @@ from mddatabench import execution as ex
 # room when the task uses the standard four-SD calibration slack.
 FLUCTUATION_LOWER_SLACK_MULTIPLIER = 1.25
 
+# One task-agnostic between-replica allowance, measured from every finite
+# multi-replica manifest in the 100-task cast (39 projects, 116 replicas).
+# See docs/memo.md for the frozen manifest list, formula and command.
+GLOBAL_REPLICA_FLUCTUATION_FACTOR = 1.0936030954161982
+
 
 #: Hard ceiling on the fluctuation-shape floor, whatever the calibration says.
 #:
@@ -94,7 +99,34 @@ def widened_calibration_band(band, key, slack, spread):
     if key == "radius_of_gyration_angstrom":
         lower -= RADIUS_OF_GYRATION_TOLERANCE_ANGSTROM
         upper += RADIUS_OF_GYRATION_TOLERANCE_ANGSTROM
+    if key == "total_fluctuation_angstrom":
+        lower /= GLOBAL_REPLICA_FLUCTUATION_FACTOR
+        upper *= GLOBAL_REPLICA_FLUCTUATION_FACTOR
     return [lower, upper]
+
+
+def last_complete_window_slice(n_frames, interval_ps, window_ns):
+    """The trailing complete calibration-length block of a submission.
+
+    Reference calibration counts frames with ``round(window / interval)``;
+    using the same rule gives both estimators the same number of samples. The
+    full trajectory remains available to the independent duration check.
+    """
+    if interval_ps is None or not np.isfinite(interval_ps) or interval_ps <= 0:
+        return None, "the DCD frame interval is unavailable"
+    if window_ns is None or not np.isfinite(window_ns) or window_ns <= 0:
+        return None, "md_calibration.window_ns is unavailable"
+    frames = int(round(float(window_ns) * 1000.0 / float(interval_ps)))
+    if frames < 2:
+        return None, (f"a {float(window_ns):g} ns block at {float(interval_ps):g} ps "
+                      "per frame contains fewer than two frames")
+    if int(n_frames) < frames:
+        return None, (f"trajectory has {int(n_frames)} frames, fewer than the {frames} "
+                      f"needed for one complete {float(window_ns):g} ns block")
+    start = int(n_frames) - frames
+    return slice(start, int(n_frames)), (
+        f"last complete {float(window_ns):g} ns block "
+        f"(frames {start + 1}--{int(n_frames)} of {int(n_frames)})")
 
 
 def pdb_atoms(path):
@@ -835,10 +867,14 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     # Thinned to the reference windows' 10 ps so both sides carry the same number
     # of samples; measured, the statistics move by less than 0.02 across strides
     # of 1, 10 and 20 ps, but matching them costs nothing.
-    stride = max(1, int(round(10.0 / (interval or 10.0))))
-    own_xyz = traj.xyz[::stride][:, own_indices, :] * 10.0
-
     calibration = task["reference"].get("md_calibration") or {}
+    window_ns = float(calibration.get("window_ns") or 1.0)
+    analysis_slice, analysis_window_detail = last_complete_window_slice(
+        traj.n_frames, interval, window_ns)
+    stride = max(1, int(round(10.0 / (interval or 10.0))))
+    own_xyz = (None if analysis_slice is None else
+               traj.xyz[analysis_slice][::stride][:, own_indices, :] * 10.0)
+
     full_reference_profile = np.asarray(json.loads(
         (bundle / "reference_fluctuation.json").read_text())["y"]["rmsf"]["data"],
         dtype=float)
@@ -908,9 +944,13 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
                         if lower_slack != slack_for(key)
                         else f"{slack_for(key):g}")
         check(check_id, low <= value <= high,
-              f"{value:.4f}{unit} against the reference's own 1 ns windows "
+              f"{value:.4f}{unit} against the reference's own {window_ns:g} ns windows "
               f"[{low:.4f}, {high:.4f}]{unit} "
-              f"(n={calibration.get('windows')}, widened by {slack_detail} window SD)")
+              f"(n={calibration.get('windows')}, widened by {slack_detail} window SD"
+              + (f" and global replica factor "
+                 f"{GLOBAL_REPLICA_FLUCTUATION_FACTOR:.6f}"
+                 if key == "total_fluctuation_angstrom" else "")
+              + f"); submission uses {analysis_window_detail}")
 
     if missing:
         for check_id in ("fluctuation_profile_matches_reference",
@@ -920,6 +960,12 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
                   f"not evaluable: {len(missing)} of {len(indices)} reference contract "
                   f"atoms could not be placed in the submission; {missing[:2]}")
         agreement = None
+    elif own_xyz is None:
+        agreement = None
+        for check_id in ("fluctuation_profile_matches_reference",
+                         "fluctuation_magnitude_is_physical",
+                         "radius_of_gyration_matches_reference"):
+            check(check_id, False, f"not measurable: {analysis_window_detail}")
     elif not reference_profile_defined.all():
         agreement = None
         check(
@@ -938,14 +984,14 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
         check("fluctuation_profile_matches_reference",
               agreement is not None and floor is not None and agreement >= floor,
               f"rank correlation {agreement:.4f} against a floor of {floor:.4f} taken "
-              f"from the reference's own 1 ns windows "
+              f"from the reference's own {window_ns:g} ns windows "
               f"(n={calibration.get('windows')}, widened by "
               f"{slack_for('rank_correlation')} window SD)"
-              f"{reference_profile_suffix}"
+              f"{reference_profile_suffix}; submission uses {analysis_window_detail}"
               if agreement is not None and floor is not None else
               "not measurable: the profiles could not be compared")
 
-    if not missing:
+    if not missing and own_xyz is not None:
         banded("fluctuation_magnitude_is_physical", dy.total_fluctuation(own_xyz),
                calibration.get("total_fluctuation_angstrom"),
                "total_fluctuation_angstrom", " A")
