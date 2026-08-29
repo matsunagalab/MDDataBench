@@ -5,6 +5,25 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-29 — Task 012 now states the construct in its fetched reference
+
+The maintainer chose the existing MDDB reference as the task target: references
+are fetched, never remade. This reverses the earlier prompt decision recorded
+in `/home/yasu/tmp/full100-pass2/.codex_findings.md` (012r1/r2) and
+`/home/yasu/tmp/full100-pass2/.reconciliation.md` (the 012 correction). Both
+attempts followed the old prompt, but the pinned reference contains ASP1003 and
+omits deposited YCM1004. The prompt therefore keeps 1003 through its declared
+range and now says exactly: `Residue 1004 (YCM) is not part of the reference.
+Leave it out.` Its join-the-pieces instruction is retained because the
+reference is one 482-residue polymer component.
+
+`reference.selection.modified_residues_reverted` is now empty: an omitted
+modified residue is not reverted to its parent. `_task_builder.build_prompt`
+also skips a MODRES instruction when that exact site is in the chosen chain's
+omitted spans, preventing regeneration from reintroducing the contradiction.
+The five fetched `mmb:A023M` bundle files still match the SHA-256 values in
+`task.json`; no reference file or hash changed.
+
 ## 2026-08-29 — RMSF uses one replica-derived factor and the final complete block
 
 No pass2 result or per-task rerun was used to set the allowance. For each of

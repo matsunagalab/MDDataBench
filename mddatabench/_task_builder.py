@@ -943,6 +943,10 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
         lines.append(f"- **{temperature} K**, **{ensemble}** at **{pressure:g} bar**")
     lines.append(f"- at least **{window_ns:g} ns** of production MD")
     lines.append("")
+    modified_names = {
+        (str(item.get("chain")), str(item.get("residue"))): item.get("name")
+        for item in modres
+    }
 
     for entry in chosen_chains:
         removed = entry.get("removed_residues") or 0
@@ -962,8 +966,14 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
                       "runs through them, so build them.", ""]
         for span in (entry.get("omitted") or []):
             where = span[0] if span[0] == span[1] else f"{span[0]}–{span[1]}"
-            lines += [f"Residue {where} of chain {entry['deposit_chain']} is not part of "
-                      "the reference. Leave it out.", ""]
+            name = (modified_names.get((str(entry["deposit_chain"]), str(span[0])))
+                    if span[0] == span[1] else None)
+            if name:
+                lines += [f"Residue {where} ({name}) is not part of the reference. "
+                          "Leave it out.", ""]
+            else:
+                lines += [f"Residue {where} of chain {entry['deposit_chain']} is not "
+                          "part of the reference. Leave it out.", ""]
         for difference in (entry.get("differences") or []):
             if difference.get("residue") is None:
                 continue
@@ -973,6 +983,20 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
                       f"**{ONE_LETTER.get(difference['reference'], difference['reference'])}**.", ""]
     for entry in modres:
         if not entry.get("residue"):
+            continue
+        site = _site_key(entry["residue"])
+        omitted = any(
+            chosen.get("deposit_chain") == entry.get("chain")
+            and _site_within(
+                *site,
+                [(_site_key(low), _site_key(high))
+                 for low, high in (chosen.get("omitted") or [])],
+            )
+            for chosen in chosen_chains
+        )
+        if omitted:
+            # A modified residue absent from the reference is an omission, not
+            # a request to restore its unmodified parent (6ME3 YCM1004).
             continue
         lines += [f"Residue {entry['residue']} is deposited as **{entry['name']}**, a "
                   f"modified {entry['parent']}. Simulate the unmodified residue.", ""]

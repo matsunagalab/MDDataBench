@@ -627,3 +627,18 @@ def test_build_prompt_refuses_a_site_its_own_prompt_omits():
         _build_prompt_for(
             {"deposit_chain": "A", "ranges": [["1", "100"]],
              "omitted": [(10, 12)], "build_missing": 1, "build_residues": [10]})
+
+
+def test_an_omitted_modified_residue_is_not_restored():
+    """6ME3 excludes YCM1004; it must not also request CYS1004."""
+    metadata = {"WAT": "TIP3P", "TEMP": 310, "ENSEMBLE": "NPT"}
+    chain = {"deposit_chain": "A", "ranges": [["1001", "1196"]],
+             "omitted": [["1004", "1004"]]}
+    text = tb.build_prompt(
+        "t", "Protein", "6ME3", metadata, [chain],
+        [{"name": "YCM", "parent": "CYS", "chain": "A", "residue": "1004"}],
+        [], 1.0,
+    )
+
+    assert "Residue 1004 (YCM) is not part of the reference" in text
+    assert "modified CYS" not in text

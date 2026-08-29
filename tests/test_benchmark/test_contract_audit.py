@@ -229,6 +229,15 @@ def test_prompt_ranges_are_counted_and_exclusions_removed():
     assert ca._declared_polymer_lengths(declared) == [3, 4, 6, 6]
 
 
+def test_single_chain_modified_residue_omission_needs_no_repeated_chain():
+    declared = ca._declared(
+        "Simulate chain **A** residues **1001–1196**. "
+        "Residue 1004 (YCM) is not part of the reference. Leave it out.")
+
+    assert 1003 in declared["selected"]["A"]
+    assert 1004 not in declared["selected"]["A"]
+
+
 def test_polymer_comparison_uses_observed_selection_not_range_arithmetic(
     tmp_path, monkeypatch,
 ):

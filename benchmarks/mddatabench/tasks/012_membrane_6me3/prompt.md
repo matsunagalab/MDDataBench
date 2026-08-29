@@ -8,9 +8,7 @@ Simulate chimera protein of Melatonin receptor type 1A and GlgA glycogen, PDB en
 
 Join the pieces of chain A into a single continuous chain, bonded where the removed part was.
 
-Residue 1003 of chain A is not part of the reference. Leave it out.
-
-Residue 1004 is deposited as **YCM**, a modified CYS. Simulate the unmodified residue.
+Residue 1004 (YCM) is not part of the reference. Leave it out.
 
 Embed it in a **DPPC** bilayer.
 

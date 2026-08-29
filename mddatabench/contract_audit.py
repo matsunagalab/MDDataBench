@@ -151,6 +151,10 @@ _EXCLUDED_RANGE = re.compile(
     r"chain\s+(?:\*\*)?([A-Za-z0-9]+)(?:\*\*)?.*?"
     r"(?:not part|leave it out|exclude|without)",
     re.I)
+_UNSCOPED_EXCLUDED_RANGE = re.compile(
+    r"residues?\s+(?:\*\*)?(-?\d+)(?:\s*[–—-]\s*(-?\d+))?(?:\*\*)?"
+    r"(?:\s+\([^)]+\))?\s+(?:is|are)\s+not\s+part\b",
+    re.I)
 _BUILD_MISSING = re.compile(
     r"chain\s+(?:\*\*)?([A-Za-z0-9]+)(?:\*\*)?\s+does\s+not\s+resolve\s+"
     r"residues?\s+([^.;]+).*?\bbuild\s+them\b", re.I)
@@ -370,6 +374,15 @@ def _declared(prompt: str) -> dict:
     excluded: dict[str, list[tuple[int, int]]] = {}
     for start, end, chain in _EXCLUDED_RANGE.findall(prompt.replace("\n", " ")):
         excluded.setdefault(chain, []).append((int(start), int(end or start)))
+    # A single-chain task need not repeat its only chain in an omission. This
+    # is the natural wording for 6ME3's "Residue 1004 (YCM) is not part...".
+    if len(ranges) == 1:
+        chain = next(iter(ranges))
+        for start, end in _UNSCOPED_EXCLUDED_RANGE.findall(
+                prompt.replace("\n", " ")):
+            span = (int(start), int(end or start))
+            if span not in excluded.setdefault(chain, []):
+                excluded[chain].append(span)
     selected: dict[str, set[int]] = {}
     for chain, pieces in ranges.items():
         values = set()
