@@ -135,6 +135,26 @@ def test_ligand_charge_statement_does_not_request_its_presence(tmp_path, monkeyp
     assert finding["site"] == "M:2"
 
 
+def test_one_lig_residue_can_replace_a_deposited_capped_peptide(
+    tmp_path, monkeypatch,
+):
+    task, bundle = _task(
+        tmp_path,
+        "Simulate chain **A** residues **1–1**. Include one extra component "
+        "named **LIG**. Represent the whole capped peptide as one LIG residue, "
+        "not as separate residues or caps.")
+    reference = [_record("A", 1, "ALA"), _record("B", 2, "LIG")]
+    deposit = [_record("A", 1, "ALA"), _record("B", 1, "ACE"),
+               _record("B", 2, "PHE"), _record("B", 3, "NH2")]
+    _stub_records(monkeypatch, reference, {"ONE": deposit})
+
+    report = ca.audit_task_contract(str(task), str(bundle), str(tmp_path / "cache"))
+
+    assert not [finding for finding in report["findings"]
+                if finding["kind"].startswith("reference_other")
+                or finding["kind"].endswith(("other_mismatch", "cap_mismatch"))]
+
+
 def test_structural_zinc_is_not_hidden_as_bulk_counterion(tmp_path, monkeypatch):
     task, bundle = _task(
         tmp_path,

@@ -720,16 +720,20 @@ def _deposit_components(path: pathlib.Path, records: list[Residue],
 
 def _difference_is_declared(body: str, kind: str) -> bool:
     if kind == "cap":
-        return re.search(
+        return (re.search(
             r"\b(?:uncapped|free termin(?:us|i)|remove|drop|without)\b.*\bcap",
             body, re.I) is not None
+            or re.search(r"\bnot as separate\b[^.\n]*\bcaps?\b",
+                         body, re.I) is not None)
     if kind == "metal":
         return re.search(
             r"\b(?:remove|drop|without|exclude)\b.*\b(?:metal|zinc|iron|"
             r"copper|manganese|cobalt|magnesium|calcium)\b", body, re.I) is not None
-    return re.search(
+    return (re.search(
         r"\b(?:remove|drop|without|exclude|simulate the unmodified)\b",
         body, re.I) is not None
+        or re.search(r"\bas one LIG residue\b[^.\n]*\bnot as separate\b",
+                     body, re.I) is not None)
 
 
 def _kind_is_named(body: str, kind: str) -> bool:

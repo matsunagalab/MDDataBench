@@ -5,6 +5,33 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-29 — Task 042 now specifies its buildable flattened peptide
+
+The hidden component behind 042r1/r2 in
+`/home/yasu/tmp/full100-pass2/.codex_findings.md` and Cluster C of
+`/home/yasu/tmp/full100-pass2/.claude_findings.md` is buildable from public
+4MN3 data. The reference PDB has one 102-atom residue named LIG with formula
+C35H52N7O8. Its force-bearing TPR gives that component net charge +1. Public
+4MN3 polymer entity 2 is chain B positions 1–7,
+`ACE–PHE–ALA–TYR–M3L–SER–NH2`; its 50 heavy atoms have the same element
+composition as the reference LIG. The +1 state is the quaternary
+Nε-trimethyllysine in an otherwise capped neutral peptide.
+
+The prompt now gives residue name LIG, formula C35H52N7O8, charge +1, the
+isomeric SMILES for Ac-Phe-Ala-Tyr-Nε-trimethyl-Lys-Ser-NH2, and the deposited
+chain-B coordinates as the placement source. RDKit reads that SMILES as exactly
+C35H52N7O8+ with formal charge +1. The prompt explicitly requires one LIG
+residue rather than seven residues or separate caps; this is necessary because
+the reference flattened the whole peptide into one scored component.
+
+The same facts are stored in `reference.extra_components` and emitted by
+`_task_builder.build_prompt`. `audit_task_contract` now accepts an explicitly
+declared one-LIG flattening instead of separately reporting the source ACE/NH2
+caps; unrelated deposit additives remain excluded by the chain-A selection.
+This corrects the 2026-08-25 memo's implication that 042 could not be expressed
+as a reproducible component. All five fetched `cin:A000J` files still match the
+recorded SHA-256 values; no reference or hash changed.
+
 ## 2026-08-29 — Task 038 should be quarantined; no fragment chemistry was invented
 
 The unresolved 038r2 defect in

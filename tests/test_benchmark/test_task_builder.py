@@ -413,6 +413,32 @@ def test_a_reduced_disulfide_is_an_instruction_not_a_hint():
     assert "Simulate every other ionisable side chain" in text
 
 
+def test_a_flattened_peptide_component_is_fully_buildable_from_the_prompt():
+    metadata = {"WAT": "TIP3P", "TEMP": 298, "ENSEMBLE": "NPT"}
+    chains = [{"deposit_chain": "A", "ranges": [["1", "56"]]}]
+    component = {
+        "residue_name": "LIG",
+        "description": "Ac-Phe-Ala-Tyr-Nε-trimethyl-Lys-Ser-NH2",
+        "formula": "C35H52N7O8",
+        "smiles": "example-smiles",
+        "expected_formal_net_charge": 1,
+        "placement_source": {
+            "chain": "B", "positions": ["1", "7"],
+            "sequence": "ACE–PHE–ALA–TYR–M3L–SER–NH2",
+        },
+    }
+    text = tb.build_prompt(
+        "t", "Protein", "4MN3", metadata, chains, {}, [], 1.0,
+        extra_components=[component],
+    )
+
+    assert "one extra component named **LIG**" in text
+    assert "**C35H52N7O8**" in text and "charge **+1**" in text
+    assert "SMILES `example-smiles`" in text
+    assert "chain B positions 1–7" in text
+    assert "one LIG residue, not as separate residues or caps" in text
+
+
 # --- a repeated residue used to shift every later anchor -----------------------
 # The mapping walked SEQRES and the observed residues together, advancing past
 # every mismatch. 1AHW chain C is SEQRES "S G T T N T" against an observed

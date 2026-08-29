@@ -905,13 +905,18 @@ def _site_within(number: int, icode: str, spans: list) -> bool:
 
 
 def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonation,
-                 window_ns, replicas=1, joined_chains=(), disulfides=None):
+                 window_ns, replicas=1, joined_chains=(), disulfides=None,
+                 extra_components=()):
     """The text an agent is given.  Derived, not written.
 
     ``joined_chains`` names the deposit chains whose pieces the reference holds
     as one continuous polymer.  See ``joins_its_pieces``: a construct written as
     two ranges can be simulated as two chains or as one, the deposit records
     neither, and the two differ by a peptide bond and two pairs of termini.
+
+    ``extra_components`` fully specifies a reference component that cannot be
+    recovered by loading a named CCD ligand directly, including its public
+    coordinate source.
     """
     field = buildable_force_field(metadata.get("FF"))
     water = WATERS.get(str(metadata.get("WAT") or "").upper())
@@ -1025,6 +1030,24 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
         lines += [f"Simulate Cys{first} and Cys{second} of chain {pair['chain']} as "
                   "free (reduced) cysteines; do not form a disulfide bond between "
                   "them.", ""]
+    for component in extra_components:
+        charge = int(component["expected_formal_net_charge"])
+        lines += [
+            f"Include one extra component named **{component['residue_name']}** bound "
+            f"to the protein. It is **{component['description']}**, with formula "
+            f"**{component['formula']}**, expected formal net charge **{charge:+d}**, "
+            f"and SMILES `{component['smiles']}`.",
+            "",
+        ]
+        source = component["placement_source"]
+        first, last = source["positions"]
+        lines += [
+            f"Use the deposited coordinates of chain {source['chain']} positions "
+            f"{first}–{last} (**{source['sequence']}**) as its placement source. "
+            f"Represent the whole capped peptide as one {component['residue_name']} "
+            "residue, not as separate residues or caps.",
+            "",
+        ]
     # Everything the previous line did not name is standard, and saying so is
     # the point: a pKa predictor will disagree with the reference somewhere.
     # MDClaw runs pdb2pqr+propka at pH 7.4 and it neutralised two aspartates of

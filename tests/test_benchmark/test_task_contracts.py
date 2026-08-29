@@ -231,6 +231,20 @@ def test_stored_disulfide_decisions_are_in_the_prompt(path):
         assert "free (reduced) cysteines" in prompt
 
 
+@pytest.mark.parametrize("path", TASKS, ids=lambda p: p.parent.name)
+def test_stored_extra_components_are_fully_stated(path):
+    task = load(path)
+    prompt = (path.parent / "prompt.md").read_text()
+    for component in task["reference"].get("extra_components") or []:
+        assert component["residue_name"] in prompt
+        assert component["formula"] in prompt
+        assert component["smiles"] in prompt
+        assert f"{component['expected_formal_net_charge']:+d}" in prompt
+        source = component["placement_source"]
+        assert f"chain {source['chain']}" in prompt
+        assert source["sequence"] in prompt
+
+
 def test_range_keys_are_reported_separately_from_chains():
     from mddatabench.contract_audit import selection_range_findings
 
