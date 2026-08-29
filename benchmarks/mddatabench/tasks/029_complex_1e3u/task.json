@@ -47,7 +47,7 @@
     "selection": {
       "chains": [
         "A",
-        "B"
+        "C"
       ],
       "ranges": {
         "A": [
@@ -56,7 +56,7 @@
             "264"
           ]
         ],
-        "B": [
+        "C": [
           [
             "22",
             "266"
@@ -65,12 +65,12 @@
       },
       "numbering": "the deposit's own author numbering, not SEQRES positions",
       "build_missing": {
-        "B": 2
+        "C": 3
       },
       "differences_from_deposit": [],
       "modified_residues_reverted": [],
       "stated_protonation": [],
-      "numbering_certain": false,
+      "numbering_certain": true,
       "derivation": "reference structure aligned to the deposit's SEQRES, then SEQRES positions mapped to author numbering through the observed residues"
     },
     "deposit": {

@@ -261,3 +261,55 @@ def test_disulfide_position_frame_preserves_range_and_insertion_order():
     assert positions[("A", 1, "")] == 3
     assert positions[("A", 1106, "")] == 4
     assert positions[("A", 219, "")] == 5
+
+
+def _write_two_chain_pdb(path, separation):
+    path.write_text(
+        "ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00 20.00"
+        "           C\n"
+        f"ATOM      2  CA  GLY B   1      {separation:6.3f}   0.000   0.000"
+        "  1.00 20.00           C\n"
+        "TER\nEND\n"
+    )
+
+
+def _multi_chain_contact_report(tmp_path, monkeypatch, separation):
+    task, bundle = _task(
+        tmp_path,
+        "Simulate PDB **ONE**, chain **A** residues **1–1**, chain **B** "
+        "residues **1–1**.")
+    deposit = tmp_path / "ONE.pdb"
+    _write_two_chain_pdb(deposit, separation)
+    _write_two_chain_pdb(bundle / "reference.pdb", 3.0)
+    monkeypatch.setattr(ca, "_deposit_path", lambda pdb_id, cache: deposit)
+    monkeypatch.setattr(ca, "_reference_disulfide_positions", lambda bundle: set())
+    monkeypatch.setattr(ca, "_deposit_disulfide_positions",
+                        lambda path, declared, selected: set())
+    return ca.audit_task_contract(str(task), str(bundle), str(tmp_path / "cache"))
+
+
+def test_multi_chain_selection_with_heavy_atom_contact_passes(tmp_path, monkeypatch):
+    report = _multi_chain_contact_report(tmp_path, monkeypatch, 3.0)
+
+    assert not [finding for finding in report["findings"]
+                if finding["kind"] == "deposit_polymer_chains_do_not_contact"]
+    geometry = report["multi_chain_geometry"][0]
+    assert geometry["deposit"]["closest_inter_chain_contact_angstrom"] == 3.0
+    assert geometry["contact_cutoff_angstrom"] == 4.0
+
+
+def test_widely_separated_multi_chain_selection_fails_with_rg_diagnostic(
+    tmp_path, monkeypatch,
+):
+    report = _multi_chain_contact_report(tmp_path, monkeypatch, 20.0)
+
+    finding = next(finding for finding in report["findings"]
+                   if finding["kind"] == "deposit_polymer_chains_do_not_contact")
+    assert "contact cutoff of 4.0 A" in finding["detail"]
+    assert "geometric Rg" in finding["detail"]
+    geometry = report["multi_chain_geometry"][0]
+    assert geometry["deposit"]["closest_inter_chain_contact_angstrom"] is None
+    assert geometry["deposit"][
+        "heavy_atom_geometric_radius_of_gyration_angstrom"] == 10.0
+    assert geometry["reference"][
+        "heavy_atom_geometric_radius_of_gyration_angstrom"] == 1.5

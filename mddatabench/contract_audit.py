@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+import itertools
 import json
 import pathlib
 import re
@@ -28,6 +29,12 @@ NUCLEIC = {r for base in "ACGTU"
            for r in (base, f"D{base}", f"D{base}3", f"D{base}5",
                      f"{base}3", f"{base}5", f"R{base}")}
 LIPID = {"DPP", "POP", "POC", "CHL", "DOP", "DPPC", "POPC"}
+# Across the 34 valid multi-chain tasks in the cast, the closest selected
+# inter-chain heavy atoms are 2.037--2.996 A apart. Four angstrom leaves a
+# full angstrom of margin while rejecting 029's old A+B selection at 13.701 A.
+INTER_CHAIN_CONTACT_CUTOFF_ANGSTROM = 4.0
+
+
 @dataclass(frozen=True)
 class Residue:
     chain: str
@@ -437,6 +444,75 @@ def _selected_deposit(records: list[Residue], declared: dict) -> list[Residue]:
     return output
 
 
+def _heavy_atom_geometry(path: pathlib.Path,
+                         residues: list[Residue]) -> dict:
+    """Coordinate diagnostics for a polymer selection.
+
+    The contact distance is the only contract gate. The unweighted heavy-atom
+    geometric radius of gyration is returned to explain a bad assembly choice;
+    it is not compared with a cutoff or used by benchmark scoring.
+    """
+    import gemmi
+    import numpy as np
+
+    sites = {(r.chain, r.number, r.icode) for r in residues}
+    structure = gemmi.read_structure(str(path))
+    by_chain: dict[str, list[list[float]]] = {}
+    if structure:
+        for chain in structure[0]:
+            chain_name = str(chain.name).strip() or "A"
+            for residue in chain:
+                site = (chain_name, int(residue.seqid.num),
+                        str(residue.seqid.icode or "").strip())
+                if site not in sites:
+                    continue
+                for atom in residue:
+                    if atom.element.is_hydrogen:
+                        continue
+                    by_chain.setdefault(chain_name, []).append(
+                        [atom.pos.x, atom.pos.y, atom.pos.z])
+
+    coordinates = {chain: np.asarray(values, dtype=float)
+                   for chain, values in by_chain.items() if values}
+    all_coordinates = (np.concatenate(list(coordinates.values()))
+                       if coordinates else np.empty((0, 3)))
+    radius = None
+    if len(all_coordinates):
+        centered = all_coordinates - all_coordinates.mean(axis=0)
+        radius = float(np.sqrt(np.mean(np.sum(centered * centered, axis=1))))
+
+    # A small Cartesian cell list finds every pair inside the cutoff without
+    # introducing crystallographic symmetry or periodic images.
+    closest = None
+    chains = sorted(coordinates)
+    offsets = tuple(itertools.product((-1, 0, 1), repeat=3))
+    cutoff = INTER_CHAIN_CONTACT_CUTOFF_ANGSTROM
+    for index, first in enumerate(chains):
+        for second in chains[index + 1:]:
+            cells = {}
+            for point in coordinates[second]:
+                cell = tuple(np.floor(point / cutoff).astype(int))
+                cells.setdefault(cell, []).append(point)
+            cells = {cell: np.asarray(points) for cell, points in cells.items()}
+            for point in coordinates[first]:
+                cell = np.floor(point / cutoff).astype(int)
+                for offset in offsets:
+                    candidates = cells.get(tuple(cell + offset))
+                    if candidates is None:
+                        continue
+                    distances = np.linalg.norm(candidates - point, axis=1)
+                    within = distances[distances <= cutoff]
+                    if len(within):
+                        value = float(within.min())
+                        closest = value if closest is None else min(closest, value)
+    return {
+        "chains": chains,
+        "heavy_atoms": int(len(all_coordinates)),
+        "closest_inter_chain_contact_angstrom": closest,
+        "heavy_atom_geometric_radius_of_gyration_angstrom": radius,
+    }
+
+
 def _contiguous_lengths(values: set[int]) -> list[int]:
     """Lengths of integer runs, independent of author chain labels."""
     lengths: list[int] = []
@@ -719,6 +795,10 @@ def audit_task_contract(task_dir: str, bundle: str,
     cache = pathlib.Path(deposit_cache or (task_path.parent.parent / "_deposits"))
     reference_counts = {kind: _occurrence_counts(reference, kind)
                         for kind in ("other", "cap", "metal")}
+    multi_chain_geometry = []
+    reference_geometry = (_heavy_atom_geometry(
+        bundle_path / "reference.pdb", reference_polymer)
+        if len(declared["chains"]) > 1 else None)
     reference_ss = None
     try:
         reference_ss = _reference_disulfide_positions(bundle_path)
@@ -735,6 +815,36 @@ def audit_task_contract(task_dir: str, bundle: str,
             continue
         deposit = _structure_records(deposit_file)
         selected = _selected_deposit(deposit, declared)
+        if len(declared["chains"]) > 1:
+            deposit_geometry = _heavy_atom_geometry(deposit_file, selected)
+            diagnostic = {
+                "pdb_id": pdb_id,
+                "contact_cutoff_angstrom": INTER_CHAIN_CONTACT_CUTOFF_ANGSTROM,
+                "deposit": deposit_geometry,
+                "reference": reference_geometry,
+            }
+            multi_chain_geometry.append(diagnostic)
+            distance = deposit_geometry["closest_inter_chain_contact_angstrom"]
+            if distance is None:
+                deposit_rg = deposit_geometry[
+                    "heavy_atom_geometric_radius_of_gyration_angstrom"]
+                reference_rg = reference_geometry[
+                    "heavy_atom_geometric_radius_of_gyration_angstrom"]
+                deposit_rg_text = ("unavailable" if deposit_rg is None
+                                   else f"{deposit_rg:.3f} A")
+                reference_rg_text = ("unavailable" if reference_rg is None
+                                     else f"{reference_rg:.3f} A")
+                findings.append({
+                    "kind": "deposit_polymer_chains_do_not_contact",
+                    "detail": (
+                        f"{pdb_id}: no selected inter-chain heavy atoms lie "
+                        "within the contact cutoff of "
+                        f"{INTER_CHAIN_CONTACT_CUTOFF_ANGSTROM:.1f} A; "
+                        "diagnostic unweighted heavy-atom geometric Rg is "
+                        f"{deposit_rg_text} for the deposit selection and "
+                        f"{reference_rg_text} for the reference"),
+                    "component": "polymer", "pdb_id": pdb_id,
+                })
         if declared_count and not selected:
             findings.append({
                 "kind": "deposit_polymer_selection_empty",
@@ -855,6 +965,7 @@ def audit_task_contract(task_dir: str, bundle: str,
         "reference_polymer_lengths": reference_lengths,
         "reference_component_kinds": {k: sorted(v)
                                       for k, v in sorted(by_kind.items())},
+        "multi_chain_geometry": multi_chain_geometry,
         "findings": findings,
     }
 

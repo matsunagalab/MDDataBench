@@ -5,6 +5,77 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-29 — Task 029 now names the contacting A+C assembly
+
+The cutoff was fixed before changing the task. Across all 35 current
+multi-chain selections, the 34 selections other than the already identified
+029 defect had closest inter-chain heavy-atom distances of 2.037--2.996 A
+(25th percentile 2.472 A, median 2.558 A, 90th 2.767 A, 95th 2.821 A). The
+contract cutoff is 4.0 A: the observed valid maximum rounded upward with one
+additional angstrom of margin. The old 1E3U A+B selection was separated by
+13.701 A, had chain centroids 67.546 A apart and an unweighted heavy-atom
+geometric Rg of 37.965 A. A+C measures 2.558 A and 23.842 A respectively;
+the fetched A000J reference measures 24.138 A by the same diagnostic Rg. Rg
+is reported for explanation only and is not a contract gate or score.
+
+The measurement used each prompt's author-numbered selection in model one of
+the RCSB mmCIF (hydrogens excluded), before inspecting whether corrected 029
+would pass:
+
+```bash
+PYTHONPATH=. python - <<'PY'
+import gemmi, json, numpy as np
+from pathlib import Path
+from mddatabench import contract_audit as ca
+def closest(path, declared):
+    selected = ca._selected_deposit(ca._structure_records(path), declared)
+    sites = {(r.chain, r.number, r.icode) for r in selected}
+    by_chain = {}
+    for chain in gemmi.read_structure(str(path))[0]:
+        for residue in chain:
+            site = (chain.name, residue.seqid.num,
+                    str(residue.seqid.icode or "").strip())
+            if site not in sites:
+                continue
+            by_chain.setdefault(chain.name, []).extend(
+                [a.pos.x, a.pos.y, a.pos.z] for a in residue
+                if not a.element.is_hydrogen)
+    arrays = {chain: np.asarray(xyz) for chain, xyz in by_chain.items()}
+    names, value = sorted(arrays), float("inf")
+    for i, first in enumerate(names):
+        for second in names[i + 1:]:
+            for start in range(0, len(arrays[first]), 256):
+                delta = (arrays[first][start:start + 256, None, :]
+                         - arrays[second][None, :, :])
+                value = min(value, float(np.linalg.norm(delta, axis=2).min()))
+    return value
+rows = []
+for task in sorted(Path("benchmarks/mddatabench/tasks").iterdir()):
+    declared = ca._declared((task / "prompt.md").read_text())
+    if len(declared["chains"]) < 2:
+        continue
+    pdb = json.loads((task / "task.json").read_text())["reference"]["pdb_ids"][0]
+    path = ca._deposit_path(pdb, Path("/tmp/mddatabench-phaseb-contact-deposits"))
+    rows.append((task.name, closest(path, declared)))
+valid = np.array([row[1]
+                  for row in rows if not row[0].startswith("029_")])
+print(len(valid), valid.min(), np.quantile(valid, [.25, .5, .9, .95]), valid.max())
+PY
+```
+
+The recorded reference spans are deposit SEQRES 2--244 and 2--246.
+`_task_builder.recompute_on_chain` moved the second span from B to C and
+remeasured author range C:22--266 as certain, with unresolved C:94--96 rather
+than B:265--266. The generated prompt and stored selection now agree. With
+the fetched bundle's five hashes matching the task contract, the SIF contract
+audit reports 488 declared and reference residues, a 2.558 A A--C contact and
+no findings. All 100 cast bundles were then fetched to `/tmp`, and every file
+matched its task's recorded hashes. The SIF cast audit found no non-contacting
+selection: 94 tasks were clean and six retained only the already known
+cap/ligand/disulfide findings in 016, 028, 036, 038, 042 and 087. Attempts
+029r1/r2 were not replayed because their trajectories were deleted; their old
+A+B scores are not evidence for the corrected task.
+
 ## 2026-08-29 — Slurm accounting now covers the complete MD dependency chain
 
 The scorer still depends with `afterany` on only the final submitted MD job,
