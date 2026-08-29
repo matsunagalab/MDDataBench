@@ -5,6 +5,30 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-29 — Task 038 should be quarantined; no fragment chemistry was invented
+
+The unresolved 038r2 defect in
+`/home/yasu/tmp/full100-pass2/.codex_findings.md` and Cluster C of
+`/home/yasu/tmp/full100-pass2/.claude_findings.md` is not repairable by an
+honest prompt. The pinned `cin:A0007` reference has one neutral `LIG` with
+formula C21H36O4 (61 atoms). Public 1IKT instead names OXN/Octoxynol-10 at
+A:123: its CCD entry is the neutral complete C34H62O11 species with canonical
+SMILES
+`CC(C)(C)CC(C)(C)c1ccc(OCCOCCOCCOCCOCCOCCOCCOCCOCCOCCO)cc1`.
+The deposit resolves only atoms C1–C25 and O15/O18/O21/O24; C26 through O45
+are explicitly unobserved. The reference terminates at C25 and adds hydrogens,
+so it is a different truncated molecule for which the PDB/CCD provides no
+component identifier, complete coordinates or fragment SMILES.
+
+Writing a C21H36O4 SMILES would require choosing how to cap the broken C25–C26
+bond. That would be curator-invented chemistry rather than a public-data fact,
+even if one choice can be made to match the hidden reference formula. The task
+prompt and contract are therefore intentionally unchanged, and task 038 is
+recommended for quarantine from release until a public, parameterisable
+definition of that exact fragment exists. `audit_task_contract` is expected to
+retain its `reference_other_unnamed` finding in the meantime. All five fetched
+bundle files match the recorded SHA-256 values; no reference was regenerated.
+
 ## 2026-08-29 — Task 087 now names its three S–S bonds and reduced pair
 
 The fetched `bsc:A02MP` force-bearing TPR carries polymer-position pairs
