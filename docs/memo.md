@@ -5,6 +5,23 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-30 — 012, 019 and 030 verified on the cluster: 20/20 each
+
+`~/tmp/mddatabench-runs/lab-deepseek-n4-20260830-verify3`, pi + deepseek-v4-flash,
+frozen mdclaw `d105ea0`, MDDataBench `392aa83`, MD on n4. One task per fix that had
+only been argued from evidence until now:
+
+| task | fix under test | previous | now |
+|---|---|---|---|
+| 012_membrane_6me3 | prompt aligned to the reference (keep 1003, omit YCM 1004) + range pieces | 0/2 replicates | **20/20** |
+| 019_antibody_2dd8 | insertion-code-safe Packmol solvation (SER H:82A was being dropped) | 0/2 replicates | **20/20** |
+| 030_complex_1ffw | prompt states PON and MN are absent from the reference | 1/2 replicates | **20/20** |
+
+Together with the earlier replays (001, 016, 024, 029, 043) every pass2 failure whose
+cause was fixable has now been demonstrated fixed on real runs; the remaining pass2
+failures were 038 and 061 (withdrawn) and two Slurm cancellations whose upstream error
+was not retained.
+
 ## 2026-08-30 — The per-command watchdog stopped covering attempts the day they moved out of the checkout
 
 `init_experiment` now refuses an experiment directory inside the MDDataBench
