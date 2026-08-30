@@ -26,6 +26,13 @@
 # signals the whole group, so forked pipeline children and backgrounded jobs die
 # with it. Verified with marker files — no orphans.
 
+# The runner exports MDDATABENCH_EVENT_LOG into every attempt agent, so it marks
+# a benchmark shell wherever the experiment directory lives. Since experiment
+# directories must now sit outside the checkout, a path pattern alone missed
+# them: measured 2026-08-30, an agent's `find /` ran 46 minutes unwrapped.
+if [ -n "${MDDATABENCH_EVENT_LOG:-}" ]; then
+    exec timeout --kill-after=15 "${PI_CMD_TIMEOUT_SECONDS:-600}" /bin/bash "$@"
+fi
 case "${PWD}" in
     */MDPrepBench/benchmark_runs/*|*/MDDataBench/outputs/runs/*)
         exec timeout --kill-after=15 "${PI_CMD_TIMEOUT_SECONDS:-600}" /bin/bash "$@"

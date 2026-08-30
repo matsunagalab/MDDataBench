@@ -5,6 +5,21 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-30 — The per-command watchdog stopped covering attempts the day they moved out of the checkout
+
+`init_experiment` now refuses an experiment directory inside the MDDataBench
+checkout (2026-08-30), so campaigns run from e.g. `~/tmp/mddatabench-runs/...`.
+The pi `shellPath` watchdog still keyed on `*/MDDataBench/outputs/runs/*`, so it
+matched nothing there. Measured immediately: a verification agent ran
+`find / -name pdbfixer -type d` for 46 minutes across NFS, unwrapped, and its
+attempt sat idle the whole time.
+
+The wrapper now wraps whenever `MDDATABENCH_EVENT_LOG` is set — the runner
+exports it into every attempt agent, so it marks a benchmark shell wherever the
+experiment directory lives. The old path patterns stay as a fallback for
+historical layouts. Verified both ways: with the variable set the parent process
+is `timeout`, without it plain `bash`.
+
 ## 2026-08-30 — 030's own title was the trap; the prompt now excludes what the reference lacks
 
 1FFW's MDDB title reads "...WITH A BOUND IMIDO", and its reference is protein
