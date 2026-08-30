@@ -5,6 +5,39 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-30 — 038 and 061 withdrawn from the cast; 98 tasks remain
+
+Both were unreachable for reasons that belong to the reference, not to any agent,
+so they were removed from `benchmarks/mddatabench/` rather than left in as
+permanent zeros. Counts are now 98 total, 69 train / 29 eval; ligand 9 (7/2) and
+metal 3 (2/1).
+
+**038**: the reference carries a one-residue `LIG` of formula C21H36O4 — a truncated
+part of the deposit's full C34H62O11 detergent, with atoms C26–O45 absent. Public
+data does not define the fragment's cap, coordinates or SMILES, so a prompt that
+named it would be inventing chemistry (recorded 2026-08-29). Its md side was never
+the problem: the one attempt whose MD ran scored RMSF 0.573 A inside [0.339, 0.703],
+Rg 13.16 A inside its band, and profile correlation 0.837.
+
+**061**: measured across the cast, its reference is the outlier. Mean 1 ns-window
+RMSF 0.539 A is the lowest of the 21 tasks above 350 residues — below two membrane
+references — and its window-to-window CV is 0.0131, 0.21x the cast median of 0.0628
+and the smallest of all 100 (next is 0.0246). The resulting band reaches only 1.18x
+the reference mean where the cast median is 1.56x. Both pass2 replicates measured
+1.014 and 1.117 A, i.e. 1.88x and 2.07x that mean, while their composition checks
+passed 12/12 and their profile rank correlation (0.72-0.80) passed. Admitting them
+would need an upper bound at 2.07x the reference mean, against a cast 95th
+percentile requirement of 1.38x and an adversarial 5x-motion control sitting at
+4.87x — a band that wide stops discriminating. Campaign-wide the median
+submission/reference ratio is 1.03, so this is not a general protocol bias; MDClaw's
+restrained-through-NPT equilibration default cannot explain a 2x excess in one task
+and 1.03x everywhere else. Reference length is not the cause either (corr(log ref_ns,
+CV) = 0.13 across the cast).
+
+Consequence for fix 16 in the pass2 plan: the controlled restraint-release experiment
+is no longer justified by 061. If it is run later it should be for its own sake, not
+to recover this task.
+
 ## 2026-08-30 — 001_membrane_5yc8 passes 20/20 on the third replay; two more defects on the way
 
 Replays of 001 after the five-task run (`~/tmp/mddatabench-runs/lab-deepseek-n4-20260830-001{,b,c}`,

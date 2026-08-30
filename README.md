@@ -198,8 +198,9 @@ benchmarks/mddatabench/tasks/D03_...  SARS-CoV PLpro   (PDB 4OW0, MDDB MCV190020
 ## Tasks
 
 Three tasks shipped first, and are the ones every measurement below was made
-on. A hundred were selected on 2026-08-23; the full list with each task's chain
-and residue range is in [`docs/task-candidates.md`](docs/task-candidates.md).
+on. A hundred were selected on 2026-08-23 and 98 remain; the full list with each
+task's chain and residue range is in
+[`docs/task-candidates.md`](docs/task-candidates.md).
 
 | id | system | node:accession | chain | reference | adds |
 |---|---|---|---|---|---|
@@ -207,11 +208,11 @@ and residue range is in [`docs/task-candidates.md`](docs/task-candidates.md).
 | D02 | SARS-CoV-2 PLpro, 312 res + Zn | mmb:MCV1900210 | 6WRH A | 1 µs | the deposit carries C111S; simulate wild type |
 | D03 | SARS-CoV PLpro, 312 res + Zn | mmb:MCV1900208 | 4OW0 A | 1 µs | residue 112 is deposited as OCS, an oxidised cysteine |
 
-### The hundred
+### The cast
 
 Surveying every node directly gives **35602 projects**, of which **4036** can
 supply a calibrated window. The cast is stratified over nine axes and split
-**70 train / 30 evaluation**:
+**69 train / 29 evaluation**:
 
 | axis | tasks (train/eval) | source | force field | window |
 |---|---|---|---|---|
@@ -219,14 +220,16 @@ supply a calibrated window. The cast is stratified over nine axes and split
 | antibody-antigen | 10 (7/3) | Dynabench (inr) | CHARMM36m | 2.5 ns |
 | protein-protein | 6 (4/2) | Dynarepo (inr) | CHARMM36m | 2.5 ns |
 | VHH nanobodies | 5 (3/2) | nanobodies (mmb) | ff99SB-ILDN | 1 ns |
-| protein-ligand | 10 (7/3) | ligate (cin) | ff99SB-ILDN | 1 ns |
+| protein-ligand | 9 (7/2) | ligate (cin) | ff99SB-ILDN | 1 ns |
 | nucleic acids, incl. the nucleosome | 14 (10/4) | bigna (mmb) | ParmBSC1 etc. | 1 ns |
-| metal sites | 4 (3/1) | cv19 (mmb) | ff14SB | 1 ns |
+| metal sites | 3 (2/1) | cv19 (mmb) | ff14SB | 1 ns |
 | single chains | 24 (16/8) | ATLAS (bsc) | CHARMM36m | 1 ns |
 | single chains | 13 (9/4) | MoDEL (mmb) | Parm99 | 1 ns |
 
 Fifty-six deposits are multi-chain and thirty-nine projects carry two or more
-replicas. Six force fields are represented on purpose: the md checks are built
+replicas. Two of the hundred were withdrawn on 2026-08-30 — 038 (its reference
+carries a fragment no public data defines) and 061 (its reference's 1 ns windows
+are so uniform that no independent run can enter the band); see `docs/memo.md`. Six force fields are represented on purpose: the md checks are built
 to be force-field independent, and a cast that used one would not test that.
 
 The split is by **homology cluster**, not by task: reference sequences are

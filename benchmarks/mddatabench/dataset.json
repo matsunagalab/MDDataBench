@@ -1,6 +1,6 @@
 {
   "dataset_id": "MDDataBench-v0.3",
-  "description": "Short-MD tasks whose reference simulations come from MDDB. Each task is scored on two separate axes: prep (system building, checkable without running MD) and md (the run happened, at the conditions asked for, and its equilibrium statistics are indistinguishable from the reference own windows). Split 70 train / 30 evaluation by homology cluster, so the same system never appears on both sides.",
+  "description": "Short-MD tasks whose reference simulations come from MDDB. Each task is scored on two separate axes: prep (system building, checkable without running MD) and md (the run happened, at the conditions asked for, and its equilibrium statistics are indistinguishable from the reference own windows). Split 69 train / 29 evaluation by homology cluster, so the same system never appears on both sides.",
   "reference_database": {
     "name": "MDDB",
     "url": "https://mddbr.eu/",
@@ -269,13 +269,6 @@
       "prompt": "tasks/037_ligand_1g74/prompt.md"
     },
     {
-      "task_id": "038_ligand_1ikt",
-      "split": "eval",
-      "axis": "ligand",
-      "path": "tasks/038_ligand_1ikt/task.json",
-      "prompt": "tasks/038_ligand_1ikt/prompt.md"
-    },
-    {
       "task_id": "039_ligand_3ikd",
       "split": "train",
       "axis": "ligand",
@@ -428,13 +421,6 @@
       "axis": "metal",
       "path": "tasks/060_metal_4ow0/task.json",
       "prompt": "tasks/060_metal_4ow0/prompt.md"
-    },
-    {
-      "task_id": "061_metal_6m0j",
-      "split": "train",
-      "axis": "metal",
-      "path": "tasks/061_metal_6m0j/task.json",
-      "prompt": "tasks/061_metal_6m0j/prompt.md"
     },
     {
       "task_id": "062_metal_6w9c",
@@ -711,8 +697,8 @@
     }
   ],
   "counts": {
-    "total": 100,
-    "train": 70,
-    "eval": 30
+    "total": 98,
+    "train": 69,
+    "eval": 29
   }
 }
