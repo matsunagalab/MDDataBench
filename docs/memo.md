@@ -5,6 +5,22 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-30 — 001_membrane_5yc8 passes 20/20 on the third replay; two more defects on the way
+
+Replays of 001 after the five-task run (`~/tmp/mddatabench-runs/lab-deepseek-n4-20260830-001{,b,c}`,
+pi + deepseek-v4-flash, n4):
+
+| replay | frozen mdclaw | result | what stopped it |
+|---|---|---|---|
+| 1 | b592611 | 16/20 | agent opted into `--join-range-pieces` again; the rule sat in a skill page it never opened |
+| 2 | 27963b1 | 18/20 | separate pieces now, but the source→merged chain map collapsed to `{"A": "B"}`, so Cys96–176 resolved as `B:96` (`disulfide_endpoint_unresolvable`); the agent dropped all disulfides to get past it |
+| 3 | d105ea0 | **20/20** | — (agent 1619 s; both disulfides retained, two components, TIP3P patch hit) |
+
+Fixes: rule moved into `prepare-complex.md` and into the `join_range_pieces` docstring (mdclaw
+27963b1/9b670ec); site remaps made piece-aware (mdclaw d105ea0). Together with the earlier run, all
+five representative pass2 failures (001, 016, 024, 029, 043) now pass 20/20 under the current
+MDClaw and MDDataBench.
+
 ## 2026-08-30 — Experiment workspaces cannot live inside the source checkout
 
 A five-task replay placed its experiment below the MDDataBench checkout. The
