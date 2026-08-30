@@ -342,3 +342,15 @@ def test_widely_separated_multi_chain_selection_fails_with_rg_diagnostic(
         "heavy_atom_geometric_radius_of_gyration_angstrom"] == 10.0
     assert geometry["reference"][
         "heavy_atom_geometric_radius_of_gyration_angstrom"] == 1.5
+
+
+def test_a_named_exclusion_declares_the_difference():
+    from mddatabench.contract_audit import _difference_is_declared
+
+    body = ("The deposit's **PON** and **MN** are not part of the reference. "
+            "Simulate the protein without them.")
+    assert _difference_is_declared(body, "metal", ["MN"])
+    assert _difference_is_declared(body, "other", ["PON"])
+    # A component the prompt never names is still an undeclared difference.
+    assert not _difference_is_declared(body, "metal", ["ZN"])
+    assert not _difference_is_declared("Simulate the protein.", "metal", ["MN"])

@@ -718,7 +718,13 @@ def _deposit_components(path: pathlib.Path, records: list[Residue],
     return in_selected_chain or named
 
 
-def _difference_is_declared(body: str, kind: str) -> bool:
+def _difference_is_declared(body: str, kind: str, names=()) -> bool:
+    # A prompt that names every deposit component and says it is not in the
+    # reference has declared the difference, whatever verb it used.
+    if names and re.search(r"not part of the reference", body, re.I):
+        upper = body.upper()
+        if all(str(name).upper() in upper for name in names):
+            return True
     if kind == "cap":
         return (re.search(
             r"\b(?:uncapped|free termin(?:us|i)|remove|drop|without)\b.*\bcap",
@@ -943,7 +949,9 @@ def audit_task_contract(task_dir: str, bundle: str,
                 reference_comparison = Counter(
                     {"named_component": sum(reference_counts[kind].values())})
             if (deposit_counts != reference_comparison
-                    and not _difference_is_declared(declared["body"], kind)):
+                    and not _difference_is_declared(
+                        declared["body"], kind,
+                        [r.name for r in deposit_components])):
                 findings.append({
                     "kind": f"deposit_reference_{kind}_mismatch",
                     "detail": f"{pdb_id}: " + _difference_detail(

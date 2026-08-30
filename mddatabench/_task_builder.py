@@ -906,13 +906,17 @@ def _site_within(number: int, icode: str, spans: list) -> bool:
 
 def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonation,
                  window_ns, replicas=1, joined_chains=(), disulfides=None,
-                 extra_components=()):
+                 extra_components=(), excluded_components=()):
     """The text an agent is given.  Derived, not written.
 
     ``joined_chains`` names the deposit chains whose pieces the reference holds
     as one continuous polymer.  See ``joins_its_pieces``: a construct written as
     two ranges can be simulated as two chains or as one, the deposit records
     neither, and the two differ by a peptide bond and two pairs of termini.
+
+    ``excluded_components`` names deposited heteroatom components the reference
+    does not contain, for a title that advertises one (1FFW: "WITH A BOUND
+    IMIDO", whose reference is protein only).
 
     ``extra_components`` fully specifies a reference component that cannot be
     recovered by loading a named CCD ligand directly, including its public
@@ -1030,6 +1034,13 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
         lines += [f"Simulate Cys{first} and Cys{second} of chain {pair['chain']} as "
                   "free (reduced) cysteines; do not form a disulfide bond between "
                   "them.", ""]
+    if excluded_components:
+        marked = [f"**{name}**" for name in excluded_components]
+        which = (" and ".join(marked) if len(marked) < 3
+                 else ", ".join(marked[:-1]) + " and " + marked[-1])
+        lines += [f"The deposit's {which} {'are' if len(excluded_components) > 1 else 'is'} "
+                  "not part of the reference. Simulate the protein without "
+                  f"{'them' if len(excluded_components) > 1 else 'it'}.", ""]
     for component in extra_components:
         charge = int(component["expected_formal_net_charge"])
         lines += [

@@ -683,3 +683,18 @@ def test_an_omitted_modified_residue_is_not_restored():
 
     assert "Residue 1004 (YCM) is not part of the reference" in text
     assert "modified CYS" not in text
+
+
+def test_excluded_components_are_named_in_the_prompt():
+    metadata = {"WAT": "TIP3P", "TEMP": 310, "ENSEMBLE": "NPT"}
+    chains = [{"deposit_chain": "A", "ranges": [["2", "129"]]}]
+    text = tb.build_prompt(
+        "t", "Complex with a bound imido", "1FFW", metadata, chains, {}, [], 2.5,
+        excluded_components=("PON", "MN"),
+    )
+
+    assert "**PON** and **MN** are not part of the reference" in text
+    assert "Simulate the protein without them." in text
+
+    plain = tb.build_prompt("t", "Complex", "1FFW", metadata, chains, {}, [], 2.5)
+    assert "not part of the reference. Simulate the protein without" not in plain

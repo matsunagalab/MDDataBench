@@ -5,6 +5,26 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-08-30 — 030's own title was the trap; the prompt now excludes what the reference lacks
+
+1FFW's MDDB title reads "...WITH A BOUND IMIDO", and its reference is protein
+only (PROTATS 3022 = SYSTATS). In pass2 the r1 agent read the title, included
+PON with `--include-ligand-ids A:PON:330`, and failed `monomer_count` on an
+extra one-residue component (extra N1 O6 P2); r2 excluded it and scored 20/20.
+The prompt now says: "The deposit's **PON** and **MN** are not part of the
+reference. Simulate the protein without them.", the two names are recorded in
+`reference.selection.excluded_components`, and `build_prompt` grew an
+`excluded_components` clause so the sentence is derived rather than written.
+
+`audit_task_contract` previously reported `deposit_reference_metal_mismatch`
+for this task because its declaration test looked for a verb near a metal word.
+It now also accepts a prompt that names every deposit component of that kind and
+says it is "not part of the reference", which is the stronger statement. Task
+030 audits clean (declared 196 = reference 196, no findings); a component the
+prompt does not name still fails, which the new unit test pins.
+
+No bundle or hash changed. 1128 tests pass; ruff clean.
+
 ## 2026-08-30 — 038 and 061 withdrawn from the cast; 98 tasks remain
 
 Both were unreachable for reasons that belong to the reference, not to any agent,
