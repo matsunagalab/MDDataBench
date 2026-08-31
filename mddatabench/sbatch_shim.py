@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
 import subprocess
 import sys
@@ -65,7 +66,12 @@ def main(argv=None) -> int:
     if partition:
         scheduler_args.append(f"--partition={partition}")
     if nodelist:
-        scheduler_args.append(f"--nodelist={nodelist}")
+        # Slurm's --nodelist requires every listed host, so a two-node value
+        # made each job wait for the first one: measured 2026-08-31, jobs sat
+        # in ReqNodeNotAvail on a full n2 while n4 ran one job and idled.
+        # One host per submission, drawn at random, spreads the campaign.
+        choices = [host.strip() for host in nodelist.split(",") if host.strip()]
+        scheduler_args.append(f"--nodelist={random.choice(choices)}")
     cleaned = _without_time_limit(arguments)
     if partition or nodelist:
         cleaned = _without_node_target(cleaned)
