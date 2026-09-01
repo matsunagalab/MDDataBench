@@ -637,6 +637,41 @@ def _reference_seqres_position(entry, position):
     return None
 
 
+def _reference_protonation_variants(reference_pdb):
+    """Scored non-standard ionisation states in reference polymer order."""
+    from mddatabench import composition as cp
+
+    monomers = cp.split_monomers(cp.read_residues(reference_pdb))
+    metals = cp.read_metals(reference_pdb)
+    exempt = set()
+    for source in (cp.metal_ligand_positions(monomers, metals),
+                   cp.catalytic_dyad_positions(monomers, metals)):
+        for monomer_id, positions in source.items():
+            exempt.update((monomer_id, position) for position in positions)
+
+    out = []
+    reference_position = 0
+    for monomer_index, monomer in enumerate(monomers):
+        for monomer_position, residue in enumerate(monomer, start=1):
+            name = residue.name.strip().upper()
+            if residue.canonical in AMINO or residue.canonical in NUCLEIC:
+                reference_position += 1
+            variant = "HIP" if name == "HIS" and _is_protonated_his(residue) else name
+            if (variant not in IONISATION
+                    or (id(monomer), monomer_position) in exempt):
+                continue
+            out.append({
+                "monomer_index": monomer_index,
+                "monomer_position": monomer_position,
+                "reference_position": reference_position,
+                "reference_chain": residue.chain,
+                "reference_residue": residue.resseq,
+                "name": name,
+                "meaning": IONISATION[variant],
+            })
+    return out
+
+
 def stated_protonation(reference_pdb, deposit=None, chains=None):
     """Ionisation variants a prompt has to state, in the deposit's numbering.
 
@@ -658,15 +693,6 @@ def stated_protonation(reference_pdb, deposit=None, chains=None):
     with ``residue: None`` and the caller drops it rather than stating a number
     that does not mean anything.
     """
-    from mddatabench import composition as cp
-
-    monomers = cp.split_monomers(cp.read_residues(reference_pdb))
-    metals = cp.read_metals(reference_pdb)
-    exempt = set()
-    for source in (cp.metal_ligand_positions(monomers, metals),
-                   cp.catalytic_dyad_positions(monomers, metals)):
-        for monomer_id, positions in source.items():
-            exempt.update((monomer_id, position) for position in positions)
     mappings = {}
     if deposit and chains:
         for entry in chains:
@@ -674,23 +700,24 @@ def stated_protonation(reference_pdb, deposit=None, chains=None):
             if deposit_chain and deposit_chain not in mappings:
                 mappings[deposit_chain] = seqres_to_auth(deposit, deposit_chain)
     out = []
-    for index, monomer in enumerate(monomers):
+    for variant in _reference_protonation_variants(reference_pdb):
+        index = variant["monomer_index"]
         entry = chains[index] if chains and index < len(chains) else None
-        for position, residue in enumerate(monomer, start=1):
-            name = residue.name.strip().upper()
-            variant = "HIP" if name == "HIS" and _is_protonated_his(residue) else name
-            if variant not in IONISATION or (id(monomer), position) in exempt:
-                continue
-            number = None
-            if entry:
-                mapping = mappings.get(entry.get("deposit_chain")) or {}
-                seqres_position = _reference_seqres_position(entry, position)
-                if seqres_position is not None:
-                    number, _ = auth_number(mapping, seqres_position)
-            out.append({"chain": entry.get("deposit_chain") if entry else residue.chain,
-                        "residue": number, "name": name,
-                        "meaning": IONISATION[variant],
-                        "reference_residue": residue.resseq})
+        number = None
+        if entry:
+            mapping = mappings.get(entry.get("deposit_chain")) or {}
+            seqres_position = _reference_seqres_position(
+                entry, variant["monomer_position"])
+            if seqres_position is not None:
+                number, _ = auth_number(mapping, seqres_position)
+        out.append({
+            "chain": (entry.get("deposit_chain") if entry
+                      else variant["reference_chain"]),
+            "residue": number,
+            "name": variant["name"],
+            "meaning": variant["meaning"],
+            "reference_residue": variant["reference_residue"],
+        })
     return [entry for entry in out if entry["residue"] is not None]
 
 

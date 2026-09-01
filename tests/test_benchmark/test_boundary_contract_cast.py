@@ -1,4 +1,4 @@
-"""Slow release check for topology-derived task boundary contracts."""
+"""Slow release checks for topology-derived task contracts."""
 
 from __future__ import annotations
 
@@ -41,6 +41,31 @@ def test_all_98_task_boundaries_match_their_reference_topologies():
             findings = ca._boundary_contract_findings(
                 prompt, selection, ca._declared(prompt),
                 ca.deposit_polymer_scheme(deposit), reference)
+            if findings:
+                failures.append((task_dir.name, pdb_id, findings))
+    assert failures == []
+
+
+def test_all_98_tasks_disclose_nonstandard_reference_protonation():
+    tasks = sorted(DATASET.glob("tasks/*/task.json"))
+    assert len(tasks) == 98
+    failures = []
+    for task_json in tasks:
+        task_dir = task_json.parent
+        spec = json.loads(task_json.read_text())
+        reference_spec = spec["reference"]
+        selection = reference_spec["selection"]
+        prompt = (task_dir / "prompt.md").read_text()
+        reference_pdb = (
+            pathlib.Path(BUNDLE_ROOT)
+            / f"{reference_spec['node']}_{reference_spec['accession']}"
+            / "reference.pdb"
+        )
+        for pdb_id in reference_spec["pdb_ids"]:
+            deposit = DATASET / "_deposits" / f"{pdb_id.upper()}.cif"
+            findings = ca._protonation_contract_findings(
+                prompt, selection, ca._declared(prompt),
+                ca.deposit_polymer_scheme(deposit), reference_pdb)
             if findings:
                 failures.append((task_dir.name, pdb_id, findings))
     assert failures == []

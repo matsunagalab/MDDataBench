@@ -461,3 +461,35 @@ def test_reference_backbone_contract_filters_a_ligand_singleton(
     assert contract["polymer_count"] == 2
     assert contract["components"] == [[1, 2]]
     assert contract["links"] == {(1, 2, "peptide")}
+
+
+def test_nonstandard_reference_protonation_must_be_stored_and_stated(
+    tmp_path, monkeypatch,
+):
+    from mddatabench import _task_builder as builder
+
+    monkeypatch.setattr(builder, "_reference_protonation_variants", lambda path: [{
+        "reference_position": 1,
+        "meaning": "protonated histidine",
+    }])
+    prompt = "Simulate chain **A** residues **264–264**."
+    selection = {
+        "ranges": {"A": [["264", "264"]]},
+        "stated_protonation": [],
+    }
+    scheme = {"A": [(264, "", True)]}
+
+    findings = ca._protonation_contract_findings(
+        prompt, selection, ca._declared(prompt), scheme,
+        tmp_path / "reference.pdb")
+    assert [finding["kind"] for finding in findings] == [
+        "reference_protonation_undisclosed"]
+    assert "selection.stated_protonation and prompt" in findings[0]["detail"]
+
+    selection["stated_protonation"] = [{
+        "chain": "A", "residue": "264", "meaning": "protonated histidine",
+    }]
+    prompt += " Residue 264 of chain A is a protonated histidine."
+    assert ca._protonation_contract_findings(
+        prompt, selection, ca._declared(prompt), scheme,
+        tmp_path / "reference.pdb") == []

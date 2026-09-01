@@ -602,6 +602,49 @@ def _boundary_contract_findings(prompt: str, selection: dict, declared: dict,
     return findings
 
 
+def _protonation_contract_findings(prompt: str, selection: dict, declared: dict,
+                                   scheme: dict, reference_pdb) -> list[dict]:
+    """Non-standard reference protonation must be stored and stated."""
+    from mddatabench import _task_builder as builder
+
+    expected = builder._reference_protonation_variants(reference_pdb)
+    if not expected:
+        return []
+    sites, _ = _selection_site_model(selection, declared, scheme)
+    stored = {
+        (str(entry.get("chain")), str(entry.get("residue")), entry.get("meaning"))
+        for entry in selection.get("stated_protonation") or []
+    }
+    missing = []
+    for variant in expected:
+        position = variant["reference_position"]
+        if position < 1 or position > len(sites):
+            missing.append(
+                f"reference polymer position {position} ({variant['meaning']}) "
+                "cannot be mapped to the selected deposit construct")
+            continue
+        chain, number, icode = sites[position - 1]
+        residue = f"{number}{icode}"
+        absent = []
+        if (chain, residue, variant["meaning"]) not in stored:
+            absent.append("selection.stated_protonation")
+        statement = (
+            f"Residue {residue} of chain {chain} is a {variant['meaning']}.")
+        if statement not in prompt:
+            absent.append("prompt")
+        if absent:
+            missing.append(
+                f"{chain}:{residue} ({variant['meaning']}) missing from "
+                + " and ".join(absent))
+    if not missing:
+        return []
+    return [{
+        "kind": "reference_protonation_undisclosed",
+        "detail": "; ".join(missing),
+        "component": "protonation",
+    }]
+
+
 def classify_build_sites(scheme_chain: list, selected: set,
                          sites: list) -> list[dict]:
     """Terminal or internal, judged by position in the polymer, not by number.
@@ -1162,6 +1205,12 @@ def audit_task_contract(task_dir: str, bundle: str,
                 scheme = deposit_polymer_scheme(deposit_file)
                 for finding in _boundary_contract_findings(
                         prompt, selection, declared, scheme, reference_backbone):
+                    finding["pdb_id"] = pdb_id
+                    finding["detail"] = f"{pdb_id}: {finding['detail']}"
+                    findings.append(finding)
+                for finding in _protonation_contract_findings(
+                        prompt, selection, declared, scheme,
+                        bundle_path / "reference.pdb"):
                     finding["pdb_id"] = pdb_id
                     finding["detail"] = f"{pdb_id}: {finding['detail']}"
                     findings.append(finding)

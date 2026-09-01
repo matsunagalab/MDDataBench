@@ -5,6 +5,17 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-09-01 — Release audit now requires protonation disclosure
+
+The task builder's reference-state detector is now shared with the release
+audit. The audit maps each scored non-standard state from reference polymer
+position to the exact deposit-author site, then requires both the structured
+`selection.stated_protonation` entry and the generated prompt sentence.
+Applying the finished gate to the pre-regeneration cast (`96877ad`) flags
+exactly 007 and 009 (2/98); after regeneration it flags none (0/98). The current
+cast contains 11 disclosed states in six tasks, including the three HIS-named
+HIP states measured below.
+
 ## 2026-09-01 — Cast sweep finds two undisclosed protonated histidines
 
 Before changing any task, all 98 reference PDBs were swept for generic residue
