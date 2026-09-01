@@ -5,6 +5,48 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-09-01 — Full 98-task campaign: pi + DeepSeek scores 84.7% pass@1
+
+`~/tmp/mddatabench-runs/full98-20260831`, pi + `deepseek-cloudflare/deepseek-v4-flash`,
+`cli_skill_sif`, frozen mdclaw `b0a02e8`, MDDataBench `fea8352`, the 2026-08-30 SIF,
+MD on n2/n4, two agents at a time. 98 attempts, 23 h of agent time.
+
+**success_rate 84.7% (83/98), mean check score 0.914.**
+
+| axis | pass |
+|---|---|
+| antibody | 10/10 |
+| complex | 6/6 |
+| metal | 3/3 |
+| ligand | 8/9 |
+| soluble | 32/37 |
+| nucleic | 12/14 |
+| membrane | 9/14 |
+| nanobody | 3/5 |
+
+**The single largest loss is one misspelling.** Six attempts (031, 034, 053, 079, 091, and
+079's sibling) hand-wrote `singularity exec -nv` — one hyphen — inside `submit_job --script`.
+sbatch returned 0, the agent exited, and minimisation then died on the compute node with
+`unknown shorthand flag: 'v'`, leaving eq/prod in DependencyNeverSatisfied until the operator
+cancelled them so the `afterany` scorers could record 0/20. That is 6.1% of the cast lost to a
+typo the harness could not catch after submission. mdclaw `09352d0` now refuses a container
+command inside a SLURM payload before sbatch is called (`container_command_in_script`), with an
+explicit escape hatch that also names the `-nv`/`--nv` correction. Two more zero scores (066,
+090) failed at the same stage for causes their retained logs no longer show.
+
+**Membrane is the remaining scientific gap.** Four of its five failures are the
+range-piece/component question: the references bridge a short omission stated inside a range
+(010's 174-182) while keeping separately stated ranges apart, and MDClaw's `--join-range-pieces`
+is all-or-nothing per chain, so an agent can only be wrong in one direction or the other. 007
+lost one check to a HIS-named HIP the prompt does not disclose — the `b27cc63` builder fix was
+only applied to 014, so every other task with that chemistry still needs regenerating.
+
+**What the day's fixes bought.** Tasks that failed in `full100-pass2` and pass now: 001, 012,
+014, 016, 019, 024, 029, 030, 043, 047, 048, 075. The nucleic axis, which lost four attempts to
+marginal RMSF in pass2, lost one here (057, still below the widened band). No attempt failed on
+insertion codes, glycan classification, disulfide correspondence, or the membrane patch cold
+build.
+
 ## 2026-08-30 — 012, 019 and 030 verified on the cluster: 20/20 each
 
 `~/tmp/mddatabench-runs/lab-deepseek-n4-20260830-verify3`, pi + deepseek-v4-flash,
