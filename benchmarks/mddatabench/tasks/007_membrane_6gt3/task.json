@@ -88,7 +88,15 @@
       "build_missing": {},
       "differences_from_deposit": [],
       "modified_residues_reverted": [],
-      "stated_protonation": [],
+      "stated_protonation": [
+        {
+          "chain": "A",
+          "residue": "264",
+          "name": "HIS",
+          "meaning": "protonated histidine",
+          "reference_residue": "256"
+        }
+      ],
       "numbering_certain": true,
       "derivation": "reference structure aligned to the deposit's SEQRES, then SEQRES positions mapped to author numbering through the observed residues"
     },
