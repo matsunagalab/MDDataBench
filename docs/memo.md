@@ -5,6 +5,22 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-09-01 — Cast sweep finds two undisclosed protonated histidines
+
+Before changing any task, all 98 reference PDBs were swept for generic residue
+names carrying the atom/hydrogen signature of a non-standard ionisation state,
+with the same metal-ligand and catalytic-dyad exemptions used by the scorer.
+Three HIS-named residues carry both ring protons: reference B:256 in 007 and
+009, and reference A:255 in 014. The multi-span deposit mapping places all
+three at chain A residue 264. Only 014 already disclosed it, leaving exactly
+two task defects: 007 and 009.
+
+No generic-named ASP, GLU, LYS, ARG or TYR carried its corresponding
+non-standard side-chain hydrogen signature. CYS residues lacking a thiol
+hydrogen were disulfide or exempt sites rather than an additional undisclosed
+ionisation instruction. Thus the regeneration scope is 007 and 009 only; no
+reference artifact or hash needs to change.
+
 ## 2026-09-01 — Boundary connectivity is now an exact release contract
 
 The release audit now maps the selected deposit-author sites to the reference
