@@ -60,6 +60,22 @@
           ]
         ]
       },
+      "omitted_ranges": {},
+      "effective_components": [
+        {
+          "deposit_chain": "A",
+          "ranges": [
+            [
+              "18",
+              "214"
+            ],
+            [
+              "382",
+              "458"
+            ]
+          ]
+        }
+      ],
       "numbering": "the deposit's own author numbering, not SEQRES positions",
       "build_missing": {},
       "differences_from_deposit": [],

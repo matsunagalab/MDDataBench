@@ -104,6 +104,89 @@
           ]
         ]
       },
+      "omitted_ranges": {},
+      "effective_components": [
+        {
+          "deposit_chain": "E",
+          "ranges": [
+            [
+              "10",
+              "312"
+            ]
+          ]
+        },
+        {
+          "deposit_chain": "E",
+          "ranges": [
+            [
+              "415",
+              "447"
+            ]
+          ]
+        },
+        {
+          "deposit_chain": "A",
+          "ranges": [
+            [
+              "10",
+              "323"
+            ],
+            [
+              "384",
+              "418"
+            ]
+          ]
+        },
+        {
+          "deposit_chain": "B",
+          "ranges": [
+            [
+              "8",
+              "312"
+            ]
+          ]
+        },
+        {
+          "deposit_chain": "B",
+          "ranges": [
+            [
+              "415",
+              "447"
+            ]
+          ]
+        },
+        {
+          "deposit_chain": "C",
+          "ranges": [
+            [
+              "27",
+              "323"
+            ]
+          ]
+        },
+        {
+          "deposit_chain": "C",
+          "ranges": [
+            [
+              "406",
+              "436"
+            ]
+          ]
+        },
+        {
+          "deposit_chain": "D",
+          "ranges": [
+            [
+              "10",
+              "322"
+            ],
+            [
+              "384",
+              "417"
+            ]
+          ]
+        }
+      ],
       "numbering": "the deposit's own author numbering, not SEQRES positions",
       "build_missing": {
         "E": 8,
