@@ -10,6 +10,7 @@ import pytest
 
 DATASET = Path(__file__).resolve().parents[2] / "benchmarks" / "mddatabench"
 TASKS = sorted(DATASET.glob("tasks/*/task.json"))
+MEMBRANE_TASKS = [path for path in TASKS if "_membrane_" in path.parent.name]
 CC = re.compile(r"CC BY|CC0|Creative Commons", re.I)
 
 
@@ -166,6 +167,34 @@ def test_stored_selection_mirrors_the_prompt(path):
     findings = selection_range_findings(
         (path.parent / "prompt.md").read_text(), spec["reference"]["selection"])
     assert not findings, "; ".join(f["detail"] for f in findings)
+
+
+@pytest.mark.parametrize("path", MEMBRANE_TASKS, ids=lambda p: p.parent.name)
+def test_membrane_component_metadata_drives_the_prompt(path):
+    from mddatabench import _task_builder as builder
+    from mddatabench.contract_audit import _declared
+
+    task = load(path)
+    prompt = (path.parent / "prompt.md").read_text()
+    selection = task["reference"]["selection"]
+    assert "omitted_ranges" in selection
+    components = selection["effective_components"]
+    assert components
+    assert all(set(component) == {"deposit_chain", "ranges"}
+               for component in components)
+    assert all(isinstance(endpoint, str)
+               for component in components
+               for span in component["ranges"]
+               for endpoint in span)
+    for statements in builder._boundary_connectivity_lines(components).values():
+        assert all(statement in prompt for statement in statements)
+
+    declared = _declared(prompt)
+    stored_omissions = {
+        chain: [(int(first), int(last)) for first, last in spans]
+        for chain, spans in selection["omitted_ranges"].items()
+    }
+    assert stored_omissions == declared["excluded"]
 
 
 def test_an_insertion_code_range_is_compared_as_written():

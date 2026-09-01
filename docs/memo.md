@@ -5,6 +5,28 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-09-01 — Boundary connectivity is now an exact release contract
+
+The release audit now maps the selected deposit-author sites to the reference
+topology and compares the exact peptide/phosphodiester boundary links and
+polymer-only components. This corrects the heuristic account in the full-cast
+entry below: an omitted interval alone does not imply whether its flanks are
+bonded, and separately written ranges are not necessarily separate components.
+
+Before the task metadata and prompts were regenerated, the new gate flagged
+exactly seven of 98 tasks. 001, 004, 007, 008, 009 and 011 lacked explicit
+boundary decisions; 010 both lacked them and represented its three pieces as
+three components although the reference joins the first two only. The 14
+membrane contracts now record ordered `omitted_ranges` and
+`effective_components`. Prompts 001, 004, 007, 008, 009, 010 and 011 now state
+every affected endpoint and bond kind; 010 states its bonded and separate
+boundaries independently rather than using the whole-chain join sentence.
+
+A scorer-compatible check derived the contract again from every one of the 98
+reference topologies after regeneration: zero tasks were flagged (440.82 s).
+The focused non-slow boundary/task tests passed 984 tests, and Ruff was clean.
+No reference bundle, trajectory or recorded hash changed.
+
 ## 2026-09-01 — Full 98-task campaign: pi + DeepSeek scores 84.7% pass@1
 
 `~/tmp/mddatabench-runs/full98-20260831`, pi + `deepseek-cloudflare/deepseek-v4-flash`,

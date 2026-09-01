@@ -6,6 +6,7 @@ import json
 import re
 from pathlib import Path
 import tomllib
+from types import SimpleNamespace
 
 from mddatabench import contract_audit as ca
 
@@ -354,3 +355,109 @@ def test_a_named_exclusion_declares_the_difference():
     # A component the prompt never names is still an undeclared difference.
     assert not _difference_is_declared(body, "metal", ["ZN"])
     assert not _difference_is_declared("Simulate the protein.", "metal", ["MN"])
+
+
+def _mixed_boundary_contract():
+    prompt = (
+        "Simulate chain **A** residues **29–227** and **365–443**. "
+        "Residue 174–182 of chain A is not part of the reference. Leave it out."
+    )
+    selection = {
+        "ranges": {"A": [["29", "227"], ["365", "443"]]},
+        "omitted_ranges": {"A": [["174", "182"]]},
+        "effective_components": [
+            {"deposit_chain": "A",
+             "ranges": [["29", "173"], ["183", "227"]]},
+            {"deposit_chain": "A", "ranges": [["365", "443"]]},
+        ],
+    }
+    scheme = {"A": [(number, "", True) for number in
+                     [*range(29, 228), *range(365, 444)]]}
+    reference = {
+        "polymer_count": 269,
+        "components": [list(range(1, 191)), list(range(191, 270))],
+        "links": {(145, 146, "peptide")},
+        "kinds": ["protein"] * 269,
+    }
+    return prompt, selection, scheme, reference
+
+
+def test_mixed_three_piece_boundary_contract_is_exact():
+    prompt, selection, scheme, reference = _mixed_boundary_contract()
+    prompt += (
+        " Connect chain A residue 173 C to residue 183 N with a peptide bond "
+        "across the omitted A:174-182 span. Keep chain A residues 227 and 365 "
+        "as separate termini; do not create a peptide bond between A:227 C "
+        "and A:365 N."
+    )
+
+    findings = ca._boundary_contract_findings(
+        prompt, selection, ca._declared(prompt), scheme, reference)
+
+    assert findings == []
+
+
+def test_boundary_contract_has_separate_missing_and_contradiction_codes():
+    prompt, selection, scheme, reference = _mixed_boundary_contract()
+    missing = ca._boundary_contract_findings(
+        prompt, selection, ca._declared(prompt), scheme, reference)
+    assert {finding["kind"] for finding in missing} == {
+        "prompt_boundary_connectivity_missing"}
+
+    contradicted = prompt + " Join the pieces of chain A into a single continuous chain."
+    findings = ca._boundary_contract_findings(
+        contradicted, selection, ca._declared(contradicted), scheme, reference)
+    assert {finding["kind"] for finding in findings} == {
+        "prompt_boundary_connectivity_contradicts_selection"}
+
+
+def test_insertion_codes_and_author_number_gaps_do_not_split_a_component():
+    prompt = "Simulate chain **A** residues **1A–5**."
+    selection = {
+        "ranges": {"A": [["1A", "5"]]},
+        "omitted_ranges": {},
+        "effective_components": [
+            {"deposit_chain": "A", "ranges": [["1A", "5"]]},
+        ],
+    }
+    scheme = {"A": [(1, "A", True), (1, "", True), (2, "", True),
+                     (4, "", True), (5, "", True)]}
+    reference = {
+        "polymer_count": 5,
+        "components": [list(range(1, 6))],
+        "links": set(),
+        "kinds": ["protein"] * 5,
+    }
+
+    assert ca._scheme_span_sites(scheme["A"], ("1A", "5")) == [
+        (1, "A"), (1, ""), (2, ""), (4, ""), (5, "")]
+    assert ca._boundary_contract_findings(
+        prompt, selection, ca._declared(prompt), scheme, reference) == []
+
+
+def test_reference_backbone_contract_filters_a_ligand_singleton(
+    tmp_path, monkeypatch,
+):
+    from mddatabench import composition as cp
+    from mddatabench import topology as tp
+
+    first = SimpleNamespace(name="ALA")
+    second = SimpleNamespace(name="GLY")
+    ligand = SimpleNamespace(name="LIG")
+    structure = SimpleNamespace(residues=[])
+    monkeypatch.setattr(tp, "find_reference_topology", lambda bundle: bundle / "ref.top")
+    monkeypatch.setattr(tp, "load_reference", lambda topology, pdb: structure)
+    monkeypatch.setattr(tp, "backbone_links", lambda topology: [])
+    monkeypatch.setattr(cp, "read_residues", lambda pdb: [first, second, ligand])
+    monkeypatch.setattr(
+        cp, "split_monomers_by_backbone_links",
+        lambda residues, topology_residues, links, polymer_names: (
+            [[first, second], [ligand]], {(0, 1, "peptide"): {}}),
+    )
+
+    contract, returned = ca._reference_backbone_contract(tmp_path)
+
+    assert returned is structure
+    assert contract["polymer_count"] == 2
+    assert contract["components"] == [[1, 2]]
+    assert contract["links"] == {(1, 2, "peptide")}

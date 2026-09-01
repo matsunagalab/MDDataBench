@@ -269,6 +269,27 @@ def test_the_prompt_says_it_only_for_the_chains_that_were_joined():
     assert "crystallisation partner" in joined and "crystallisation partner" in apart
 
 
+def test_mixed_effective_components_generate_exact_boundary_instructions():
+    metadata = {"WAT": "TIP3P", "TEMP": 310, "ENSEMBLE": "NPT"}
+    chains = [{"deposit_chain": "A",
+               "ranges": [["29", "227"], ["365", "443"]],
+               "omitted": [["174", "182"]]}]
+    components = [
+        {"deposit_chain": "A", "ranges": [["29", "173"], ["183", "227"]]},
+        {"deposit_chain": "A", "ranges": [["365", "443"]]},
+    ]
+
+    text = tb.build_prompt(
+        "t", "Receptor", "6KUX", metadata, chains, {}, [], 1.0,
+        joined_chains={"A"}, effective_components=components)
+
+    assert ("Connect chain A residue 173 C to residue 183 N with a peptide bond "
+            "across the omitted A:174-182 span.") in text
+    assert ("Keep chain A residues 227 and 365 as separate termini; do not create "
+            "a peptide bond between A:227 C and A:365 N.") in text
+    assert "single continuous chain" not in text
+
+
 def _deposit(tmp_path, seqres_by_chain, observed=None):
     """A PDB with SEQRES for each chain and, by default, every residue observed."""
     rows = []
