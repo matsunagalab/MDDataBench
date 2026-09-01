@@ -8,13 +8,19 @@ Simulate Gamma-aminobutyric acid receptor subunit gamma-2 in complex with Gamma-
 
 Chain E is deposited as a fusion: 102 residues between those ranges belong to the crystallisation partner. Simulate the protein without them.
 
+Keep chain E residues 312 and 415 as separate termini; do not create a peptide bond between E:312 C and E:415 N.
+
 Chain A is deposited as a fusion: 60 residues between those ranges belong to the crystallisation partner. Simulate the protein without them.
 
 Join the pieces of chain A into a single continuous chain, bonded where the removed part was.
 
 Chain B is deposited as a fusion: 102 residues between those ranges belong to the crystallisation partner. Simulate the protein without them.
 
+Keep chain B residues 312 and 415 as separate termini; do not create a peptide bond between B:312 C and B:415 N.
+
 Chain C is deposited as a fusion: 82 residues between those ranges belong to the crystallisation partner. Simulate the protein without them.
+
+Keep chain C residues 323 and 406 as separate termini; do not create a peptide bond between C:323 C and C:406 N.
 
 Chain D is deposited as a fusion: 61 residues between those ranges belong to the crystallisation partner. Simulate the protein without them.
 

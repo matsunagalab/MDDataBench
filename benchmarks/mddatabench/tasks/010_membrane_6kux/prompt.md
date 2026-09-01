@@ -8,6 +8,10 @@ Simulate alpha2A adrenergic receptor, PDB entry **6KUX**, chain **A** residues *
 
 Residue 174–182 of chain A is not part of the reference. Leave it out.
 
+Connect chain A residue 173 C to residue 183 N with a peptide bond across the omitted A:174-182 span.
+
+Keep chain A residues 227 and 365 as separate termini; do not create a peptide bond between A:227 C and A:365 N.
+
 Embed it in a **DPPC** bilayer.
 
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.

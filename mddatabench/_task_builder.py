@@ -904,9 +904,53 @@ def _site_within(number: int, icode: str, spans: list) -> bool:
     return False
 
 
+def _boundary_connectivity_lines(effective_components) -> dict[str, list[str]]:
+    """Prompt instructions implied by ordered author-range components."""
+    by_chain = {}
+    for component_index, component in enumerate(effective_components or []):
+        chain = component["deposit_chain"]
+        for span in component.get("ranges") or []:
+            by_chain.setdefault(chain, []).append((component_index, span))
+
+    lines = {}
+    for chain, pieces in by_chain.items():
+        if len(pieces) < 2:
+            continue
+        boundaries = [
+            (left[1][1], right[1][0], left[0] == right[0])
+            for left, right in zip(pieces, pieces[1:])
+        ]
+        if all(bonded for _, _, bonded in boundaries):
+            lines[chain] = [
+                f"Join the pieces of chain {chain} into a single continuous chain, "
+                "bonded where the removed part was."
+            ]
+            continue
+        statements = []
+        for left, right, bonded in boundaries:
+            if bonded:
+                omitted = ""
+                left_site, right_site = _site_key(left), _site_key(right)
+                if (not left_site[1] and not right_site[1]
+                        and right_site[0] > left_site[0] + 1):
+                    first, last = left_site[0] + 1, right_site[0] - 1
+                    omitted = (f" across the omitted {chain}:{first}-{last} span")
+                statements.append(
+                    f"Connect chain {chain} residue {left} C to residue {right} N "
+                    f"with a peptide bond{omitted}.")
+            else:
+                statements.append(
+                    f"Keep chain {chain} residues {left} and {right} as separate "
+                    "termini; do not create a peptide bond between "
+                    f"{chain}:{left} C and {chain}:{right} N.")
+        lines[chain] = statements
+    return lines
+
+
 def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonation,
                  window_ns, replicas=1, joined_chains=(), disulfides=None,
-                 extra_components=(), excluded_components=()):
+                 extra_components=(), excluded_components=(),
+                 effective_components=()):
     """The text an agent is given.  Derived, not written.
 
     ``joined_chains`` names the deposit chains whose pieces the reference holds
@@ -921,6 +965,10 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
     ``extra_components`` fully specifies a reference component that cannot be
     recovered by loading a named CCD ligand directly, including its public
     coordinate source.
+
+    ``effective_components`` is the ordered deposit-author range grouping read
+    from ``reference.selection``. When present it replaces the older all-or-none
+    ``joined_chains`` hint and emits every mixed or separated peptide boundary.
     """
     field = buildable_force_field(metadata.get("FF"))
     water = WATERS.get(str(metadata.get("WAT") or "").upper())
@@ -956,6 +1004,7 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
         (str(item.get("chain")), str(item.get("residue"))): item.get("name")
         for item in modres
     }
+    boundary_lines = _boundary_connectivity_lines(effective_components)
 
     for entry in chosen_chains:
         removed = entry.get("removed_residues") or 0
@@ -963,7 +1012,7 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
             lines += [f"Chain {entry['deposit_chain']} is deposited as a fusion: "
                       f"{removed} residues between those ranges belong to the "
                       "crystallisation partner. Simulate the protein without them.", ""]
-        if entry["deposit_chain"] in joined_chains:
+        if not effective_components and entry["deposit_chain"] in joined_chains:
             lines += [f"Join the pieces of chain {entry['deposit_chain']} into a "
                       "single continuous chain, bonded where the removed part "
                       "was.", ""]
@@ -983,6 +1032,8 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
             else:
                 lines += [f"Residue {where} of chain {entry['deposit_chain']} is not "
                           "part of the reference. Leave it out.", ""]
+        for statement in boundary_lines.get(entry["deposit_chain"], []):
+            lines += [statement, ""]
         for difference in (entry.get("differences") or []):
             if difference.get("residue") is None:
                 continue

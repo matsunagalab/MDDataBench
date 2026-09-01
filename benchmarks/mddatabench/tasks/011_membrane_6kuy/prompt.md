@@ -10,6 +10,10 @@ Chain A is deposited as a fusion: 137 residues between those ranges belong to th
 
 Residue 173–182 of chain A is not part of the reference. Leave it out.
 
+Keep chain A residues 172 and 183 as separate termini; do not create a peptide bond between A:172 C and A:183 N.
+
+Keep chain A residues 227 and 365 as separate termini; do not create a peptide bond between A:227 C and A:365 N.
+
 Embed it in a **DPPC** bilayer.
 
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.

@@ -8,6 +8,8 @@ Simulate Muscarinic acetylcholine receptor M2, PDB entry **5YC8**, chain **A** r
 
 Chain A is deposited as a fusion: 165 residues between those ranges belong to the crystallisation partner. Simulate the protein without them.
 
+Keep chain A residues 214 and 380 as separate termini; do not create a peptide bond between A:214 C and A:380 N.
+
 Embed it in a **DPPC** bilayer.
 
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.

@@ -8,6 +8,8 @@ Simulate Adenosine receptor A2a, PDB entry **6JZH**, chain **A** residues **-1â€
 
 Residue 209â€“218 of chain A is not part of the reference. Leave it out.
 
+Keep chain A residues 208 and 219 as separate termini; do not create a peptide bond between A:208 C and A:219 N.
+
 Embed it in a **DPPC** bilayer.
 
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
