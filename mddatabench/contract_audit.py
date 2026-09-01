@@ -297,6 +297,311 @@ def deposit_polymer_scheme(path) -> dict[str, list[tuple]]:
     return scheme
 
 
+_AUTHOR_SITE = re.compile(r"(-?\d+)([A-Za-z]?)$")
+
+
+def _author_site(value) -> tuple[int, str]:
+    match = _AUTHOR_SITE.fullmatch(str(value).strip())
+    if match is None:
+        raise ValueError(f"{value!r} is not an author residue identifier")
+    return int(match.group(1)), match.group(2).upper()
+
+
+def _scheme_span_sites(scheme_chain: list[tuple], span) -> list[tuple[int, str]]:
+    """One author-numbered span in deposit polymer order, endpoints exact."""
+    first, last = (_author_site(value) for value in span)
+    positions = {(number, icode): index
+                 for index, (number, icode, _) in enumerate(scheme_chain)}
+    if first not in positions or last not in positions:
+        missing = first if first not in positions else last
+        raise ValueError(f"author residue {missing[0]}{missing[1]} is absent from the scheme")
+    start, stop = positions[first], positions[last]
+    step = 1 if start <= stop else -1
+    low, high = sorted((first[0], last[0]))
+    # The positional slice preserves insertion-code order (1A can precede 1),
+    # while the numeric filter excludes a renumbered fusion partner in the
+    # middle of a broad author range (-1--305 must not include the 1000s).
+    return [(number, icode)
+            for index in range(start, stop + step, step)
+            for number, icode, _ in (scheme_chain[index],)
+            if low <= number <= high]
+
+
+def _omitted_range_tokens(selection: dict, declared: dict) -> dict:
+    stored = selection.get("omitted_ranges")
+    if stored is not None:
+        return {chain: [(str(first), str(last)) for first, last in spans]
+                for chain, spans in stored.items()}
+    return {chain: [(str(first), str(last)) for first, last in spans]
+            for chain, spans in declared["excluded"].items()}
+
+
+def _selection_site_model(selection: dict, declared: dict, scheme: dict) -> tuple:
+    """Selected author sites and effective pieces in prompt/covalent order."""
+    ranges = stored_range_tokens(selection)
+    omitted = _omitted_range_tokens(selection, declared)
+    chain_order = list(declared["chain_order"])
+    chain_order.extend(chain for chain in ranges if chain not in chain_order)
+    ordered_sites = []
+    seen = set()
+    pieces_by_chain = {}
+    for chain in chain_order:
+        if chain not in ranges:
+            continue
+        if chain not in scheme:
+            raise ValueError(f"deposit polymer scheme has no chain {chain}")
+        omitted_spans = omitted.get(chain, [])
+        omitted_sites = set()
+        for span in omitted_spans:
+            try:
+                omitted_sites.update(_scheme_span_sites(scheme[chain], span))
+            except ValueError:
+                # 6GT3/6JZH name receptor residues 209-218 that the fusion
+                # deposit does not place in its polymer scheme at all. The
+                # absent interval still cuts the selected flanks 208 and 219.
+                low, high = sorted((_author_site(span[0])[0],
+                                    _author_site(span[1])[0]))
+                omitted_sites.update((number, icode)
+                                     for number, icode, _ in scheme[chain]
+                                     if low <= number <= high)
+        pieces = []
+        for span in ranges[chain]:
+            current = []
+            for number, icode in _scheme_span_sites(scheme[chain], span):
+                site = (chain, number, icode)
+                if (number, icode) in omitted_sites:
+                    if current:
+                        pieces.append(current)
+                        current = []
+                    continue
+                if current:
+                    previous = current[-1]
+                    crossed = any(
+                        (previous[1] < min(_author_site(first)[0],
+                                           _author_site(last)[0])
+                         and number > max(_author_site(first)[0],
+                                          _author_site(last)[0]))
+                        or (previous[1] > max(_author_site(first)[0],
+                                             _author_site(last)[0])
+                            and number < min(_author_site(first)[0],
+                                             _author_site(last)[0]))
+                        for first, last in omitted_spans)
+                    if crossed:
+                        pieces.append(current)
+                        current = []
+                if site in seen:
+                    continue
+                seen.add(site)
+                ordered_sites.append(site)
+                current.append(site)
+            if current:
+                pieces.append(current)
+        pieces_by_chain[chain] = pieces
+    return ordered_sites, pieces_by_chain
+
+
+def _reference_backbone_contract(bundle: pathlib.Path) -> tuple[dict, object]:
+    """Polymer-only reference components and links in reference-PDB order."""
+    from mddatabench import composition as cp
+    from mddatabench import topology as tp
+
+    pdb = bundle / "reference.pdb"
+    structure = tp.load_reference(tp.find_reference_topology(bundle), pdb)
+    residues = cp.read_residues(pdb)
+    components, mapped_links = cp.split_monomers_by_backbone_links(
+        residues, structure.residues, tp.backbone_links(structure),
+        tp.POLYMER_RESIDUES)
+
+    primary = [residue for residue in residues
+               if _classify(residue.name.strip().upper()) in {"protein", "nucleic"}]
+    position_by_residue = {id(residue): position
+                           for position, residue in enumerate(primary, start=1)}
+    coordinate_position = {
+        index: position_by_residue[id(residue)]
+        for index, residue in enumerate(residues)
+        if id(residue) in position_by_residue
+    }
+    polymer_components = []
+    for component in components:
+        positions = [position_by_residue[id(residue)] for residue in component
+                     if id(residue) in position_by_residue]
+        if positions:
+            polymer_components.append(positions)
+    links = {
+        (coordinate_position[first], coordinate_position[second], kind)
+        for first, second, kind in mapped_links
+        if first in coordinate_position and second in coordinate_position
+    }
+    return ({
+        "components": polymer_components,
+        "links": links,
+        "kinds": [_classify(residue.name.strip().upper()) for residue in primary],
+        "polymer_count": len(primary),
+    }, structure)
+
+
+def _stored_component_positions(selection: dict, scheme: dict,
+                                site_positions: dict) -> list[list[int]]:
+    components = []
+    for component in selection.get("effective_components") or []:
+        chain = component.get("deposit_chain")
+        if chain not in scheme:
+            raise ValueError(f"effective component names absent deposit chain {chain}")
+        sites = []
+        for span in component.get("ranges") or []:
+            sites.extend((chain, number, icode)
+                         for number, icode in _scheme_span_sites(scheme[chain], span))
+        unknown = [site for site in sites if site not in site_positions]
+        if unknown:
+            raise ValueError(
+                "effective component contains site outside the selected construct: "
+                + ", ".join(f"{c}:{n}{i}" for c, n, i in unknown))
+        components.append([site_positions[site] for site in sites])
+    return components
+
+
+def _legacy_component_positions(pieces_by_chain: dict, declared: dict,
+                                site_positions: dict) -> list[list[int]]:
+    components = []
+    for chain in declared["chain_order"]:
+        pieces = pieces_by_chain.get(chain, [])
+        if chain in declared["joined"] and pieces:
+            components.append([site_positions[site]
+                               for piece in pieces for site in piece])
+        else:
+            components.extend([site_positions[site] for site in piece]
+                              for piece in pieces)
+    return components
+
+
+_CONNECTED_BOUNDARY = re.compile(
+    r"Connect chain\s+([A-Za-z0-9]+)\s+residue\s+(-?\d+[A-Za-z]?)\s+"
+    r"(C|O3['*])\s+to\s+residue\s+(-?\d+[A-Za-z]?)\s+(N|P)\s+with\s+a\s+"
+    r"(peptide|phosphodiester)\s+bond", re.I)
+_SEPARATE_BOUNDARY = re.compile(
+    r"Keep chain\s+([A-Za-z0-9]+)\s+residues\s+(-?\d+[A-Za-z]?)\s+and\s+"
+    r"(-?\d+[A-Za-z]?)\s+as separate termini;\s+do not create\s+a\s+"
+    r"(peptide|phosphodiester)\s+bond\s+between\s+"
+    r"([A-Za-z0-9]+):(-?\d+[A-Za-z]?)\s+(C|O3['*])\s+and\s+"
+    r"([A-Za-z0-9]+):(-?\d+[A-Za-z]?)\s+(N|P)", re.I)
+
+
+def _prompt_boundary_decisions(prompt: str) -> dict:
+    decisions = {}
+    for chain, left, tail, right, head, kind in _CONNECTED_BOUNDARY.findall(prompt):
+        key = ((chain, *_author_site(left)), (chain, *_author_site(right)))
+        decisions[key] = (True, kind.lower(), tail.upper(), head.upper())
+    for match in _SEPARATE_BOUNDARY.findall(prompt):
+        chain, left, right, kind, first_chain, first, tail, second_chain, second, head = match
+        key = ((chain, *_author_site(left)), (chain, *_author_site(right)))
+        valid = (chain == first_chain == second_chain
+                 and _author_site(left) == _author_site(first)
+                 and _author_site(right) == _author_site(second))
+        decisions[key] = (False, kind.lower(), tail.upper(), head.upper(), valid)
+    return decisions
+
+
+def _boundary_contract_findings(prompt: str, selection: dict, declared: dict,
+                                scheme: dict, reference: dict) -> list[dict]:
+    """Exact selection and prompt boundary decisions against one topology."""
+    sites, pieces_by_chain = _selection_site_model(selection, declared, scheme)
+    site_positions = {site: position for position, site in enumerate(sites, start=1)}
+    findings = []
+    if len(sites) != reference["polymer_count"]:
+        findings.append({
+            "kind": "selection_components_differ_from_reference",
+            "detail": (f"selection maps {len(sites)} polymer sites but the reference "
+                       f"topology maps {reference['polymer_count']}"),
+            "component": "polymer",
+        })
+        return findings
+
+    if "effective_components" in selection:
+        selection_components = _stored_component_positions(
+            selection, scheme, site_positions)
+    else:
+        selection_components = _legacy_component_positions(
+            pieces_by_chain, declared, site_positions)
+    component_mismatch = selection_components != reference["components"]
+
+    component_by_position = {
+        position: component_index
+        for component_index, component in enumerate(selection_components)
+        for position in component
+    }
+    explicit = _prompt_boundary_decisions(prompt)
+    boundaries = []
+    link_mismatches = []
+    for chain in declared["chain_order"]:
+        pieces = pieces_by_chain.get(chain, [])
+        for left_piece, right_piece in zip(pieces, pieces[1:]):
+            left, right = left_piece[-1], right_piece[0]
+            left_position = site_positions[left]
+            right_position = site_positions[right]
+            kinds = {reference["kinds"][left_position - 1],
+                     reference["kinds"][right_position - 1]}
+            kind = "peptide" if kinds == {"protein"} else "phosphodiester"
+            tail, head = ("C", "N") if kind == "peptide" else ("O3'", "P")
+            bonded = (component_by_position.get(left_position)
+                      == component_by_position.get(right_position))
+            reference_bonded = (
+                left_position, right_position, kind) in reference["links"]
+            if bonded != reference_bonded:
+                label = (f"{left[0]}:{left[1]}{left[2]}--"
+                         f"{right[0]}:{right[1]}{right[2]}")
+                link_mismatches.append(
+                    f"{kind} {label}: selection={bonded}, reference={reference_bonded}")
+            boundaries.append((left, right, kind, tail, head, bonded))
+
+    if component_mismatch or link_mismatches:
+        def summary(components):
+            return [(component[0], component[-1], len(component))
+                    for component in components if component]
+
+        detail = (f"selection components {summary(selection_components)} differ from "
+                  f"reference topology {summary(reference['components'])}")
+        if link_mismatches:
+            detail += "; " + "; ".join(link_mismatches)
+        findings.append({
+            "kind": "selection_components_differ_from_reference",
+            "detail": detail,
+            "component": "polymer",
+        })
+
+    missing = []
+    contradictions = []
+    boundary_keys = {(left, right) for left, right, *_ in boundaries}
+    for left, right, kind, tail, head, bonded in boundaries:
+        decision = explicit.get((left, right))
+        if decision is None and left[0] in declared["joined"]:
+            decision = (True, kind, tail, head)
+        label = f"{left[0]}:{left[1]}{left[2]}--{right[0]}:{right[1]}{right[2]}"
+        if decision is None:
+            missing.append(f"{kind} {label}")
+            continue
+        valid = len(decision) == 4 or decision[4]
+        if (decision[0] != bonded or decision[1:4] != (kind, tail, head) or not valid):
+            contradictions.append(f"{kind} {label}")
+    for key in explicit.keys() - boundary_keys:
+        left, right = key
+        contradictions.append(
+            f"undeclared {left[0]}:{left[1]}{left[2]}--"
+            f"{right[0]}:{right[1]}{right[2]}")
+    if missing:
+        findings.append({
+            "kind": "prompt_boundary_connectivity_missing",
+            "detail": "prompt gives no connectivity decision for " + ", ".join(missing),
+            "component": "polymer",
+        })
+    if contradictions:
+        findings.append({
+            "kind": "prompt_boundary_connectivity_contradicts_selection",
+            "detail": "prompt contradicts selection at " + ", ".join(contradictions),
+            "component": "polymer",
+        })
+    return findings
+
+
 def classify_build_sites(scheme_chain: list, selected: set,
                          sites: list) -> list[dict]:
     """Terminal or internal, judged by position in the polymer, not by number.
@@ -784,8 +1089,8 @@ def audit_task_contract(task_dir: str, bundle: str,
     # does not, and because nothing reads the field the disagreement was
     # invisible; report it here so a future consumer inherits the check rather
     # than the defect.
-    findings.extend(selection_range_findings(
-        prompt, spec["reference"].get("selection") or {}))
+    selection = spec["reference"].get("selection") or {}
+    findings.extend(selection_range_findings(prompt, selection))
 
     reference_polymer = [r for r in reference if _is_polymer(r)]
     declared_count = sum(len(values) for values in declared["selected"].values())
@@ -823,8 +1128,22 @@ def audit_task_contract(task_dir: str, bundle: str,
         bundle_path / "reference.pdb", reference_polymer)
         if len(declared["chains"]) > 1 else None)
     reference_ss = None
+    reference_backbone = None
+    reference_topology = None
     try:
-        reference_ss = _reference_disulfide_positions(bundle_path)
+        if selection.get("ranges"):
+            reference_backbone, reference_topology = _reference_backbone_contract(bundle_path)
+        else:
+            reference_ss = _reference_disulfide_positions(bundle_path)
+        if reference_topology is not None:
+            from mddatabench.topology import sulfur_bond_positions
+
+            pairs, _, dropped = sulfur_bond_positions(reference_topology)
+            if dropped:
+                raise ValueError(
+                    f"reference topology has {len(dropped)} sulfur bond(s) "
+                    "outside its polymer")
+            reference_ss = {tuple(sorted(pair)) for pair in pairs}
     except (Exception, SystemExit) as exc:
         findings.append({"kind": "reference_topology_unreadable",
                          "detail": str(exc), "component": "topology"})
@@ -838,6 +1157,20 @@ def audit_task_contract(task_dir: str, bundle: str,
             continue
         deposit = _structure_records(deposit_file)
         selected = _selected_deposit(deposit, declared)
+        if reference_backbone is not None:
+            try:
+                scheme = deposit_polymer_scheme(deposit_file)
+                for finding in _boundary_contract_findings(
+                        prompt, selection, declared, scheme, reference_backbone):
+                    finding["pdb_id"] = pdb_id
+                    finding["detail"] = f"{pdb_id}: {finding['detail']}"
+                    findings.append(finding)
+            except ValueError as exc:
+                findings.append({
+                    "kind": "selection_components_differ_from_reference",
+                    "detail": f"{pdb_id}: {exc}",
+                    "component": "polymer", "pdb_id": pdb_id,
+                })
         if len(declared["chains"]) > 1:
             deposit_geometry = _heavy_atom_geometry(deposit_file, selected)
             diagnostic = {
