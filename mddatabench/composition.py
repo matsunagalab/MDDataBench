@@ -446,7 +446,8 @@ def match_monomers(reference, submission):
     return pairs, problems
 
 
-def contract_correspondence(indices, reference_rows, submitted_rows, pairs):
+def contract_correspondence(indices, reference_rows, submitted_rows, pairs,
+                            chemistry=None):
     """Where each reference contract atom is in the submission.
 
     The contract names backbone atoms by their index into ``reference.pdb``, and
@@ -462,8 +463,10 @@ def contract_correspondence(indices, reference_rows, submitted_rows, pairs):
     Anchored on the component pairing instead, which ``match_monomers`` makes
     from canonical sequence after the scorer splits on declared backbone links,
     so neither residue numbers nor chain labels are read across the two sides.
-    Within one file ``(chain, residue number, atom name)`` does address one atom,
-    and that is all it is used for here.
+    For polymer residues, within-file atom names then address the backbone atom.
+    Nonpolymer contract atoms instead require ``chemistry``: complete component
+    graphs validated against declared isomeric SMILES. Names never establish
+    their correspondence, even when equal; ambiguous target mappings fail closed.
 
     Built straight off ``pairs``: a paired monomer and its partner are the same
     canonical sequence and therefore the same length, so zipping them addresses
@@ -478,6 +481,19 @@ def contract_correspondence(indices, reference_rows, submitted_rows, pairs):
     went unpaired, or ``read_residues`` dropped it from the polymer entirely;
     the second never fired on any of the 101 bundles.
     """
+    chemical, blocked = {}, {}
+    if chemistry is not None:
+        from .atom_mapping import ligand_correspondence
+
+        chemical, blocked = ligand_correspondence(
+            indices, reference_rows, submitted_rows, pairs, **chemistry)
+    else:
+        from .topology import POLYMER_RESIDUES
+
+        nonpolymer = {(r.chain, r.resseq) for left, _ in pairs for r in left
+                      if r.canonical not in POLYMER_RESIDUES}
+        blocked = {i: "non-polymer correspondence requires topology and declared chemistry"
+                   for i in indices if reference_rows[i][:2] in nonpolymer}
     resolve = {}
     for reference_monomer, submitted_monomer in pairs:
         for reference_residue, submitted_residue in zip(reference_monomer,
@@ -490,6 +506,12 @@ def contract_correspondence(indices, reference_rows, submitted_rows, pairs):
     own, missing = [], []
     for i in indices:
         chain, resseq, atom_name = reference_rows[i]
+        if i in blocked:
+            missing.append(f"{chain}:{resseq}:{atom_name}: {blocked[i]}")
+            continue
+        if i in chemical:
+            own.append(chemical[i])
+            continue
         residue = resolve.get((chain, resseq))
         if residue is None:
             missing.append(f"{chain}:{resseq}:{atom_name} is in a monomer the "
@@ -501,6 +523,8 @@ def contract_correspondence(indices, reference_rows, submitted_rows, pairs):
                            f"submission's {residue.name}{residue.resseq}")
             continue
         own.append(n)
+    if len(own) != len(set(own)):
+        missing.append("contract correspondence is not one-to-one")
     return own, missing
 
 

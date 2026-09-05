@@ -856,7 +856,10 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     # the wrong residue and says nothing: on 1AHW it reported 1908 of 1908
     # matched with 1266 of them up to 88.8 A from the atom they name.
     own_list, missing = cp.contract_correspondence(
-        indices, reference_atoms, pdb_atoms(minimized_structure), comparison_pairs)
+        indices, reference_atoms, pdb_atoms(minimized_structure), comparison_pairs,
+        {"reference": reference_topology, "submitted": submitted_topology,
+         "submitted_bonds": submitted_bonds,
+         "declarations": task["reference"].get("extra_components", [])})
     # dtype, because an empty list is float64 and indexing traj.xyz with it
     # raises instead of leaving the `if missing:` branch below to report it.
     own_indices = np.array(own_list, dtype=int)

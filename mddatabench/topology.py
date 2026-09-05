@@ -133,6 +133,37 @@ def _reference_atom_names_match(topology_atom, coordinate_atom):
     )
 
 
+def verify_reference_elements(structure, pdb_path):
+    """Corroborate elements; repair converter labels with explicit PDB + mass.
+
+    Some numeric GROMACS atom types become atomic numbers in ParmEd conversion.
+    Never infer elements from atom names (CA may mean carbon, not calcium).
+    """
+    import gemmi
+
+    rows = [line for line in open(pdb_path) if line.startswith(("ATOM  ", "HETATM"))]
+    if len(rows) != len(structure.atoms):
+        raise ValueError("reference element rows do not match topology atoms")
+    for atom, row in zip(structure.atoms, rows):
+        symbol = row[76:78].strip()
+        if not symbol:
+            # Some bundles omit the optional PDB element column. Retain a
+            # topology element only when its mass independently corroborates it.
+            element = gemmi.Element(atom.atomic_number)
+            if (element.atomic_number and np.isfinite(atom.mass)
+                    and abs(atom.mass - element.weight) <= 0.25):
+                continue
+            raise ValueError(f"reference atom {atom.idx}: no corroborated element evidence")
+        element = gemmi.Element(symbol)
+        if element.atomic_number == 0:
+            raise ValueError(f"reference atom {atom.idx} has no explicit valid PDB element")
+        if atom.atomic_number == element.atomic_number:
+            continue
+        if not np.isfinite(atom.mass) or abs(atom.mass - element.weight) > 0.25:
+            raise ValueError(f"reference atom {atom.idx}: element/mass evidence conflicts")
+        atom.atomic_number = element.atomic_number
+
+
 def load_reference(topology_path, pdb_path):
     """The reference's own topology, carrying its structure's coordinates.
 
@@ -173,6 +204,10 @@ def load_reference(topology_path, pdb_path):
         raise SystemExit(
             f"{topology_path.name} declares {polymer} polymer residue(s) and no "
             "bonds; the bond list was lost in reading it")
+    try:
+        verify_reference_elements(structure, pdb_path)
+    except ValueError as exc:
+        raise SystemExit(f"invalid reference element evidence: {exc}") from exc
     structure.coordinates = coordinates.coordinates
     return structure
 

@@ -150,7 +150,10 @@ def run_negative_controls(job_dir: str, bundle: str, task_file: str) -> dict:
     if mismatches:
         pairs = cp.positional_pairs_if_identical(reference_monomers, submitted_monomers)
     own, missing = cp.contract_correspondence(
-        indices, reference_atoms, sc.pdb_atoms(minimized), pairs)
+        indices, reference_atoms, sc.pdb_atoms(minimized), pairs,
+        {"reference": reference_topology, "submitted": submitted_topology,
+         "submitted_bonds": submitted_bonds,
+         "declarations": task["reference"].get("extra_components", [])})
     if missing:
         # The scorer downgrades this to three failed checks and carries on; a
         # KeyError here would lose the whole report instead.

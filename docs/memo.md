@@ -5,6 +5,44 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-09-05 — 042 chemical correspondence, plan phases 1–4
+
+Fixed invariants before score comparison: retain all contract atoms and score
+thresholds; relabeling/reordering preserves correspondence and observables;
+incorrect chemistry or ambiguous scored-atom symmetry must fail closed.
+Nonpolymer contract atoms now use evaluator-owned topology/SMILES graph and
+coordinate stereo validation, even when names agree. Polymer matching retains
+the prior path. Both scoring and negative-control entry points use the same
+chemical matcher; MDClaw provenance is not accepted as chemical evidence.
+Bond orders/local formal charges come from the declared template, constrained
+by observed connectivity, attached H, net charge and 3D stereo; this does not
+independently identify every possible electronic state. See
+`docs/chemical-correspondence.md` for the exact evidence and ambiguity boundary.
+
+042's PDB LIG has 102 atoms but its TPR partitions them into 1+101 atoms.
+Component membership therefore comes from the paired PDB records, anchored by
+topology atom-order validation, not TPR residue membership. Numerical TPR types
+also cause converter element errors; conflicting elements are corrected only
+when explicit PDB element and topology mass corroborate each other. The cached
+reference regression verifies chemistry and invariant correspondence for the
+three scored LIG atoms despite molecular symmetry. All five recorded 042
+reference SHA-256 hashes still match; task metadata/prompt/calibration unchanged.
+
+Readonly audit of all 98 PCA contracts found only 042 has nonpolymer targets.
+Reference loading passed for 95 bundles initially. The remaining 060/062/063
+omit PDB element columns; requiring topology element/mass agreement in that
+case restored all three, each verified by a separate full reference load.
+No bundle was rewritten. A separate mass/explicit-element audit also passed
+all 95 bundles with populated element columns.
+Focused chemical/composition/reference/scoring tests: 74 passed, followed by
+an additional blank-PDB-element regression in the final full suite. Full normal
+suite: 1245 passed, 23 deselected, 2 failures. Both failures are pre-existing
+029 build-missing fixture mismatches (C94–96 internal vs B265–266 terminal),
+reproduced using clean baseline bab011b in a separate local checkout; not fixed
+as part of 042. Changed Python files pass Ruff. Companion MDClaw real-source
+CLI tests verify declarative single-LIG preparation and preserve the 088 guard.
+No historical submission rescoring or pi/DeepSeek trial was run (phases 5–6).
+
 ## 2026-09-05 — 088 comparison completed: both conditions 3/3
 
 The six pi/DeepSeek attempts under `/home/yasu/tmp/mdclaw/validation088` all

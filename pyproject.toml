@@ -14,6 +14,8 @@ dependencies = [
     "gemmi>=0.7.0",
     "numpy>=1.24.0",
     "mdtraj>=1.9.0",
+    "networkx",
+    "rdkit",
 ]
 # OpenMM is required to score submissions but is best installed from
 # conda-forge; see README.

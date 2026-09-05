@@ -123,6 +123,7 @@ def _reference_with_hydrogen_names(monkeypatch, topology_name, pdb_name):
     )
     monkeypatch.setattr(tp, "read_topology", lambda _path: topology)
     monkeypatch.setattr("parmed.load_file", lambda _path: coordinates)
+    monkeypatch.setattr(tp, "verify_reference_elements", lambda *_args: None)
     return topology
 
 
