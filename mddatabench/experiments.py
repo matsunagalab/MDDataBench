@@ -377,7 +377,7 @@ def init_experiment(experiment_dir: str, spec_file: str,
                     "mdclaw_cli": cell_cli,
                     "mdclaw_source": cell_source,
                     "mddatabench_source": str(Path(__file__).resolve().parents[1]),
-                    "source_overlay_required": True,
+                    "source_overlay_required": cell["condition"] != "sif_only",
                     "agent_timeout_seconds": (int(cell.get("agent_timeout_seconds") or
                                                   spec["agent_timeout_seconds"])),
                     "md_time_limit": cell.get("md_time_limit") or spec["md_time_limit"],
@@ -386,12 +386,19 @@ def init_experiment(experiment_dir: str, spec_file: str,
                 bin_dir.mkdir(parents=True)
                 shim = bin_dir / "sbatch_shim.py"
                 shutil.copy2(Path(__file__).with_name("sbatch_shim.py"), shim)
+                shutil.copy2(Path(__file__).with_name("source_overlay.py"),
+                             bin_dir / "source_overlay.py")
                 (bin_dir / "sbatch").write_text(
                     "#!/bin/sh\n"
+                    f"export MDDATABENCH_MANIFEST={shlex.quote(str(attempt / 'manifest.json'))}\n"
                     f"exec /usr/bin/python3 {shlex.quote(str(shim))} \"$@\"\n")
                 (bin_dir / "sbatch").chmod(0o755)
                 mdclaw_cli = environment_spec["mdclaw_cli"]
                 if cell["condition"] != "sif_only" and mdclaw_cli:
+                    _write_json(workspace / ".mdclaw_cluster.json", {
+                        "container": {"image": environment_spec["sif"],
+                                      "extra_flags": "--nv", "source_mode": "overlay"},
+                    })
                     (bin_dir / "mdclaw").write_text(
                         "#!/bin/sh\n"
                         f"export CLAUDE_PLUGIN_ROOT={shlex.quote(str(Path(environment_spec['mdclaw_source']).resolve()))}\n"
@@ -412,7 +419,10 @@ def init_experiment(experiment_dir: str, spec_file: str,
                 if cell["condition"] != "sif_only":
                     capabilities += ["MDClaw CLI command: mdclaw",
                                      f"MDClaw SIF: {environment_spec['sif']}",
-                                     f"MDClaw source overlay: {environment_spec['mdclaw_source']}"]
+                                     f"MDClaw source overlay: {environment_spec['mdclaw_source']}",
+                                     "SLURM container is preconfigured in overlay mode. Submit a direct "
+                                     "mdclaw command per job/array task using submit_job/submit_array_job; "
+                                     "the harness checks the source binding before submission."]
                     if cell["condition"] == "cli_skill_sif":
                         capabilities.append(
                             "MDClaw skills: pi user-wide discovery"
@@ -589,6 +599,7 @@ def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
                   "/sbin", "/bin"]
     environment.update({"MDDATABENCH_EVENT_LOG": str(
                             workspace / ".mddatabench" / "sbatch-events.jsonl"),
+                        "MDDATABENCH_MANIFEST": str(attempt / "manifest.json"),
                         "MDDATABENCH_CONDITION": manifest["condition"],
                         "MDDATABENCH_MD_TIME_LIMIT": manifest["environment"]["md_time_limit"],
                         "PATH": os.pathsep.join(dict.fromkeys(path_dirs)),

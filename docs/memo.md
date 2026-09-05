@@ -5,6 +5,29 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-09-05 — Enforce frozen MDClaw source in campaign SLURM jobs
+
+The login CLI used frozen source, but SLURM defaulted to the image's package;
+090's retained script had neither a source bind nor a PYTHONPATH override.
+New CLI attempts now start with container `source_mode: overlay`. The copied
+sbatch shim validates the manifest's image, source bind and PYTHONPATH for
+every single-job/array payload, then submits a retained script with a runtime
+import check. That interpreter runs the CLI only when `mdclaw.__file__` is the
+frozen module. Script hashes and the source record join the existing sbatch
+event log; actual imports appear as `MDDATABENCH_SOURCE` in job stderr.
+
+The check accepts direct MDClaw payloads in generated scripts; custom shell
+setup and --wrap are refused. `sif_only` retains its existing behavior. These
+wrappers require a new experiment; old campaign artifacts were not changed.
+No MDClaw code, SIF rebuild, or SLURM submission was needed.
+
+Validation: 1165 non-slow tests passed, 63 skipped and 22 deselected. Ruff and
+diff checks passed. A local execution of a guarded command in the real SIF
+returned `mdclaw 0.6.8` and imported the frozen copy at
+`/tmp/mddatabench-overlay-smoke-vddx5s6w/frozen/mdclaw/__init__.py` (source tree
+SHA-256 `ea96c8b4f306c67429a65d466595bde6067b08c47e05c05c4b88af0b2491faa1`).
+The smoke needed host execution because sandbox UID lookup prevented SIF startup.
+
 ## 2026-09-01 — Release audit now requires protonation disclosure
 
 The task builder's reference-state detector is now shared with the release

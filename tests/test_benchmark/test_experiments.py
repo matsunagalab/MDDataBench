@@ -76,7 +76,7 @@ def test_init_builds_three_isolated_replicates_per_cell(tmp_path):
         assert "fixed\n`/tmp/<name>`" in agent_prompt
         assert not list(workspace.rglob("task.json"))
         assert (workspace / ".mddatabench/bin/sbatch").stat().st_mode & 0o111
-        assert str(Path(ex.__file__).resolve().parents[1]) not in (
+        assert str(Path(ex.__file__).resolve().parents[1]) + "/" not in (
             workspace / ".mddatabench/bin/sbatch").read_text()
         command = ex.run_attempt_agent(str(path.parent), dry_run=True)["command"]
         if manifest["condition"] == "cli_skill_sif":
@@ -88,9 +88,17 @@ def test_init_builds_three_isolated_replicates_per_cell(tmp_path):
             assert "--no-skills" in command
             assert not (workspace / ".agents/skills").exists()
         if manifest["condition"] == "sif_only":
+            assert manifest["environment"]["source_overlay_required"] is False
+            assert not (workspace / ".mdclaw_cluster.json").exists()
             assert (workspace / "PORTABLE_SUBMISSION.md").is_file()
             assert not (workspace / ".mddatabench/bin/mdclaw").exists()
         else:
+            assert manifest["environment"]["source_overlay_required"] is True
+            config = json.loads((workspace / ".mdclaw_cluster.json").read_text())
+            assert config["container"] == {"image": manifest["environment"]["sif"],
+                                            "source_mode": "overlay", "extra_flags": "--nv"}
+            assert "MDDATABENCH_MANIFEST=" in (workspace / ".mddatabench/bin/sbatch").read_text()
+            assert (workspace / ".mddatabench/bin/source_overlay.py").is_file()
             wrapper = workspace / ".mddatabench/bin/mdclaw"
             assert wrapper.is_file()
             assert "CLAUDE_PLUGIN_ROOT=" in wrapper.read_text()

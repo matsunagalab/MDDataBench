@@ -11,6 +11,11 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+if __package__:
+    from .source_overlay import prepare_submission
+else:
+    from source_overlay import prepare_submission
+
 
 def _without_time_limit(arguments: list[str]) -> list[str]:
     """Remove agent-provided limits so the campaign limit is authoritative."""
@@ -46,11 +51,14 @@ def _without_node_target(arguments: list[str]) -> list[str]:
     return result
 
 
-def _record(path: Path, arguments: list[str], stdout: str, returncode: int) -> None:
+def _record(path: Path, arguments: list[str], stdout: str, returncode: int,
+            source_overlay: dict | None = None) -> None:
     match = re.search(r"Submitted batch job\s+(\d+)", stdout)
     row = {"at": datetime.now(timezone.utc).isoformat(), "event": "sbatch",
            "argv": arguments, "job_id": match.group(1) if match else None,
            "returncode": returncode}
+    if source_overlay is not None:
+        row["source_overlay"] = source_overlay
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a") as handle:
         handle.write(json.dumps(row, sort_keys=True) + "\n")
@@ -76,13 +84,27 @@ def main(argv=None) -> int:
     if partition or nodelist:
         cleaned = _without_node_target(cleaned)
     submitted = [*scheduler_args, *cleaned]
+    overlay = None
+    manifest_path = os.environ.get("MDDATABENCH_MANIFEST")
+    if manifest_path:
+        try:
+            submitted, overlay = prepare_submission(submitted, manifest_path)
+        except (OSError, ValueError, KeyError) as exc:
+            detail = (f"mddatabench_source_overlay_invalid: {exc}. "
+                      "Use configure_container --source-mode overlay and submit_job/"
+                      "submit_array_job with a direct mdclaw payload.\n")
+            sys.stderr.write(detail)
+            event_log = os.environ.get("MDDATABENCH_EVENT_LOG")
+            if event_log:
+                _record(Path(event_log), submitted, "", 2, {"error": detail.strip()})
+            return 2
     completed = subprocess.run([real, *submitted], text=True, capture_output=True,
                                check=False)
     sys.stdout.write(completed.stdout)
     sys.stderr.write(completed.stderr)
     event_log = os.environ.get("MDDATABENCH_EVENT_LOG")
     if event_log:
-        _record(Path(event_log), submitted, completed.stdout, completed.returncode)
+        _record(Path(event_log), submitted, completed.stdout, completed.returncode, overlay)
     return completed.returncode
 
 

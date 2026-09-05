@@ -123,6 +123,17 @@ current `mdclaw_source`; skill-enabled attempts explicitly load that checkout's
 skills rather than a copy under `~`. `sif_only` requires a separate scientific
 runtime image that does not contain MDClaw.
 
+New CLI attempts start with SLURM container `source_mode: overlay`. Their
+`sbatch` shim checks the generated job's image, source bind and `PYTHONPATH`
+against the attempt manifest, including every array task. It submits a retained
+copy with a runtime import check; the CLI runs only if `mdclaw.__file__` resolves
+to the frozen source. The source record appears in job stderr as
+`MDDATABENCH_SOURCE`, and script hashes are recorded in `sbatch-events.jsonl`.
+Use direct `mdclaw` payloads via `submit_job`/`submit_array_job`; custom shell
+setup and `sbatch --wrap` are refused in these conditions. `sif_only` is
+unaffected. Initialize a new experiment to obtain these wrappers; existing
+campaign artifacts are not retrofitted.
+
 Available pi models can be recorded without exposing credentials:
 
 ```bash
