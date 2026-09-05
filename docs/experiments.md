@@ -138,6 +138,8 @@ Outputs under `summary/` are:
 - `summary.csv` and `summary.json`: success, partial-score, time, GPU, and token
   aggregates by condition, harness, model, and scientific axis;
 - `failures.csv`: failure stage and code counts for later paper plots.
+- `scoring_failures.csv`: all failed weighted checks, counted separately from
+  execution failures. These are scoring symptoms, not inferred root causes.
 
 Token fields are nullable and include provenance because not every harness
 reports usage. Slurm queue/runtime/GPU estimates come from `sacct` for every
@@ -145,3 +147,38 @@ job in the submitted MD dependency chain, with job states retained; per-node
 wall times come from MDClaw node metadata. `collect_experiment` reports
 incomplete attempt IDs and returns unsuccessful until every planned attempt has
 a terminal result.
+
+Version-2 attempt records separate `scoring_failures` from
+`execution_diagnostics` (node status, failure codes/messages, event and scheduler
+evidence with source paths). Known completed production with failed checks is
+classified as `evaluation`; unavailable execution evidence stays `unknown`.
+Recovered/abandoned failed branches remain in the evidence but are not selected
+as final failures when production completed. Multiple failed nodes are retained
+without claiming a unique root cause. Explicit harness failures remain explicit.
+The snapshot is sealed with the result so later workspace cleanup cannot erase
+the diagnosis. No pass rule or check score is changed.
+
+GPU seconds mean allocated GPU count times allocation elapsed seconds, not
+measured device utilization. A complete total requires every expected job to
+have valid accounting. Attempt metrics retain `gpu_seconds_known`, observed
+and expected job counts, and coverage; summary tables analogously retain
+`known_gpu_seconds`, observed/expected **attempt** counts and coverage. With
+any missing value the complete total is null (blank in CSV); the known subtotal
+is null if nothing was measured. Measured zero remains zero. Absent GPU counts
+in empty accounting are unknown; a CPU allocation's populated AllocTRES without
+GPU entries establishes zero. Old totals without completeness evidence are
+only unverified known subtotals, never certified complete totals.
+
+To diagnose sealed historical results without modifying them or invoking Slurm,
+use a **new** output directory (not the original summary or an attempt directory):
+
+```bash
+mddatabench collect_experiment --experiment-dir <experiment> \
+  --out-dir <new-corrected-summary> --refresh-diagnostics true
+```
+
+This mode reads available records, preserves all original pass/score fields,
+and includes the original result SHA-256 and old classification in each derived
+row. It does not reconcile unfinished scorers, rerun MD, rescore trajectories or
+rewrite result.json. Missing evidence stays missing; existing version-2 sealed
+diagnostics and accounting snapshots are retained.

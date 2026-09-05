@@ -5,6 +5,44 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-09-05 — Execution diagnosis and missing GPU accounting separated from scores
+
+Attempt schema v2 records failed weighted checks separately from execution
+diagnostics. Node statuses, tool failure manifests, failed events and scheduler
+states are retained as bounded evidence snapshots with source paths. A completed
+production makes earlier failures historical evidence, not the final failure.
+Multiple failed nodes remain ambiguous; missing execution evidence is unknown,
+never inferred from whichever scoring check happens to appear first. Explicit
+harness/scorer failure reports are retained. Scoring and all pass rules are unchanged.
+
+GPU seconds are allocation elapsed time times allocated GPU count, not measured
+utilization. Missing/nonfinite/negative values do not become zero. Every level
+reports a complete total only with complete coverage, plus known subtotal and
+observed/expected counts. Missing sacct allocations are retained in the expected
+job count. Populated CPU-only AllocTRES establishes zero; empty accounting does
+not. Legacy totals without completeness evidence remain unverified subtotals.
+
+Added `collect_experiment --refresh-diagnostics true --out-dir <new-directory>`.
+This is read-only against the source campaign, skips scorer reconciliation,
+preserves sealed v2 snapshots after raw cleanup, and records original result
+hashes/classifications. Normal and corrected summaries have separate
+`failures.csv` and `scoring_failures.csv` (the latter counts symptoms, not causes).
+
+Ran the final CLI over full98-20260831 with the source campaign mounted read-only.
+Output: `/home/yasu/tmp/mdclaw/validation_reporting/full98-20260905-final`.
+All 98 attempts retain their original pass and score fields: 83 pass, 15 fail.
+The 15 labels change to 7 execution failures/incomplete runs and 8 evaluation
+failures after completed production; this is not a change in scientific scores.
+090 now names node_execution_context_invalid, declared 1.0 versus actual 2.0.
+GPU coverage is 0/98 attempts: total and known subtotal are null, not zero.
+The initial audit verified all 196 source result/score file hashes unchanged;
+the final output was checked against all original results and their saved hashes.
+No MD rerun, trajectory rescore, reference update or historical result rewrite.
+
+Focused diagnostics/experiment tests: 52 passed. Full normal suite: 1265 passed,
+23 deselected, the same two pre-existing 029 build-missing fixture failures.
+Changed Python files pass Ruff; diff whitespace checks pass.
+
 ## 2026-09-05 — Correction: 090 completed min/eq; production contract mismatch
 
 This corrects the earlier full98 entry grouping 090 with minimization failures

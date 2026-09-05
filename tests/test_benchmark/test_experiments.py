@@ -318,7 +318,8 @@ def test_partial_prep_or_md_score_is_binary_zero_and_tables_keep_partial_score(t
     second = json.loads((dirs[1] / "result.json").read_text())
     assert second["attempt_score"] == 0
     assert second["check_score"] == 0.5
-    assert second["failure_stage"] == "prep"
+    assert second["failure_stage"] == "unknown"  # no execution evidence in this fixture
+    assert second["scoring_failures"][0]["check_id"] == "prep_bad"
     evidence = json.loads(
         (dirs[0] / "evaluation" / "backbone_connectivity.json").read_text())
     first = json.loads((dirs[0] / "result.json").read_text())
@@ -612,6 +613,10 @@ def test_slurm_accounting_is_converted_to_queue_runtime_and_gpu_seconds(tmp_path
         "md_queue_seconds": 120.0,
         "md_run_seconds": 600.0,
         "gpu_seconds": 600.0,
+        "gpu_seconds_known": 600.0,
+        "gpu_observed_count": 1,
+        "gpu_expected_count": 1,
+        "gpu_coverage": 1.0,
         "md_jobs": [{
             "job_id": "1",
             "state": "COMPLETED",

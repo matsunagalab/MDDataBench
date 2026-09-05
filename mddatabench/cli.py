@@ -123,10 +123,11 @@ def audit_task_cast(dataset_dir: str, bundle_root: str,
     return run(dataset_dir, bundle_root, deposit_cache)
 
 
-def collect_experiment(experiment_dir: str, out_dir: str = None) -> dict:
+def collect_experiment(experiment_dir: str, out_dir: str = None,
+                       refresh_diagnostics: bool = False) -> dict:
     """Build paper-ready summary and failure tables from attempt results."""
     from mddatabench.experiments import collect_experiment as run
-    return run(experiment_dir, out_dir)
+    return run(experiment_dir, out_dir, refresh_diagnostics=refresh_diagnostics)
 
 
 def model_inventory(harness: str = "pi", out: str = None) -> dict:

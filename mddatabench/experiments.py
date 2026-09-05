@@ -24,6 +24,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .attempt_diagnostics import diagnose, gpu_totals, measured, read_record
+
 
 CONDITIONS = frozenset({"cli_skill_sif", "cli_sif", "sif_only"})
 PASS_RULE = "all_weighted_checks_pass"
@@ -737,17 +739,6 @@ def _reconcile_scorer(attempt: Path) -> dict | None:
     )
 
 
-def _failure_from_score(report: dict) -> tuple[str | None, str | None]:
-    failed = [row for row in report.get("checks", [])
-              if row.get("weight", 0) and not row.get("passed")]
-    if not failed:
-        return None, None
-    first = failed[0]
-    category = first.get("category")
-    return ("prep" if category == "prep" else "md" if category == "md" else "scorer",
-            first.get("check_id"))
-
-
 def finalize_attempt(attempt_dir: str, score_file: str = None,
                      failure_stage: str = None, failure_code: str = None,
                      failure_detail: str = None) -> dict:
@@ -771,15 +762,16 @@ def finalize_attempt(attempt_dir: str, score_file: str = None,
     total = int((report or {}).get("total") or 0)
     passed_checks = int((report or {}).get("passed") or 0)
     passed = bool(total and passed_checks == total)
-    inferred_stage, inferred_code = _failure_from_score(report or {})
-    stage = None if passed else failure_stage or inferred_stage or "agent"
-    code = None if passed else failure_code or inferred_code or "no_scorable_submission"
     events = _events(attempt)
     agent_end = next((row for row in reversed(events) if row.get("event") == "agent_end"), {})
-    slurm_metrics = _slurm_metrics(attempt / "md_sacct.txt")
+    slurm_metrics = _slurm_metrics(attempt / "md_sacct.txt", md_job_ids(attempt))
+    explicit = ({"stage": failure_stage or "unknown", "code": failure_code or "reported_failure",
+                 "detail": failure_detail} if failure_stage or failure_code or failure_detail else None)
+    diagnosis = diagnose(_submission_dir(Path(manifest["paths"]["workspace"]), manifest["condition"]),
+                         report, passed, slurm_metrics["md_jobs"], explicit, str(attempt / "md_sacct.txt"))
     finished_at = _now()
     result = {
-        "schema_version": 1,
+        "schema_version": 2,
         "attempt_id": manifest["attempt_id"],
         "experiment_id": manifest["experiment_id"],
         "task_id": manifest["task_id"],
@@ -795,9 +787,7 @@ def finalize_attempt(attempt_dir: str, score_file: str = None,
         "check_score": passed_checks / total if total else 0.0,
         "checks_passed": passed_checks,
         "checks_total": total,
-        "failure_stage": stage,
-        "failure_code": code,
-        "failure_detail": None if passed else failure_detail,
+        **diagnosis,
         "metrics": {
             "agent_wall_seconds": agent_end.get("wall_seconds"),
             **slurm_metrics,
@@ -816,8 +806,8 @@ def finalize_attempt(attempt_dir: str, score_file: str = None,
         "finished_at": finished_at,
     }
     _write_json(result_file, result)
-    _append_event(attempt, "attempt_end", passed=passed, failure_stage=stage,
-                  failure_code=code)
+    _append_event(attempt, "attempt_end", passed=passed, failure_stage=diagnosis["failure_stage"],
+                  failure_code=diagnosis["failure_code"])
     return {"success": True, **result}
 
 
@@ -841,10 +831,11 @@ def _node_wall_seconds(job_dir: Path) -> dict:
     return durations
 
 
-def _slurm_metrics(path: Path) -> dict:
+def _slurm_metrics(path: Path, expected_job_ids=()) -> dict:
     unavailable = {"md_queue_seconds": None, "md_run_seconds": None,
                    "gpu_seconds": None, "md_jobs": [],
-                   "slurm_metrics_provenance": "unavailable"}
+                   "slurm_metrics_provenance": "unavailable",
+                   **gpu_totals([None for _ in set(expected_job_ids)])}
     if not path.is_file():
         return unavailable
     rows = [line.split("|") for line in path.read_text().splitlines() if line.strip()]
@@ -853,13 +844,19 @@ def _slurm_metrics(path: Path) -> dict:
         if len(row) < 7:
             continue
         job_id, state, submitted, started, ended, elapsed, tres = row[:7]
+        if not re.fullmatch(r"\d+(?:_\d+)?", job_id):
+            continue
         try:
             runtime = float(elapsed)
+            if not measured(runtime):
+                runtime = None
         except ValueError:
             runtime = None
         queue = _elapsed_between(submitted, started)
         match = re.search(r"(?:gres/gpu|gpu)=(\d+)", tres)
-        gpus = int(match.group(1)) if match else None
+        typed = re.findall(r"(?:^|,)gres/gpu:[^=,]+=(\d+)", tres)
+        gpus = (int(match.group(1)) if match else sum(map(int, typed)) if typed else
+                0 if re.search(r"(?:^|,)cpu=\d+", tres) else None)
         jobs.append({
             "job_id": job_id,
             "state": state.split("+", 1)[0].split()[0].upper() if state.strip() else None,
@@ -875,13 +872,20 @@ def _slurm_metrics(path: Path) -> dict:
     if not jobs:
         return unavailable
 
+    # sacct -X rows are allocations; do not double-count repeated rows or steps.
+    jobs = list({j["job_id"]: j for j in jobs if "." not in j["job_id"]}.values())
+    present = {j["job_id"] for j in jobs}
+    for missing in sorted(set(expected_job_ids) - present):
+        jobs.append({"job_id": missing, "state": None, "queue_seconds": None,
+                     "run_seconds": None, "gpu_seconds": None})
+
     def total(key):
-        values = [job[key] for job in jobs if job[key] is not None]
-        return sum(values) if values else None
+        values = [job[key] for job in jobs]
+        return sum(values) if values and all(measured(v) for v in values) else None
 
     return {"md_queue_seconds": total("queue_seconds"),
             "md_run_seconds": total("run_seconds"),
-            "gpu_seconds": total("gpu_seconds"), "md_jobs": jobs,
+            **gpu_totals(job["gpu_seconds"] for job in jobs), "md_jobs": jobs,
             "slurm_metrics_provenance": "sacct"}
 
 
@@ -1095,14 +1099,58 @@ def _wilson(successes: int, total: int, z: float = 1.959963984540054) -> tuple[f
     return max(0.0, centre - half), min(1.0, centre + half)
 
 
-def collect_experiment(experiment_dir: str, out_dir: str = None) -> dict:
+def collect_experiment(experiment_dir: str, out_dir: str = None,
+                       refresh_diagnostics: bool = False) -> dict:
     """Rebuild attempt, failure, and paper-summary tables from sealed results."""
     root = Path(experiment_dir).resolve()
     out = Path(out_dir).resolve() if out_dir else root / "summary"
+    if refresh_diagnostics and (not out_dir or out == root or out == root / "summary"
+                                or out.is_relative_to(root / "attempts") or out.exists()):
+        raise ValueError("diagnostic refresh requires a new, separate output directory")
     out.mkdir(parents=True, exist_ok=True)
-    for manifest_path in sorted((root / "attempts").glob("*/*/manifest.json")):
-        _reconcile_scorer(manifest_path.parent)
+    if not refresh_diagnostics:
+        for manifest_path in sorted((root / "attempts").glob("*/*/manifest.json")):
+            _reconcile_scorer(manifest_path.parent)
     rows, incomplete = _attempt_rows(root)
+    for row in rows:
+        metrics = row.setdefault("metrics", {})
+        if "gpu_expected_count" not in metrics:
+            # Old totals may already hide missing jobs. Preserve their known
+            # subtotal, but never certify completeness without accounting data.
+            old_gpu = metrics.get("gpu_seconds")
+            metrics.update(gpu_totals(j.get("gpu_seconds") for j in metrics.get("md_jobs", [])))
+            if metrics["gpu_seconds_known"] is None and measured(old_gpu):
+                metrics["gpu_seconds_known"] = old_gpu
+            metrics["gpu_seconds"] = None
+            metrics["gpu_completeness"] = "legacy_unverified"
+    if refresh_diagnostics:
+        sources = {read_record(p).get("attempt_id"): p.parent
+                   for p in (root / "attempts").glob("*/*/manifest.json")}
+        for row in rows:
+            attempt = sources[row["attempt_id"]]
+            manifest = _json(attempt / "manifest.json")
+            report = read_record(attempt / "score.json")
+            if not report and row.get("artifacts", {}).get("score"):
+                report = read_record(Path(row["artifacts"]["score"]))
+            row["diagnostic_revision"] = {"source_result": str(attempt / "result.json"),
+                "source_sha256": _sha256(attempt / "result.json"),
+                "original_failure_stage": row.get("failure_stage"),
+                "original_failure_code": row.get("failure_code")}
+            # Version-2 records already preserve evidence at sealing time;
+            # cleanup of raw files must not erase that snapshot on refresh.
+            metrics = (row["metrics"] if row.get("schema_version", 1) >= 2 else
+                       _slurm_metrics(attempt / "md_sacct.txt", md_job_ids(attempt)))
+            row["metrics"] = {**row.get("metrics", {}), **metrics}
+            if not row.get("execution_diagnostics"):
+                # Legacy infra/agent/scorer reasons were explicitly supplied;
+                # prep/md check IDs were inferred from score order, not causes.
+                explicit = ({"stage": row["failure_stage"], "code": row.get("failure_code"),
+                             "detail": row.get("failure_detail")}
+                            if row.get("failure_stage") in {"infra", "agent", "scorer"} else None)
+                row.update(diagnose(_submission_dir(Path(manifest["paths"]["workspace"]),
+                                                    manifest["condition"]),
+                                    report, row["passed"], metrics["md_jobs"], explicit, str(attempt / "md_sacct.txt")))
+            row["schema_version"] = 2
     with (out / "attempts.jsonl").open("w") as handle:
         for row in rows:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
@@ -1125,6 +1173,10 @@ def collect_experiment(experiment_dir: str, out_dir: str = None) -> dict:
                          if item.get("output_tokens") is not None]
         successes = sum(int(row["attempt_score"]) for row in attempts)
         ci_low, ci_high = _wilson(successes, len(attempts))
+        gpu = gpu_totals(row.get("metrics", {}).get("gpu_seconds") for row in attempts)
+        known_gpu = [row.get("metrics", {}).get("gpu_seconds_known",
+                     row.get("metrics", {}).get("gpu_seconds")) for row in attempts]
+        gpu["gpu_seconds_known"] = sum(v for v in known_gpu if measured(v)) if any(measured(v) for v in known_gpu) else None
 
         def metrics(name):
             return [float(row["metrics"][name]) for row in attempts
@@ -1146,7 +1198,11 @@ def collect_experiment(experiment_dir: str, out_dir: str = None) -> dict:
             "mean_md_queue_seconds": _mean(metrics("md_queue_seconds")),
             "mean_md_run_seconds": _mean(metrics("md_run_seconds")),
             "mean_total_wall_seconds": _mean(metrics("total_wall_seconds")),
-            "total_gpu_seconds": sum(metrics("gpu_seconds")),
+            "total_gpu_seconds": gpu["gpu_seconds"],
+            "known_gpu_seconds": gpu["gpu_seconds_known"],
+            "gpu_observed_attempts": gpu["gpu_observed_count"],
+            "gpu_expected_attempts": gpu["gpu_expected_count"],
+            "gpu_coverage": gpu["gpu_coverage"],
             "mean_input_tokens": _mean([float(value) for value in input_tokens]),
             "mean_output_tokens": _mean([float(value) for value in output_tokens]),
             "token_coverage": len(input_tokens) / len(attempts) if attempts else 0.0,
@@ -1156,7 +1212,8 @@ def collect_experiment(experiment_dir: str, out_dir: str = None) -> dict:
                "success_rate_ci95_high", "mean_check_score", "any_pass_at_k",
                "reliability_at_k", "k_min", "k_max"]
     columns += ["mean_agent_wall_seconds", "mean_md_queue_seconds", "mean_md_run_seconds",
-                "mean_total_wall_seconds", "total_gpu_seconds", "mean_input_tokens",
+                "mean_total_wall_seconds", "total_gpu_seconds", "known_gpu_seconds",
+                "gpu_observed_attempts", "gpu_expected_attempts", "gpu_coverage", "mean_input_tokens",
                 "mean_output_tokens", "token_coverage"]
     with (out / "summary.csv").open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=columns)
@@ -1169,15 +1226,26 @@ def collect_experiment(experiment_dir: str, out_dir: str = None) -> dict:
                      "axis": axis, "failure_stage": stage, "failure_code": code,
                      "count": count}
                     for (condition, harness, model, axis, stage, code), count
-                    in sorted(failures.items())]
+                    in sorted(failures.items(), key=lambda item: tuple(str(v) for v in item[0]))]
     with (out / "failures.csv").open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=["condition", "harness", "model", "axis",
                                                         "failure_stage", "failure_code", "count"])
         writer.writeheader()
         writer.writerows(failure_rows)
-    payload = {"schema_version": 1, "generated_at": _now(), "attempts": len(rows),
+    scoring = Counter((row["condition"], row["harness"], row["model"], row.get("axis"),
+                       check.get("category"), check.get("check_id"))
+                      for row in rows for check in row.get("scoring_failures", []))
+    scoring_rows = [dict(zip(("condition", "harness", "model", "axis", "category", "check_id"), key), count=count)
+                    for key, count in sorted(scoring.items(), key=lambda item: tuple(str(v) for v in item[0]))]
+    with (out / "scoring_failures.csv").open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["condition", "harness", "model", "axis",
+                                                    "category", "check_id", "count"])
+        writer.writeheader()
+        writer.writerows(scoring_rows)
+    payload = {"schema_version": 2, "generated_at": _now(), "attempts": len(rows),
+               "diagnostics_refreshed": refresh_diagnostics,
                "incomplete_attempts": incomplete, "summary": summaries,
-               "failures": failure_rows}
+               "failures": failure_rows, "scoring_failures": scoring_rows}
     _write_json(out / "summary.json", payload)
     return {"success": not incomplete, "out_dir": str(out), **payload}
 
