@@ -5,6 +5,65 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-09-05 — 088 comparison completed: both conditions 3/3
+
+The six pi/DeepSeek attempts under `/home/yasu/tmp/mdclaw/validation088` all
+completed MD and scored 20/20, with correct 255-residue sequence, author IDs,
+terminal PHE260 and frozen-source compute imports (18/18 records).
+Baseline r1/r2 encountered the false missing-126 refusal but recovered; fixed
+r1/r2 did not encounter that refusal. Both r3 attempts omitted residue_ranges
+and therefore did not exercise range coverage. Fixed r2's initial missing-chain
+syntax error was separate. The historical artificial LYS addition did not recur.
+This does not establish improved final success rate; deterministic same-input
+old/new checks establish the range-guard fix. Prompt/task/reference stay unchanged.
+
+All six systems explicitly bond C125--N127, with minimized distance
+1.3442--1.3449 A rather than the deposited 2.2543 A. Reference renumbering maps
+these to THR121--LYS122, explicitly bonded in reference.prmtop, distance 1.3149 A.
+Missing-residue metadata lists author 1--4 and 261, not 126. The post-freeze
+MDClaw CIF entity-ID amendment was tested separately, not by these frozen runs.
+Full settings, limitations and audit scripts are recorded in `validation088/REPORT.md`
+under the parent workspace.
+
+## 2026-09-05 — Correction: MDClaw's range refusal triggered 088 reconstruction
+
+This supersedes the next entry's statement that the reconstruction was not a
+MDClaw preparation defect. The retained `prep_001` failure result says
+`residue_range_not_delivered`: it asks for 256 residues and identifies absent
+author 126. The output itself is the correct 255-residue construct. The tool
+counted an integer interval, not deposited polymer positions, and suggested
+rebuilding or narrowing the range. The agent subsequently renumbered and added
+LYS, then supplied a PDB without SEQRES to `prep_002`, omitting residue_ranges.
+The explicit-file path bypassed source resolution and lost the original check.
+
+The task's 5--260 range remains correct. The repair belongs in MDClaw's source
+identity and delivery checks, not in task metadata or the reference. A new
+088-only pi/DeepSeek comparison uses baseline 55118c5 and repaired frozen source,
+three independent attempts each, with unchanged prompt, skills, SIF and harness.
+Runs are under `/home/yasu/tmp/mdclaw/validation088`; results are pending.
+
+## 2026-09-05 — Correction: 088's author range 5--260 is already correct
+
+The proposed 5--259 correction confused the agent's renumbered submission with
+deposit author numbering. The cached 12CA polymer scheme has no author 126;
+5--260 contains 255 residues, ending at PHE260. After canonicalising histidine
+names, this selected deposit sequence exactly matches the 255-residue reference
+(TRP1 through PHE255). Shortening to 5--259 would remove the terminal PHE.
+
+The retained full98 `prep_001` output is correct: 255 residues, author 125
+followed by 127, ending at PHE260. In the agent transcript's custom
+`reconstruct/build_pdb.py`, the agent explicitly shifted author 127--260 down
+by one, then appended a LYS260. `prep_002` therefore contains 256 residues.
+This was an agent reconstruction error, not a task-range or MDClaw preparation
+defect. The earlier review's attribution to the task is withdrawn.
+
+The task metadata, generated prompt, reference files and hashes remain intact.
+A focused release regression checks both author endpoints, the numbering gap,
+the complete canonical sequence and reference backbone correspondence; it also
+confirms that the existing audit rejects 5--259 (254 sites against 255).
+The regression passed against the fetched reference through the SIF overlay.
+The full 088 contract audit also passed with zero findings; Ruff was clean.
+
 ## 2026-09-05 — Enforce frozen MDClaw source in campaign SLURM jobs
 
 The login CLI used frozen source, but SLURM defaulted to the image's package;
