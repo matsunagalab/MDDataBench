@@ -5,6 +5,24 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-09-05 — Correction: 090 completed min/eq; production contract mismatch
+
+This corrects the earlier full98 entry grouping 090 with minimization failures
+whose logs were lost. Under `full98-20260831/attempts/090_soluble_1aa3/`
+`cli_skill_sif__pi__deepseek-cloudflare-deepseek-v4-flash__r1/`
+`workspace/study/jobs/main/events/`, the retained
+`20260831T132726654Z_min_001_tool_completed_2ae4d3fc.json` and
+`20260831T133513510Z_eq_001_tool_completed_db91da48.json` both report success.
+`20260831T133516119Z_prod_001_tool_failed_7ed30c53.json` records
+`node_execution_context_invalid`: simulation_time_ns declared 1.0, actual 2.0.
+The execution guard behaved correctly; no scoring/reference repair is needed.
+
+The external HANDOVER.md now states this cause. MDClaw adds a read-only
+pre-submission check for literal node-linked production CLI commands, using
+the runtime comparator and CLI defaults; unsupported shell forms and inherited
+conditions are explicitly not certified. Runtime validation remains in place.
+No historical run was modified, rerun or rescored.
+
 ## 2026-09-05 — 042 chemical correspondence, plan phases 1–4
 
 Fixed invariants before score comparison: retain all contract atoms and score
