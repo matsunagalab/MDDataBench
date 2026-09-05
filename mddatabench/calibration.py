@@ -396,7 +396,8 @@ def calibrate(accession, bundle, node="mmb", window_ns=None, slack_window_sd=2.0
         "windows_per_replica": {str(k): len(v) for k, v in per_replica.items()},
         "frames_per_replica": frames_per,
         "window_definition": (
-            f"non-overlapping {window_ns:g} ns windows, "
+            f"potentially overlapping {window_ns:g} ns windows "
+            f"with starts spread across each replica, "
             f"{len(range(0, count, stride))} frames at {step_ns * stride * 1000:g} ps, "
             f"contract atoms only, pooled across "
             f"{len(per_replica)} replica(s)"),

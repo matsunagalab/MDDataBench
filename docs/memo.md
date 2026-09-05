@@ -5,6 +5,44 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-09-05 — Corrected window-overlap wording, without recalibration
+
+Replaced the false "non-overlapping" claim in the calibration generator and
+all 98 task window_definition strings by "potentially overlapping ... with
+starts spread across each replica". Window starts, statistics, thresholds,
+reference files and prompts are unchanged. Parsed JSON comparison against HEAD
+verified that window_definition is the only changed field in all 98 tasks.
+Regression tests cover 057's 155–156-frame spacing, all shipped descriptions,
+and generator output with mocked trajectory retrieval. This is a description
+correction, not a new calibration or a change to 057's result.
+Validation: 23 calibration tests passed; Ruff and diff whitespace checks passed.
+
+## 2026-09-05 — 057 investigation: low RMSF reproduced, cause still unresolved
+
+Read-only saved-trajectory reanalysis reproduces 1.4551394 A and Rg 20.4281596 A
+with 226/226 unique contract atom mappings and unchanged reference hashes.
+Submitted production has no positional restraint force. It is the first 1 ns
+after 1 ns restrained NVT plus 1 ns restrained NPT (773 DNA heavy atoms), using
+DNA OL15, TIP3P, HMR/4 fs, 300 K and 1 bar. Reference FF/timestep/ensemble
+metadata remain unspecified; those protocol differences cannot yet be isolated.
+
+Fetched reference contract coordinates for its full 10 ns at 10 ps sampling.
+Ten disjoint 1 ns windows give 2.043254–2.194397 A (mean 2.140644), versus the
+submission's 1.455139 A. The same widening formula on these windows gives a
+diagnostic lower bound of 1.625720 A, still failing. Removing detrending from
+both sides also does not remove the difference under that sensitivity test.
+Neither computation is adopted as a recalibration.
+
+Confirmed a documentation defect: calibration records "non-overlapping" 30
+1 ns windows, but starts are 155–156 frames apart at 2 ps/frame, overlapping
+68.8–69.0%. The reference has one replica, not 30 independent observations.
+Removing overlap does not explain 057. No threshold, task metadata, score or
+MD run was changed. Next needed evidence is a prospectively specified,
+independent-seed preparation/unrestrained-relaxation comparison with scoring
+frozen, plus recovery of reference protocol provenance.
+Analysis script, detailed limitations and numbers:
+`/home/yasu/tmp/mdclaw/validation057/REPORT.md` and `audit.json`.
+
 ## 2026-09-05 — Execution diagnosis and missing GPU accounting separated from scores
 
 Attempt schema v2 records failed weighted checks separately from execution

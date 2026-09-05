@@ -20,6 +20,9 @@ correct submissions:
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -169,3 +172,27 @@ def test_window_starts_never_runs_past_the_end():
 
 def test_a_replica_too_short_for_one_window_yields_no_starts():
     assert cb.window_starts(frames=50, count=100, wanted=5) == []
+
+
+def test_057_windows_overlap_and_metadata_does_not_claim_otherwise():
+    starts = cb.window_starts(5000, 500, 30)
+    assert len(starts) == 30
+    assert {b - a for a, b in zip(starts, starts[1:])} == {155, 156}
+    tasks = Path(__file__).resolve().parents[2] / "benchmarks/mddatabench/tasks"
+    for task in tasks.glob("*/task.json"):
+        calibration = json.loads(task.read_text())["reference"]["md_calibration"]
+        assert "potentially overlapping" in calibration["window_definition"]
+        assert "non-overlapping" not in calibration["window_definition"]
+
+
+def test_generated_calibration_describes_possible_overlap(tmp_path, monkeypatch):
+    (tmp_path / "pca_atom_indices.json").write_text('{"atom_indices": [0]}')
+    (tmp_path / "reference_fluctuation.json").write_text('{"y":{"rmsf":{"data":[1]}}}')
+    monkeypatch.setattr(cb, "_get", lambda _: {"metadata": {"FRAMESTEP": 0.002}, "mdcount": 1})
+    monkeypatch.setattr(cb, "replica_frames", lambda *_: 5000)
+    monkeypatch.setattr(cb, "window_frames", lambda *a, **kw: np.zeros((100, 1, 3)))
+    monkeypatch.setattr(cb, "window_statistics", lambda *_: {k: 1.0 for k in cb.KEYS})
+    result = cb.calibrate("test", tmp_path, window_ns=1, target_windows=30)
+    assert result["window_definition"] == (
+        "potentially overlapping 1 ns windows with starts spread across each replica, "
+        "100 frames at 10 ps, contract atoms only, pooled across 1 replica(s)")
