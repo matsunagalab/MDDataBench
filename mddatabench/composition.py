@@ -151,13 +151,14 @@ def lipid_chemistry(counts, stated=None):
 POLYMER_LINK_ANGSTROM = 2.0
 
 class Residue:
-    __slots__ = ("name", "chain", "resseq", "atoms")
+    __slots__ = ("name", "chain", "resseq", "atoms", "atom_indices")
 
     def __init__(self, name, chain, resseq):
         self.name = name
         self.chain = chain
         self.resseq = resseq
         self.atoms = []          # (atom_name, element, xyz)
+        self.atom_indices = []   # positions in the full PDB, including solvent
 
     @property
     def canonical(self):
@@ -206,9 +207,13 @@ def read_residues(path, drop_solvent=True):
     """Ordered residues of a PDB, solvent, free ions and bilayer lipids removed."""
     residues = []
     current = None
+    atom_index = -1
     for line in open(path):
         if not line.startswith(("ATOM", "HETATM")):
+            if line.startswith("TER"):
+                current = None
             continue
+        atom_index += 1
         name = line[17:20].strip()
         if drop_solvent and name.upper() in (SOLVENT_RESIDUES | LIPID_RESIDUES):
             current = None
@@ -227,6 +232,7 @@ def read_residues(path, drop_solvent=True):
         element = (line[76:78].strip() or atom_name.lstrip("0123456789")[:1]).upper()
         current.atoms.append((atom_name, element,
                               np.array([float(line[30 + 8 * i:38 + 8 * i]) for i in range(3)])))
+        current.atom_indices.append(atom_index)
     return residues
 
 

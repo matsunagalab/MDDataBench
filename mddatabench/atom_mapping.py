@@ -103,8 +103,12 @@ def ligand_correspondence(indices, reference_rows, submitted_rows, pairs, refere
         for ref_residue, sub_residue in zip(left, right):
             if ref_residue.canonical in POLYMER_RESIDUES:
                 continue
-            targets = [i for i in indices if reference_rows[i][:2]
-                       == (ref_residue.chain, ref_residue.resseq)]
+            if not ref_residue.atom_indices:
+                blocked.update({i: "reference component atom positions are unavailable"
+                                for i in indices if reference_rows[i][:2]
+                                == (ref_residue.chain, ref_residue.resseq)})
+                continue
+            targets = [i for i in indices if i in ref_residue.atom_indices]
             if not targets:
                 continue
             try:
@@ -116,10 +120,10 @@ def ligand_correspondence(indices, reference_rows, submitted_rows, pairs, refere
                 # PDB and TPR can partition the same atoms differently (042's
                 # one PDB LIG is 1+101 atoms in two TPR residues). Membership
                 # comes from the paired coordinate components; bonds do not.
-                rr = [reference.atoms[i] for i, row in enumerate(reference_rows)
-                      if row[:2] == (ref_residue.chain, ref_residue.resseq)]
-                own_indices = [i for i, row in enumerate(submitted_rows)
-                               if row[:2] == (sub_residue.chain, sub_residue.resseq)]
+                # Chain/number/name labels may be reused even by solvent or
+                # another ligand. Preserve the reader's actual atom positions.
+                rr = [reference.atoms[i] for i in ref_residue.atom_indices]
+                own_indices = sub_residue.atom_indices
                 if not own_indices or max(own_indices) >= len(submitted.atoms):
                     raise ValueError("submitted component atom inventory is inconsistent")
                 sr = [submitted.atoms[i] for i in own_indices]

@@ -34,6 +34,8 @@ def molecule(smiles, reverse=False):
 
 def correspondence(ref, sub, bonds, indices, smiles, submitted_key=("B", "7")):
     left, right = cp.Residue("LIG", "B", "7"), cp.Residue("LIG", *submitted_key)
+    left.atom_indices = list(range(len(ref.atoms)))
+    right.atom_indices = list(range(len(sub.atoms)))
     def rows(st, key):
         return [(*key, a.name) for a in st.atoms]
     return cp.contract_correspondence(indices, rows(ref, ("B", "7")), rows(sub, submitted_key), [([left], [right])],
@@ -66,6 +68,66 @@ def test_matching_names_are_not_trusted():
     sub, bonds = molecule("CCO", reverse=True)
     own, missing = correspondence(ref, sub, bonds, [0, 1, 2], "CCO")
     assert not missing and own != [0, 1, 2]
+
+
+@pytest.mark.parametrize("collision", ["HOH", "LIG"])
+@pytest.mark.parametrize("external_bond", [False, True])
+def test_reused_coordinate_labels_keep_paired_component_identity(tmp_path, collision, external_bond):
+    from mddatabench.scoring import pdb_atoms
+
+    def combined(path, reverse):
+        atoms, bonds, residues, coordinates, lines = [], [], [], [], []
+        for name, smiles in [("HOH", "O"), ("LIG", "CCO"),
+                             (collision, "O" if collision == "HOH" else "CCO")]:
+            st, edges = molecule(smiles, reverse=reverse)
+            offset = len(atoms)
+            for a, xyz in zip(st.atoms, st.coordinates):
+                a.idx += offset
+                lines.append(f"HETATM{a.idx+1:5d} {a.name:>4s} {name:3s} B   7    "
+                             f"{xyz[0]:8.3f}{xyz[1]:8.3f}{xyz[2]:8.3f}  1.00  0.00"
+                             f"          {Chem.GetPeriodicTable().GetElementSymbol(a.atomic_number):>2s}\n")
+            # Same-labelled consecutive LIGs must remain separate components.
+            lines.append("TER\n")
+            st.residues[0].name = name
+            atoms.extend(st.atoms)
+            residues.extend(st.residues)
+            coordinates.extend(st.coordinates)
+            bonds.extend(frozenset(i + offset for i in edge) for edge in edges)
+        path.write_text("".join(lines))
+        structure = NS(atoms=atoms, residues=residues, coordinates=np.array(coordinates),
+                       bonds=[NS(atom1=atoms[min(b)], atom2=atoms[max(b)]) for b in bonds])
+        return structure, bonds, cp.read_residues(path), pdb_atoms(path)
+
+    ref, _, left, rr = combined(tmp_path / "ref.pdb", False)
+    sub, bonds, right, sr = combined(tmp_path / "sub.pdb", True)
+    assert len(left) == len(right) == (2 if collision == "LIG" else 1)
+    assert left[0].atom_indices == list(range(3, 12))  # includes skipped water offset
+    targets = [3, 4, 5]
+    if collision == "LIG":
+        targets += [12, 13, 14]
+    if external_bond:
+        bonds.append(frozenset((3, 12)))
+    own, missing = cp.contract_correspondence(
+        targets, rr, sr, [([a], [b]) for a, b in zip(left, right)],
+        {"reference": ref, "submitted": sub, "submitted_bonds": bonds,
+         "declarations": [{"residue_name": "LIG", "smiles": "CCO"}]})
+    if external_bond:
+        assert not own and all("outside" in error for error in missing)
+    else:
+        assert not missing
+        assert own == [11, 10, 9] + ([20, 19, 18] if collision == "LIG" else [])
+
+
+def test_missing_component_positions_fail_closed():
+    ref, _ = molecule("CCO")
+    sub, bonds = molecule("CCO")
+    left, right = cp.Residue("LIG", "B", "7"), cp.Residue("LIG", "B", "7")
+    rows = [("B", "7", a.name) for a in ref.atoms]
+    own, missing = cp.contract_correspondence(
+        [0], rows, rows, [([left], [right])],
+        {"reference": ref, "submitted": sub, "submitted_bonds": bonds,
+         "declarations": [{"residue_name": "LIG", "smiles": "CCO"}]})
+    assert not own and "positions are unavailable" in missing[0]
 
 
 def test_topology_residue_partition_does_not_define_component_membership():

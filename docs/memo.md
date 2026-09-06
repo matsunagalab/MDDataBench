@@ -5,6 +5,63 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-09-06 — 042 component membership corrected: same submission now 20/20
+
+Follow-up to the four-task rerun below: 042's 17/20 was caused by evaluator
+membership selection, not ligand chemistry. Residue objects now retain full
+PDB atom positions (including offsets from skipped solvent), and nonpolymer
+correspondence consumes the paired residues' positions instead of grouping
+all atoms with a reused chain/number label. TER resets residue membership.
+This preserves PDB/TPR partition independence and the complete graph, charge,
+hydrogenation, stereochemistry, external-bond and symmetry validation.
+
+Re-scored the identical saved 1 ns submission: 168/168 atoms now correspond,
+and the three previously unevaluable checks pass: rank correlation 0.9183,
+fluctuation magnitude 0.7065 A, Rg 11.0150 A. Total 20/20 PASS; all other
+check records are identical. No threshold or solver artifact changed and no
+new agent/MD run occurred. The original 17/20 and campaign collection remain
+unchanged; corrected score and provenance are separately saved under
+../validation_representatives/rescore042/{score.json,REPORT.md}.
+
+Validation: 86 related tests passed; Ruff passed. New regressions exercise
+same-label water and identical ligands on both sides, reordered atoms, skipped
+solvent offsets, external covalent bonds and absent membership evidence.
+This supersedes the previous unresolved 042 membership diagnosis, not the
+historical result or the continuing 057 investigation.
+
+## 2026-09-06 — Four representative pi + DeepSeek reruns: 2 PASS, 2 FAIL
+
+Ran one new cli_skill_sif attempt each for 042, 088, 090 and 057 with
+deepseek-cloudflare/deepseek-v4-flash. MDClaw a7cd769 and evaluator ac7ec9f
+were clean snapshots; skills came from the frozen source. All twelve MD
+payloads were guarded and their runtime logs confirm the frozen source import.
+All four agents and all production nodes completed. No coaching, extra
+replicates, threshold changes or in-campaign evaluator fixes were applied.
+
+- 088: 20/20 PASS after 2 ns. Prepared 255 residues, A:5 TRP through A:260 PHE,
+  with no extra terminal LYS.
+- 090: 20/20 PASS after 2 ns. Declared and executed durations both 2 ns; the
+  old mismatch did not recur. This does not itself exercise mismatch rejection.
+- 057: 19/20 FAIL again on fluctuation magnitude: 1.5271 A versus lower bound
+  1.5637 A, using the last complete 1 ns of 2 ns (frames 101–200). This is an
+  independently chosen protocol, not a controlled duration-only comparison.
+- 042: 17/20 FAIL, three MD gates not evaluable. This live run reveals a
+  remaining evaluator bug despite the earlier chemical-mapping tests:
+  minimized PDB LIG and a water both have chain B, residue 1. Grouping solely
+  by those labels gives 105 atoms instead of the ligand's correct 102.
+  Read-only topology-membership audit excludes only the separate water from
+  the ligand component (not any contract atom), gives 24 valid chemical maps
+  on each side and unique correspondences for all three ligand targets.
+  The three MD observables were not re-scored and official FAIL is preserved.
+
+Evidence: ../validation_representatives/REPORT.md, audit042.py,
+campaign/attempts/*/*/{manifest.json,result.json,score.json}, and collected/.
+The collection has four terminal attempts, no incomplete attempts; missing
+GPU time remains null (0/4 observed), not zero. Next correction is evaluator
+component identity under repeated coordinate labels; 057 still provides no
+justification to adjust a threshold. One attempt per task is not evidence of
+a general success-rate improvement.
+
 ## 2026-09-05 — Corrected window-overlap wording, without recalibration
 
 Replaced the false "non-overlapping" claim in the calibration generator and
