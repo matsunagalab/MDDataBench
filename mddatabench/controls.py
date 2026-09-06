@@ -20,12 +20,12 @@ test the controls were built around was ranking a fake above the truth.  The md
 side now decides on equilibrium quantities banded against the reference's own
 windows, and these baselines are judged on those instead.
 
-Three baselines are new, and each targets one of the replacements
-specifically -- ``shuffled_atoms`` the rank correlation, ``frozen_first_frame``
-and ``scaled_motion_x5`` the fluctuation magnitude -- because a gate nothing
-attacks is a gate nobody has tested.
+``shuffled_atoms`` targets the rank correlation and ``scaled_motion_x5`` the
+fluctuation upper limit. Under @2, ``frozen_first_frame`` must be rejected by
+another gate, not merely by its small magnitude. ``reduced_motion_x0.1`` is a
+policy sensitivity control expected to pass under @2, not proof of valid MD.
 
-**Those three keep the real trajectory.**  Reviewed the same day: handing a
+**Those controls keep the real trajectory.** Handing a
 synthetic ensemble no trajectory forces the clock gate false, and since a
 verdict is the conjunction of every gate, all three would have scored correct
 with the gates they exist to test deleted.  Only a baseline that passes the
@@ -109,6 +109,9 @@ def run_negative_controls(job_dir: str, bundle: str, task_file: str) -> dict:
     task = json.loads(pathlib.Path(task_file).read_text())
     indices, coords, profile = load_reference(bundle)
     bands, calibration = _bands(task)
+    upper_only = sc.fluctuation_upper_only(next(
+        c for c in task["scoring"]["deterministic_checks"]
+        if c["check_id"] == "fluctuation_magnitude_is_physical"))
     fraction = next(c for c in task["scoring"]["deterministic_checks"]
                     if c["check_id"] == "elapsed_simulated_time_is_physical"
                     )["minimum_measured_fraction_of_claim"]
@@ -200,8 +203,8 @@ def run_negative_controls(job_dir: str, bundle: str, task_file: str) -> dict:
                 floor and agreement is not None and agreement >= floor[0])
             total = float(dy.total_fluctuation(xyz))
             band = bands["total_fluctuation_angstrom"]
-            gates["fluctuation_magnitude"] = bool(
-                band and band[0] <= total <= band[1])
+            gates["fluctuation_magnitude"] = sc.calibrated_band_passes(
+                total, band, upper_only=upper_only)
             rgyr = float(dy.radius_of_gyration(xyz).mean())
             band = bands["radius_of_gyration_angstrom"]
             gates["radius_of_gyration"] = bool(
@@ -242,6 +245,10 @@ def run_negative_controls(job_dir: str, bundle: str, task_file: str) -> dict:
     tenth_ps = max(1, int(round(10.0 / (interval or 10.0))))       # ~10 ps
     results = [
         judge("real_full_run", True, real, traj),
+        # Small motion is not itself a preparation failure under @2. This is
+        # a policy sensitivity control, not proof that the altered MD is valid.
+        judge("reduced_motion_x0.1", upper_only,
+              mean_structure[None] + (fitted_real - mean_structure) * 0.1, traj),
         judge("truncated_100ps", False,
               trajectory_window_xyz(traj[:frames_ps]), traj[:frames_ps]),
         judge("truncated_10ps", False,

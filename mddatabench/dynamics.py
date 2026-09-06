@@ -123,8 +123,8 @@ def profile_agreement(submitted, reference):
     Rank-based on purpose: it asks which atoms move more than which, and says
     nothing about how much.  That is what makes it survive a different force
     field and a different thermostat -- and what makes it blind to an
-    over-restrained run, measured at rho 0.795 with a tenth of the motion.  The
-    magnitude floor is the other half of that pair.
+    reduced-motion run, measured at rho 0.795 with a tenth of the motion.
+    Neither this profile nor the @2 magnitude upper limit validates restraints.
     """
     from scipy.stats import spearmanr
 

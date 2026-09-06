@@ -365,7 +365,7 @@ inside or outside.
 | temperature | mean of the state log | asked-for ±3 K | a different setpoint. The *spread* is never graded: the thermostat sets it |
 | solvent box | mean density, and box volume that moved | [0.95, 1.10] g/mL, spread > 0 | vacuum, a bubble, a barostat that was never connected |
 | fluctuation shape | rank correlation with the reference's own per-atom profile | one-sided floor | shuffled frames, freezing, noise |
-| fluctuation size | total RMSF | two-sided | over-restraint, expansion |
+| fluctuation size | total RMSF | upper limit only (@2) | excessive motion; small RMSF alone is not a failure |
 | global shape | mean radius of gyration | two-sided | collapse, coming apart |
 
 The last three are calibrated against the reference's **own one-nanosecond
@@ -374,10 +374,14 @@ trajectory — so the question is not "does a nanosecond reproduce a
 microsecond", which it cannot, but "is this distinguishable from a nanosecond
 of the reference".
 
-Two of the pairs are there because neither half catches what the other does.
-An over-restrained run keeps a rank correlation of 0.872 with a tenth of the
-motion, and a threefold expansion keeps 0.867; both are caught only by the
-magnitude. Shuffled frames keep the magnitude exactly and lose the ranks.
+Since 2026-09-06, fluctuation magnitude uses only the existing calibrated upper
+limit. The lower bound remains recorded as a diagnostic; it is not evidence of
+a system-building error. Small RMSF alone cannot distinguish a stable system
+from restraints. This check therefore does not certify restraint intent;
+execution checks remain separate. Archived `fluctuation_magnitude@1` task
+contracts retain two-sided grading, while shipped tasks use `@2`. Calibration
+data and both numerical bounds are unchanged. Profile matching and the
+two-sided radius-of-gyration check are unchanged by this policy revision.
 
 The bands are widened by twice the window spread, and that number is measured
 rather than chosen: five-fold block cross-validation over 100 windows rejects

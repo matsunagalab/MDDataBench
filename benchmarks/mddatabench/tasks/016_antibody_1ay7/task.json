@@ -589,15 +589,15 @@
         "capability": "ensemble_reproduction",
         "weight": 1.0,
         "category": "md",
-        "note": "Spearman correlation between the submission's per-atom fluctuation profile and the reference's own, over the contract atoms. Rank-based on purpose: it asks which atoms move more than which and nothing about how much, which is what lets a different force field and a different thermostat pass -- measured, the same system under ff99SBildn scores 0.840 against a band whose floor is 0.840, where ff14SB scores 0.870. It is blind to an over-restrained run (0.872 with a tenth of the motion), which is what the magnitude check is for. The band is the range over the reference's own one-nanosecond windows; the floor is what is graded, since agreement above it is agreement."
+        "note": "Spearman correlation between the submission's per-atom fluctuation profile and the reference's own, over the contract atoms. Rank-based on purpose: it asks which atoms move more than which and nothing about how much, which is what lets a different force field and a different thermostat pass -- measured, the same system under ff99SBildn scores 0.840 against a band whose floor is 0.840, where ff14SB scores 0.870. It is blind to an reduced-motion run (0.872 with a tenth of the motion). Neither this nor the magnitude upper limit proves absence of restraints. The band is the range over the reference's own one-nanosecond windows; the floor is what is graded, since agreement above it is agreement."
       },
       {
         "check_id": "fluctuation_magnitude_is_physical",
-        "check_type": "fluctuation_magnitude@1",
-        "capability": "ensemble_reproduction",
+        "check_type": "fluctuation_magnitude@2",
+        "capability": "system_stability",
         "weight": 1.0,
         "category": "md",
-        "note": "Total root-mean-square fluctuation of the contract atoms, against the range over the reference's own one-nanosecond windows. Two sided, and it is the half of the pair that catches what ranks cannot: measured, an over-restrained run falls to 0.077 A and a threefold expansion rises to 2.328 A while both keep a rank correlation near 0.87. A linear drift is removed from each atom first, on both sides: the quantity wanted is the equilibrium fluctuation, and a run started from a crystal structure carries a drift the reference's windows do not."
+        "note": "Total root-mean-square fluctuation of the contract atoms must be finite, nonnegative and at most the calibrated upper limit. Small fluctuations alone do not establish a system-building error; the reference lower bound is diagnostic, not a failure condition. The upper limit detects excessive motion without proving its cause. This check does not validate restraint intent or prove that MD ran. Linear detrending and mean-structure fitting remain identical on both sides. Historical @1 contracts retain their two-sided verdict."
       },
       {
         "check_id": "radius_of_gyration_matches_reference",

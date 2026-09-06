@@ -33,11 +33,25 @@ from mddatabench import energetics as en
 from mddatabench import execution as ex
 
 
-# A too-small RMSF magnitude can still reveal a frozen or over-restrained run,
-# but it is less harmful than excessive motion and varies noticeably between
-# independent short trajectories.  Give only that lower edge one extra SD of
-# room when the task uses the standard four-SD calibration slack.
+# Retained for historical @1 contracts and the diagnostic lower bound in @2.
 FLUCTUATION_LOWER_SLACK_MULTIPLIER = 1.25
+
+
+def fluctuation_upper_only(check):
+    """Version the verdict change; archived @1 contracts keep two-sided grading."""
+    version = check.get("check_type", "fluctuation_magnitude@1")
+    if version not in {"fluctuation_magnitude@1", "fluctuation_magnitude@2"}:
+        raise ValueError(f"unsupported fluctuation check: {version}")
+    return version == "fluctuation_magnitude@2"
+
+
+def calibrated_band_passes(value, band, *, upper_only=False):
+    """A small nonnegative value is acceptable under an upper-only contract."""
+    if value is None or band is None or len(band) != 2:
+        return False
+    low, high = band
+    return bool(np.isfinite([value, low, high]).all() and low <= high
+                and (0 <= value <= high if upper_only else low <= value <= high))
 
 # One task-agnostic between-replica allowance, measured from every finite
 # multi-replica manifest in the 100-task cast (39 projects, 116 replicas).
@@ -80,8 +94,8 @@ RANK_CORRELATION_FLOOR_CAP = 0.30
 #: decisive. The baseline this gate exists to catch, a compressed structure,
 #: sat 1.6 to 2.7 A *below* the band on the same four tasks - two orders of
 #: magnitude further out than a legitimate run overshoots, and on the opposite
-#: side. Expansion and over-restraint are caught by the RMSF magnitude gate,
-#: not by this one.
+#: side. Excessive motion also has an RMSF magnitude upper limit; low
+#: fluctuation magnitude alone is no longer rejected under @2.
 RADIUS_OF_GYRATION_TOLERANCE_ANGSTROM = 0.25
 
 
@@ -933,7 +947,7 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
         return widened_calibration_band(
             band, key, slack_for(key), spread.get(key, 0.0))
 
-    def banded(check_id, value, band, key, unit=""):
+    def banded(check_id, value, band, key, unit="", upper_only=False):
         """Inside the range the reference's own windows span, plus the slack."""
         band = widened(band, key)
         if value is None or not band:
@@ -946,13 +960,14 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
         slack_detail = (f"{lower_slack:g} lower / {slack_for(key):g} upper"
                         if lower_slack != slack_for(key)
                         else f"{slack_for(key):g}")
-        check(check_id, low <= value <= high,
+        check(check_id, calibrated_band_passes(value, band, upper_only=upper_only),
               f"{value:.4f}{unit} against the reference's own {window_ns:g} ns windows "
               f"[{low:.4f}, {high:.4f}]{unit} "
               f"(n={calibration.get('windows')}, widened by {slack_detail} window SD"
               + (f" and global replica factor "
                  f"{GLOBAL_REPLICA_FLUCTUATION_FACTOR:.6f}"
                  if key == "total_fluctuation_angstrom" else "")
+              + ("; upper limit only, lower bound diagnostic" if upper_only else "")
               + f"); submission uses {analysis_window_detail}")
 
     if missing:
@@ -997,7 +1012,8 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     if not missing and own_xyz is not None:
         banded("fluctuation_magnitude_is_physical", dy.total_fluctuation(own_xyz),
                calibration.get("total_fluctuation_angstrom"),
-               "total_fluctuation_angstrom", " A")
+               "total_fluctuation_angstrom", " A",
+               upper_only=fluctuation_upper_only(spec["fluctuation_magnitude_is_physical"]))
         banded("radius_of_gyration_matches_reference",
                float(dy.radius_of_gyration(own_xyz).mean()),
                calibration.get("radius_of_gyration_angstrom"),

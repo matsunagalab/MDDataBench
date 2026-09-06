@@ -62,7 +62,8 @@ def test_every_check_is_categorised_and_versioned(path):
         assert check["category"] in ("prep", "md", "precondition", "diagnostic"), \
             check["check_id"]
         expected_version = (
-            "@2" if check["check_id"] == "monomer_count_matches_reference" else "@1")
+            "@2" if check["check_id"] in {"monomer_count_matches_reference",
+                                          "fluctuation_magnitude_is_physical"} else "@1")
         assert check["check_type"].endswith(expected_version), (
             f"{check['check_id']}: check types are versioned so a scorer fix "
             "does not silently rescore old submissions")
@@ -84,9 +85,9 @@ def test_md_side_keeps_the_gates_that_catch_different_things(path):
     """No one of these catches what the others do.
 
     Measured 2026-08-22 against the negative controls: shuffled frames keep the
-    right magnitude and lose the ranks, an over-restrained run keeps the ranks
-    (rho 0.872 at a tenth of the motion) and loses the magnitude, a threefold
-    expansion keeps the ranks too, and the clock is the only reference-free
+    right magnitude and lose the ranks; a threefold expansion keeps the ranks
+    but exceeds the magnitude ceiling. Small magnitude is no longer a failure
+    under @2. The clock is the only reference-free
     evidence that time passed at all.
     """
     checks = load(path)["scoring"]["deterministic_checks"]
@@ -119,6 +120,16 @@ def test_window_bands_are_measured_and_recorded(path):
         assert low < high, name
     assert calibration["estimator"] and calibration["window_fetch"], (
         "the recipe that produced the band belongs with it")
+
+
+@pytest.mark.parametrize("path", TASKS, ids=lambda p: p.parent.name)
+def test_shared_fluctuation_policy_is_upper_only(path):
+    from mddatabench._md_checks import MD_CHECKS
+    canonical = next(c for c in MD_CHECKS if c['check_id'] == 'fluctuation_magnitude_is_physical')
+    check = next(c for c in load(path)['scoring']['deterministic_checks']
+                 if c['check_id'] == canonical['check_id'])
+    assert check == canonical
+    assert check['check_type'] == 'fluctuation_magnitude@2'
 
 
 @pytest.mark.parametrize("path", TASKS, ids=lambda p: p.parent.name)

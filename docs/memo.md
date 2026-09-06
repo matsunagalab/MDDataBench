@@ -5,6 +5,39 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-09-06 — Common RMSF policy @2: upper limit only, lower bound diagnostic
+
+At the user's direction, treat small fluctuations alone as insufficient evidence
+of a system-building error. All 98 shipped contracts and the generator now use
+fluctuation_magnitude@2 (same stable check ID): finite, nonnegative RMSF no
+greater than the unchanged calibrated upper limit passes. Keep the lower bound
+for diagnostics. Historical @1 contracts retain two-sided grading, and unknown
+versions fail closed. No reference, calibration, prompt or trajectory changed.
+Updated the profile note to remove its obsolete promise that the magnitude
+floor detects over-restraint. Other checks, including profile agreement and
+two-sided Rg for collapse/expansion, retain their semantics.
+
+Saved pi + DeepSeek attempts 042/057/088/090 all score 20/20 under @2 (042 also
+uses the preceding membership fix). For 057, the same scorer with its frozen
+@1 contract reproduces 19/20; @2 accepts 1.5271 A below the diagnostic lower
+bound 1.5637 A and below the unchanged ceiling 2.8471 A. Preserve all original
+campaign results and collections: this is a policy re-score, not new MD.
+
+Executed run_benchmark_negative_controls on all four saved submissions:
+36/36 negative cases rejected, 4/4 real controls passed, and 4/4 added x0.1
+motion sensitivity controls passed as intended. The x5 magnitude ceiling is
+independently decisive on 042, 088 and 090; frozen frames fail other checks.
+Small-motion controls passing is not a claim of valid MD or absence of improper
+restraints. There is no independent restraint-intent gate, and the solvent
+clock does not establish correct solute dynamics by itself.
+
+Validation: 1340 tests passed, 67 skipped; Ruff passed. Tests cover zero/small
+RMSF, exact ceiling, overflow, NaN/Inf, invalid calibration, version dispatch
+and all 98 shipped definitions. JSON comparison confirmed only two shared
+check definitions changed; reference/calibration data were identical.
+Evidence: ../validation_representatives/upper_only/{REPORT.md,summary.json,
+*.score.json,*.controls.json}; runner ../validation_representatives/upper_only.py.
+
 ## 2026-09-06 — 042 component membership corrected: same submission now 20/20
 
 Follow-up to the four-task rerun below: 042's 17/20 was caused by evaluator

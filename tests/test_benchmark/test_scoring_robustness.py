@@ -21,6 +21,8 @@ from mddatabench.scoring import (  # noqa: E402
     _load_system,
     last_complete_window_slice,
     widened_calibration_band,
+    calibrated_band_passes,
+    fluctuation_upper_only,
 )
 
 
@@ -41,6 +43,25 @@ def test_fluctuation_magnitude_has_more_room_below_than_above():
         0.5 / GLOBAL_REPLICA_FLUCTUATION_FACTOR,
         2.4 * GLOBAL_REPLICA_FLUCTUATION_FACTOR,
     ])
+
+
+@pytest.mark.parametrize("value,expected", [(0.0, True), (0.1, True), (2.0, True),
+    (2.001, False), (-0.1, False), (float('nan'), False), (float('inf'), False)])
+def test_upper_only_magnitude(value, expected):
+    assert calibrated_band_passes(value, [1.0, 2.0], upper_only=True) is expected
+
+
+def test_historical_contract_keeps_lower_bound_and_unknown_version_is_rejected():
+    assert not fluctuation_upper_only({'check_type': 'fluctuation_magnitude@1'})
+    assert fluctuation_upper_only({'check_type': 'fluctuation_magnitude@2'})
+    assert not calibrated_band_passes(0.1, [1.0, 2.0])
+    with pytest.raises(ValueError, match='unsupported'):
+        fluctuation_upper_only({'check_type': 'fluctuation_magnitude@3'})
+
+
+@pytest.mark.parametrize('band', [None, [], [2, 1], [1, float('nan')]])
+def test_upper_only_still_requires_valid_calibration(band):
+    assert not calibrated_band_passes(0.1, band, upper_only=True)
 
 
 def test_last_complete_one_ns_block_is_trailing_and_deterministic():
