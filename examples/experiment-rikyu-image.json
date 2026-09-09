@@ -17,6 +17,27 @@
       "skill_source": "user"
     },
     {
+      "condition": "cli_skill_sif",
+      "harness": "pi",
+      "model": "rikyu/glm-5.2",
+      "thinking": "high",
+      "skill_source": "user"
+    },
+    {
+      "condition": "cli_skill_sif",
+      "harness": "pi",
+      "model": "rikyu/kimi-k2.6",
+      "thinking": "high",
+      "skill_source": "user"
+    },
+    {
+      "condition": "cli_skill_sif",
+      "harness": "pi",
+      "model": "rikyu/qwen3.6-35b",
+      "thinking": "high",
+      "skill_source": "user"
+    },
+    {
       "condition": "cli_sif",
       "harness": "pi",
       "model": "rikyu/kimi-k3",

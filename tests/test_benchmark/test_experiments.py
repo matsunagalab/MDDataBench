@@ -805,8 +805,20 @@ def test_image_mode_audits_the_transcript_for_source_overlays(tmp_path, monkeypa
     attempt = attempts(root)[0].parent
 
     def fake_run(*args, **kwargs):
-        kwargs["stdout"].write(json.dumps({"text": "export PYTHONPATH=/home/me/mdclaw; "
-                                                   "/home/me/mdclaw/bin/mdclaw --list"}) + "\n")
+        # pi transcript shapes: the agent's own bash call is audited, the tool
+        # result echoing a skill page that mentions bin/mdclaw is not.
+        call = {"type": "message_end", "message": {"role": "assistant", "content": [
+            {"type": "toolCall", "id": "bash:0", "name": "bash", "arguments": {
+                "command": "export PYTHONPATH=/home/me/mdclaw; /home/me/mdclaw/bin/mdclaw --list"}}]}}
+        repeated = {**call, "type": "message_start"}   # pi streams the same call thrice
+        bare = {"type": "message_end", "message": {"role": "assistant", "content": [
+            {"type": "toolCall", "id": "bash:1", "name": "bash", "arguments": {
+                "command": "which mdclaw; mdclaw --version; singularity exec x.sif mdclaw --list"}}]}}
+        result = {"type": "message_end", "message": {"role": "toolResult", "content": [
+            {"type": "text", "text": "A checkout deployment may use its bin/mdclaw; "
+                                     "PYTHONPATH=/frozen --bind /src/mdclaw"}]}}
+        for row in (repeated, call, bare, result):
+            kwargs["stdout"].write(json.dumps(row) + "\n")
         return SimpleNamespace(returncode=0)
 
     monkeypatch.setattr(ex.subprocess, "run", fake_run)
@@ -814,7 +826,29 @@ def test_image_mode_audits_the_transcript_for_source_overlays(tmp_path, monkeypa
     end = [json.loads(line) for line in (attempt / "events.jsonl").read_text().splitlines()
            if '"agent_end"' in line][-1]
     assert end["source_audit"] == {"launcher_mentions": 1, "pythonpath_mentions": 1,
-                                   "source_bind_mentions": 0}
+                                   "source_bind_mentions": 0, "bare_cli_mentions": 1}
+
+
+def test_image_mode_records_reachable_host_launchers(tmp_path, monkeypatch):
+    fake_probe(monkeypatch)
+    spec, _ = image_spec(tmp_path, [{**cell(), "skill_source": "user"}])
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(spec), str(DATASET))
+    attempt = attempts(root)[0].parent
+    home = tmp_path / "home"
+    launcher = home / ".pi" / "agent" / "bin" / "mdclaw"
+    launcher.parent.mkdir(parents=True)
+    launcher.write_text("#!/bin/sh\nexec singularity exec old.sif mdclaw \"$@\"\n")
+    launcher.chmod(0o755)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(ex.subprocess, "run",
+                        lambda *args, **kwargs: SimpleNamespace(returncode=0))
+    ex.run_attempt_agent(str(attempt), timeout_seconds=1)
+    events = [json.loads(line) for line in (attempt / "events.jsonl").read_text().splitlines()]
+    preflight = [row for row in events if row["event"] == "image_mode_preflight"]
+    # The test interpreter's own PATH may carry an mdclaw (it does inside the
+    # SIF); the pi launcher must be reported regardless.
+    assert preflight and str(launcher) in preflight[0]["host_launchers"]
 
 
 def test_overlay_attempts_record_no_image_audit(tmp_path, monkeypatch):

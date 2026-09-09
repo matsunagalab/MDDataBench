@@ -17,6 +17,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from collections import Counter, defaultdict
@@ -742,6 +743,11 @@ def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
             environment["APPTAINER_BIND"] = environment["SINGULARITY_BIND"] = ",".join(binds)
             environment["APPTAINERENV_MDCLAW_SLURM_PATH"] = environment["PATH"]
             environment["SINGULARITYENV_MDCLAW_SLURM_PATH"] = environment["PATH"]
+            launchers = _host_launchers(environment["PATH"])
+            if launchers and not dry_run:
+                _append_event(attempt, "image_mode_preflight", host_launchers=launchers)
+                sys.stderr.write("warning: image mode, but a host mdclaw launcher is reachable: "
+                                 + ", ".join(launchers) + "\n")
     if manifest["condition"] == "sif_only":
         environment["MDDATABENCH_RUNTIME_SIF"] = manifest["environment"]["runtime_sif"]
     if dry_run:
@@ -796,11 +802,74 @@ _AUDIT_PATTERNS = {
     "launcher_mentions": re.compile(r"bin/mdclaw\b"),
     "pythonpath_mentions": re.compile(r"PYTHONPATH=/"),
     "source_bind_mentions": re.compile(r"--bind[^\n]*mdclaw(?!\S*\.sif)"),
+    # A bare `mdclaw` resolves to whatever launcher the harness put on PATH;
+    # the 2026-09-09 pilot found one in ~/.pi/agent/bin that overlaid an old
+    # checkout. Image-mode commands go through `singularity exec` instead.
+    "bare_cli_mentions": re.compile(r"(?m)(?:^|[;&|(]\s*)mdclaw\s"),
 }
 
 
+def _agent_shell_commands(transcript: Path) -> list[str]:
+    """Shell commands the agent issued, from a pi/Claude/Codex JSON transcript.
+
+    Only the agent's own tool calls are audited. Tool *results* repeat skill
+    pages and the shim's source, whose text mentions ``bin/mdclaw`` and
+    ``PYTHONPATH`` legitimately: measured on the 2026-09-09 pilot, a raw
+    text scan reported 58 launcher mentions for an attempt that ran every
+    MDClaw command through the image.
+    """
+    commands: dict[str, str] = {}
+
+    def walk(value):
+        if isinstance(value, dict):
+            if value.get("type") in {"toolCall", "tool_use"} or "input" in value and "name" in value:
+                arguments = value.get("arguments") or value.get("input") or {}
+                command = None
+                if isinstance(arguments, dict):
+                    for key in ("command", "cmd"):
+                        if isinstance(arguments.get(key), str):
+                            command = arguments[key]
+                    if isinstance(arguments.get("command"), list):
+                        command = " ".join(map(str, arguments["command"]))
+                if command is not None:
+                    # pi repeats a call in message_start/update/end; count once.
+                    commands.setdefault(str(value.get("id") or f"text:{command}"), command)
+            if value.get("role") == "toolResult" or value.get("type") in {"tool_result", "toolResult"}:
+                return
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    for line in transcript.read_text(errors="replace").splitlines() if transcript.exists() else []:
+        try:
+            walk(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return list(commands.values())
+
+
+def _host_launchers(path: str) -> list[str]:
+    """`mdclaw` executables an image-mode agent could reach without the image.
+
+    The runner controls PATH, but pi prepends its own ``~/.pi/agent/bin``;
+    a launcher there is invisible to the runner's PATH and was measured on
+    the 2026-09-09 pilot (it overlaid an old checkout). Recorded so an
+    operator can remove it; not an error, since the shim still proves what
+    compute jobs ran and the transcript audit shows login-node use.
+    """
+    found = []
+    for candidate in [shutil.which("mdclaw", path=path),
+                      Path.home() / ".pi" / "agent" / "bin" / "mdclaw"]:
+        if candidate and Path(candidate).is_file() and str(candidate) not in found:
+            found.append(str(candidate))
+    return found
+
+
 def _image_mode_audit(transcript: Path) -> dict:
-    text = transcript.read_text(errors="replace") if transcript.exists() else ""
+    commands = _agent_shell_commands(transcript)
+    text = "\n".join(commands)
     return {name: len(pattern.findall(text)) for name, pattern in _AUDIT_PATTERNS.items()}
 
 
