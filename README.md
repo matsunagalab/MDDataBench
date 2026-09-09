@@ -134,6 +134,14 @@ setup and `sbatch --wrap` are refused in these conditions. `sif_only` is
 unaffected. Initialize a new experiment to obtain these wrappers; existing
 campaign artifacts are not retrofitted.
 
+To measure the CLI exactly as shipped in the SIF, with no checkout anywhere,
+set `"source_mode": "image"` and give the cell its skills through pi's
+user-wide package (`"skill_source": "user"`). The agent then invokes
+`singularity exec ... <sif> mdclaw ...` directly, the runner binds the host
+Slurm clients for it, and the shim verifies that every job runs the image's
+own package. See [image mode](docs/experiments.md#image-mode-skills-and-the-sif-only)
+and [`examples/experiment-rikyu-image.json`](examples/experiment-rikyu-image.json).
+
 Available pi models can be recorded without exposing credentials:
 
 ```bash

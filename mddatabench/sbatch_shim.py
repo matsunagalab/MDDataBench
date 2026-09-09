@@ -12,9 +12,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 if __package__:
-    from .source_overlay import prepare_submission
+    from .source_overlay import prepare_submission, source_mode
 else:
-    from source_overlay import prepare_submission
+    from source_overlay import prepare_submission, source_mode
 
 
 def _without_time_limit(arguments: list[str]) -> list[str]:
@@ -64,6 +64,39 @@ def _record(path: Path, arguments: list[str], stdout: str, returncode: int,
         handle.write(json.dumps(row, sort_keys=True) + "\n")
 
 
+_IMAGE_ONLY_VARIABLES = ("LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONPATH", "PYTHONHOME")
+
+
+def _worker_environment(environment) -> dict:
+    """The environment sbatch hands to the job when the shim runs inside a SIF.
+
+    Image-mode agents call ``mdclaw submit_job`` through ``singularity exec``,
+    so this shim runs inside the image and ``sbatch`` would export the image's
+    environment to the worker. Measured 2026-09-09 on Rikyu: the job's PATH
+    lacked the host container runtime (``singularity: command not found``) and
+    its LD_PRELOAD named a library the host cannot open. Outside a container
+    the environment is returned unchanged.
+    """
+    environment = dict(environment)
+    if not (environment.get("APPTAINER_CONTAINER") or environment.get("SINGULARITY_CONTAINER")):
+        return environment
+    for key in list(environment):
+        if key.startswith(("APPTAINER", "SINGULARITY")) or key in _IMAGE_ONLY_VARIABLES:
+            del environment[key]
+    host_path = environment.get("MDCLAW_SLURM_PATH")
+    if host_path:
+        environment["PATH"] = host_path
+    return environment
+
+
+def _declared_source_mode(manifest_path: str) -> str:
+    try:
+        with open(manifest_path) as handle:
+            return source_mode(json.load(handle))
+    except (OSError, ValueError, KeyError):
+        return "overlay"
+
+
 def main(argv=None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     real = os.environ.get("MDDATABENCH_REAL_SBATCH", "/usr/bin/sbatch")
@@ -90,8 +123,9 @@ def main(argv=None) -> int:
         try:
             submitted, overlay = prepare_submission(submitted, manifest_path)
         except (OSError, ValueError, KeyError) as exc:
+            mode = _declared_source_mode(manifest_path)
             detail = (f"mddatabench_source_overlay_invalid: {exc}. "
-                      "Use configure_container --source-mode overlay and submit_job/"
+                      f"Use configure_container --source-mode {mode} and submit_job/"
                       "submit_array_job with a direct mdclaw payload.\n")
             sys.stderr.write(detail)
             event_log = os.environ.get("MDDATABENCH_EVENT_LOG")
@@ -99,7 +133,7 @@ def main(argv=None) -> int:
                 _record(Path(event_log), submitted, "", 2, {"error": detail.strip()})
             return 2
     completed = subprocess.run([real, *submitted], text=True, capture_output=True,
-                               check=False)
+                               check=False, env=_worker_environment(os.environ))
     sys.stdout.write(completed.stdout)
     sys.stderr.write(completed.stderr)
     event_log = os.environ.get("MDDATABENCH_EVENT_LOG")

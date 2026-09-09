@@ -56,6 +56,58 @@ to use normal user-wide discovery, as the laboratory DeepSeek example does.
 No-skill Codex attempts additionally use an empty per-attempt `HOME` while
 preserving `CODEX_HOME` for authentication.
 
+## Image mode: skills and the SIF only
+
+`"source_mode": "image"` (top-level or per cell) drops the checkout entirely.
+No `mdclaw_source` or `mdclaw_cli` is accepted for such a cell, nothing is
+frozen, and no `mdclaw` wrapper is written: the attempt has its skills (pi's
+user-wide package from `pi install git:github.com/matsunagalab/mdclaw@main`
+with `"skill_source": "user"`, or a `skills_dir`) and the image, and invokes
+the image's own CLI as the MDClaw skill describes:
+
+```bash
+singularity exec --env PYTHONPATH= --env PYTHONHOME= <sif> mdclaw <tool> ...
+```
+
+`init_experiment` probes the image once (`python -c "import mdclaw"` inside
+it) and records the module path, `mdclaw` version and the image SHA-256 in
+`experiment.json` and every manifest; `hashes.sif` and
+`revisions.mdclaw_image_sha256` replace the frozen tree digest as the identity
+the numbers belong to. The workspace's `.mdclaw_cluster.json` is written in
+`source_mode: image`, so compute jobs run the image's package too.
+
+The image's Slurm tools call the *host's* clients. `init_experiment` therefore
+discovers the host resources they need (`sbatch` and friends, the Slurm plugin
+directory, `libmunge`, `/etc/slurm`, the munge socket, and passwd/group files
+augmented with the invoking account and `SlurmUser`; see
+`mddatabench/slurm_binds.py`) and records them as `container_binds`. Set
+`container_binds` in the spec to override discovery. At launch the runner
+exports them together with the attempt directory through `APPTAINER_BIND` /
+`SINGULARITY_BIND`, and presets `MDCLAW_SLURM_PATH` inside the image to the
+host search path, whose first entry is the attempt's `sbatch` shim. The agent
+never names a bind.
+
+The shim then runs *inside* the image. It rejects any job whose `PYTHONPATH`
+is non-empty, whose image differs from the manifest, or whose binds shadow the
+probed package directory, and rewrites the payload so the job aborts unless
+`mdclaw.__file__` is the probed module. Because `sbatch` exports the
+submitter's environment to the job, the shim also hands the worker a host
+environment: image-only loader and interpreter variables (`LD_PRELOAD`,
+`LD_LIBRARY_PATH`, `PYTHONPATH`, `PYTHONHOME`) and Apptainer bookkeeping are
+dropped and `PATH` becomes the host search path. Measured 2026-09-09 on
+Rikyu, a job submitted from inside the SIF without this failed with
+`singularity: command not found` and logged an `ld.so` preload error for every
+host process.
+
+Login-node commands are not mediated by the shim. `agent_end` events in image
+mode carry a `source_audit` with counts of `bin/mdclaw`, `PYTHONPATH=/` and
+source-bind mentions in the transcript; a non-zero count marks an attempt for
+inspection and changes no score. On Rikyu, `sbatch` refuses jobs without an
+account: export `SBATCH_ACCOUNT=<project>` before `run_experiment`; the
+evaluator scorer submits plain `sbatch` and relies on it as well.
+[`examples/experiment-rikyu-image.json`](../examples/experiment-rikyu-image.json)
+is a complete image-mode spec.
+
 ## Run a campaign
 
 Start from [`examples/experiment-rikyu.json`](../examples/experiment-rikyu.json)

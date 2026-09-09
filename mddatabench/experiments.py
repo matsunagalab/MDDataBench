@@ -25,9 +25,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .attempt_diagnostics import diagnose, gpu_totals, measured, read_record
+from .slurm_binds import discover_slurm_binds
 
 
 CONDITIONS = frozenset({"cli_skill_sif", "cli_sif", "sif_only"})
+# How a CLI attempt reaches MDClaw. ``overlay`` freezes a checkout and imports
+# it through PYTHONPATH inside the SIF; ``image`` runs only the package baked
+# into the SIF, so an attempt needs nothing but its skills and the image.
+SOURCE_MODES = frozenset({"overlay", "image"})
 PASS_RULE = "all_weighted_checks_pass"
 TERMINAL_SLURM_STATES = frozenset({
     "COMPLETED", "FAILED", "CANCELLED", "TIMEOUT", "OUT_OF_MEMORY",
@@ -140,6 +145,32 @@ def _freeze_source(src: Path, dest: Path) -> dict:
             "tree_sha256": digest.hexdigest()}
 
 
+def _probe_image(sif: Path, sha256: str | None = None) -> dict:
+    """Identify the MDClaw package an image-mode attempt will run.
+
+    The module path is what the sbatch shim's runtime check compares against,
+    and the digest is what the campaign's numbers belong to, in place of the
+    frozen tree digest of overlay mode.
+    """
+    sif = sif.resolve()
+    if not sif.is_file():
+        raise ValueError(f"sif is not a file: {sif}")
+    runtime = shutil.which("singularity") or shutil.which("apptainer")
+    if not runtime:
+        raise ValueError("image mode needs singularity or apptainer on the submission host")
+    probe = ("import sys; sys.path = [p for p in sys.path if p]; import mdclaw; "
+             "from pathlib import Path; print(Path(mdclaw.__file__).resolve()); "
+             "print(getattr(mdclaw, '__version__', ''))")
+    completed = subprocess.run(
+        [runtime, "exec", "--env", "PYTHONPATH=", "--env", "PYTHONHOME=", str(sif),
+         "python", "-c", probe], text=True, capture_output=True, timeout=900, check=False)
+    if completed.returncode:
+        raise ValueError(f"could not import mdclaw from {sif}: {completed.stderr.strip()[-500:]}")
+    module, _, version = completed.stdout.strip().partition("\n")
+    return {"sif": str(sif), "sha256": sha256 or _sha256(sif),
+            "mdclaw_module": module.strip(), "mdclaw_version": version.strip() or None}
+
+
 def _version(command: str) -> str | None:
     try:
         return subprocess.run(
@@ -153,6 +184,10 @@ def _version(command: str) -> str | None:
 def _harness_version(harness: str) -> str | None:
     """Resolve public harness names to their executable names."""
     return _version("claude" if harness == "claude-code" else harness)
+
+
+def _image_mode(cell: dict) -> bool:
+    return cell.get("condition") != "sif_only" and cell.get("source_mode") == "image"
 
 
 def _harness_executable(harness: str) -> str:
@@ -201,16 +236,31 @@ def _normalise_spec(spec: dict, experiment_dir: Path, dataset_dir: Path) -> dict
         cell_limit = str(cell.get("md_time_limit") or md_time_limit)
         if not re.fullmatch(r"[0-9:-]+", cell_limit):
             raise ValueError("cell md_time_limit must be a Slurm time value")
+        source_mode = str(cell.get("source_mode") or spec.get("source_mode") or "overlay")
+        if source_mode not in SOURCE_MODES:
+            raise ValueError(f"source_mode must be one of {sorted(SOURCE_MODES)}, "
+                             f"got {source_mode!r}")
+        skills_dir = cell.get("skills_dir") or spec.get("skills_dir")
+        if skills_dir and not Path(skills_dir).is_dir():
+            raise ValueError(f"skills_dir is not a directory: {skills_dir}")
         if condition != "sif_only":
             if not (cell.get("sif") or spec.get("sif")):
                 raise ValueError(f"{condition} requires sif")
-            if not (cell.get("mdclaw_cli") or spec.get("mdclaw_cli")):
-                raise ValueError(f"{condition} requires mdclaw_cli")
-            source = cell.get("mdclaw_source") or spec.get("mdclaw_source")
-            if not source:
-                raise ValueError(f"{condition} requires mdclaw_source for the SIF overlay")
-            if not Path(source).is_dir():
-                raise ValueError(f"mdclaw_source is not a directory: {source}")
+            if source_mode == "image":
+                if cell.get("mdclaw_source") or cell.get("mdclaw_cli"):
+                    raise ValueError("image mode takes the CLI from the SIF; remove "
+                                     "mdclaw_source and mdclaw_cli from the cell")
+                if condition == "cli_skill_sif" and skill_source != "user" and not skills_dir:
+                    raise ValueError("image mode cli_skill_sif needs skill_source=user "
+                                     "(pi) or a skills_dir")
+            else:
+                if not (cell.get("mdclaw_cli") or spec.get("mdclaw_cli")):
+                    raise ValueError(f"{condition} requires mdclaw_cli")
+                source = cell.get("mdclaw_source") or spec.get("mdclaw_source")
+                if not source:
+                    raise ValueError(f"{condition} requires mdclaw_source for the SIF overlay")
+                if not Path(source).is_dir():
+                    raise ValueError(f"mdclaw_source is not a directory: {source}")
         if condition == "sif_only" and not (cell.get("runtime_sif") or spec.get("runtime_sif")):
             raise ValueError("sif_only requires a runtime_sif that does not contain MDClaw")
         if condition == "sif_only":
@@ -219,7 +269,8 @@ def _normalise_spec(spec: dict, experiment_dir: Path, dataset_dir: Path) -> dict
             if full and runtime == Path(full).resolve():
                 raise ValueError("sif_only runtime_sif must differ from the MDClaw SIF")
         normal_cells.append({**cell, "condition": condition, "harness": harness,
-                             "model": model, "skill_source": skill_source})
+                             "model": model, "skill_source": skill_source,
+                             "source_mode": source_mode, "skills_dir": skills_dir})
     return {
         **spec,
         "schema_version": 1,
@@ -324,7 +375,7 @@ def init_experiment(experiment_dir: str, spec_file: str,
     frozen: dict[str, dict] = {}
     for cell in spec["cells"]:
         source = cell.get("mdclaw_source") or spec.get("mdclaw_source")
-        if not source:
+        if not source or _image_mode(cell):
             continue
         origin = Path(source).resolve()
         if str(origin) in frozen:
@@ -333,10 +384,24 @@ def init_experiment(experiment_dir: str, spec_file: str,
         dest.parent.mkdir(parents=True, exist_ok=True)
         frozen[str(origin)] = _freeze_source(origin, dest)
 
+    # Image-mode cells run the SIF's own package: identify it once per image
+    # and gather the host resources its Slurm tools need inside the container.
+    images: dict[str, dict] = {}
+    for cell in spec["cells"]:
+        sif = cell.get("sif") or spec.get("sif")
+        if not _image_mode(cell) or not sif or sif in images:
+            continue
+        images[sif] = _probe_image(Path(sif), cell.get("sif_sha256") or spec.get("sif_sha256"))
+    container_binds = spec.get("container_binds")
+    if images and container_binds is None:
+        container_binds = discover_slurm_binds(str(root / "host-binds"))
+
     _write_json(root / "experiment.json", {
         **spec, "created_at": _now(), "spec_sha256": _sha256(spec_path),
         "mddatabench_revision": _git_revision(Path(__file__).resolve().parents[1]),
         "frozen_sources": list(frozen.values()),
+        "images": list(images.values()),
+        "container_binds": container_binds,
     })
 
     attempts = []
@@ -361,8 +426,12 @@ def init_experiment(experiment_dir: str, spec_file: str,
                     instructions + "\n\n--- PUBLIC TASK ---\n\n" + prompt_file.read_text())
                 if cell["condition"] == "sif_only":
                     (workspace / "PORTABLE_SUBMISSION.md").write_text(PORTABLE_LAYOUT)
-                cell_source = cell.get("mdclaw_source") or spec.get("mdclaw_source")
-                cell_cli = cell.get("mdclaw_cli") or spec.get("mdclaw_cli")
+                image_mode = _image_mode(cell)
+                cell_source = None if image_mode else (
+                    cell.get("mdclaw_source") or spec.get("mdclaw_source"))
+                cell_cli = None if image_mode else (
+                    cell.get("mdclaw_cli") or spec.get("mdclaw_cli"))
+                image = images.get(cell.get("sif") or spec.get("sif")) if image_mode else None
                 source_record = frozen.get(
                     str(Path(cell_source).resolve())) if cell_source else None
                 if source_record:
@@ -379,7 +448,14 @@ def init_experiment(experiment_dir: str, spec_file: str,
                     "mdclaw_cli": cell_cli,
                     "mdclaw_source": cell_source,
                     "mddatabench_source": str(Path(__file__).resolve().parents[1]),
-                    "source_overlay_required": cell["condition"] != "sif_only",
+                    "source_mode": ("none" if cell["condition"] == "sif_only"
+                                    else cell["source_mode"]),
+                    "source_overlay_required": (cell["condition"] != "sif_only"
+                                                and not image_mode),
+                    "image_mdclaw_module": image["mdclaw_module"] if image else None,
+                    "image_mdclaw_version": image["mdclaw_version"] if image else None,
+                    "container_binds": list(container_binds or []) if image_mode else None,
+                    "skills_dir": cell.get("skills_dir"),
                     "agent_timeout_seconds": (int(cell.get("agent_timeout_seconds") or
                                                   spec["agent_timeout_seconds"])),
                     "md_time_limit": cell.get("md_time_limit") or spec["md_time_limit"],
@@ -390,12 +466,22 @@ def init_experiment(experiment_dir: str, spec_file: str,
                 shutil.copy2(Path(__file__).with_name("sbatch_shim.py"), shim)
                 shutil.copy2(Path(__file__).with_name("source_overlay.py"),
                              bin_dir / "source_overlay.py")
+                # The shim is stdlib-only. In image mode it runs inside the SIF,
+                # which has no /usr/bin/python3; the image's python3 is on PATH.
                 (bin_dir / "sbatch").write_text(
                     "#!/bin/sh\n"
                     f"export MDDATABENCH_MANIFEST={shlex.quote(str(attempt / 'manifest.json'))}\n"
-                    f"exec /usr/bin/python3 {shlex.quote(str(shim))} \"$@\"\n")
+                    'PY="$(command -v python3 2>/dev/null || echo /usr/bin/python3)"\n'
+                    f"exec \"$PY\" {shlex.quote(str(shim))} \"$@\"\n")
                 (bin_dir / "sbatch").chmod(0o755)
                 mdclaw_cli = environment_spec["mdclaw_cli"]
+                if image_mode:
+                    # No wrapper: the agent invokes the image directly, and the
+                    # compute side runs the image's package as well.
+                    _write_json(workspace / ".mdclaw_cluster.json", {
+                        "container": {"image": environment_spec["sif"],
+                                      "extra_flags": "--nv", "source_mode": "image"},
+                    })
                 if cell["condition"] != "sif_only" and mdclaw_cli:
                     _write_json(workspace / ".mdclaw_cluster.json", {
                         "container": {"image": environment_spec["sif"],
@@ -408,7 +494,8 @@ def init_experiment(experiment_dir: str, spec_file: str,
                     (bin_dir / "mdclaw").chmod(0o755)
                 if cell["condition"] == "cli_skill_sif":
                     if cell["skill_source"] != "user":
-                        project_skills = Path(environment_spec["mdclaw_source"]) / "skills"
+                        project_skills = (Path(cell["skills_dir"]) if cell.get("skills_dir")
+                                          else Path(environment_spec["mdclaw_source"]) / "skills")
                         agents_dir = workspace / ".agents"
                         agents_dir.mkdir()
                         os.symlink(project_skills.resolve(), agents_dir / "skills",
@@ -418,22 +505,42 @@ def init_experiment(experiment_dir: str, spec_file: str,
                     f"Agent/preparation wall limit: {environment_spec['agent_timeout_seconds']} s",
                     f"Each MD Slurm job wall limit: {environment_spec['md_time_limit']}",
                 ]
-                if cell["condition"] != "sif_only":
+                if image_mode:
+                    sif = environment_spec["sif"]
+                    capabilities += [
+                        f"MDClaw SIF: {sif} (sha256 {image['sha256']})",
+                        "MDClaw runtime: the SIF image only. No MDClaw checkout, wrapper, "
+                        "host CLI or source overlay is provided; the CLI is the package "
+                        f"installed in the image (mdclaw {image['mdclaw_version'] or 'unknown'}).",
+                        "Invoke MDClaw as: singularity exec --env PYTHONPATH= --env PYTHONHOME= "
+                        f"{sif} mdclaw <tool> [arguments]   (add --nv only inside a GPU allocation)",
+                        "Host Slurm clients, configuration, authentication socket and this "
+                        "attempt directory are pre-bound through APPTAINER_BIND/SINGULARITY_BIND, "
+                        "and MDCLAW_SLURM_PATH is preset inside the image, so mdclaw submit_job "
+                        "works from that invocation. Do not bind, clone or import any other "
+                        "MDClaw source; PYTHONPATH must stay empty.",
+                        "SLURM container is preconfigured in image mode. Submit a direct mdclaw "
+                        "command per job/array task using submit_job/submit_array_job; the "
+                        "harness verifies that each job runs the image's own package before "
+                        "submission."]
+                elif cell["condition"] != "sif_only":
                     capabilities += ["MDClaw CLI command: mdclaw",
                                      f"MDClaw SIF: {environment_spec['sif']}",
                                      f"MDClaw source overlay: {environment_spec['mdclaw_source']}",
                                      "SLURM container is preconfigured in overlay mode. Submit a direct "
                                      "mdclaw command per job/array task using submit_job/submit_array_job; "
                                      "the harness checks the source binding before submission."]
-                    if cell["condition"] == "cli_skill_sif":
-                        capabilities.append(
-                            "MDClaw skills: pi user-wide discovery"
-                            if cell["skill_source"] == "user" else
-                            f"MDClaw project skills: {environment_spec['mdclaw_source']}/skills")
+                if cell["condition"] == "cli_skill_sif":
+                    capabilities.append(
+                        "MDClaw skills: pi user-wide discovery"
+                        if cell["skill_source"] == "user" else
+                        f"MDClaw skills: {cell['skills_dir']}" if cell.get("skills_dir") else
+                        f"MDClaw project skills: {environment_spec['mdclaw_source']}/skills")
                 else:
                     capabilities += [f"Runtime SIF: {environment_spec['runtime_sif']}",
                                      "MDClaw CLI and MDClaw skills are not available."]
                 (workspace / "CAPABILITIES.md").write_text("\n".join(capabilities) + "\n")
+                cli_exposed = ["CAPABILITIES.md"] if image_mode else ["mdclaw_cli"]
                 manifest = {
                     "schema_version": 1,
                     "attempt_id": attempt_id,
@@ -458,7 +565,8 @@ def init_experiment(experiment_dir: str, spec_file: str,
                     "hashes": {
                         "task_json": _sha256(task_file),
                         "prompt_md": _sha256(prompt_file),
-                        "sif": cell.get("sif_sha256") or spec.get("sif_sha256"),
+                        "sif": (image["sha256"] if image else
+                                cell.get("sif_sha256") or spec.get("sif_sha256")),
                         "runtime_sif": (cell.get("runtime_sif_sha256") or
                                         spec.get("runtime_sif_sha256")),
                     },
@@ -467,6 +575,7 @@ def init_experiment(experiment_dir: str, spec_file: str,
                         "mdclaw": source_record["revision"] if source_record else None,
                         "mdclaw_tree_sha256": (source_record["tree_sha256"]
                                                if source_record else None),
+                        "mdclaw_image_sha256": image["sha256"] if image else None,
                     },
                     "reference": {
                         "node": task["reference"]["node"],
@@ -474,11 +583,11 @@ def init_experiment(experiment_dir: str, spec_file: str,
                         "bundle_sha256": task["reference"]["bundle"]["sha256"],
                     },
                     "environment": environment_spec,
-                    "exposed": (["task_prompt.md", "mdclaw_cli",
+                    "exposed": (["task_prompt.md", *cli_exposed,
                                  ("pi_user_skills" if cell["skill_source"] == "user"
                                   else "mdclaw_skill"), "sif"]
                                 if cell["condition"] == "cli_skill_sif" else
-                                ["task_prompt.md", "mdclaw_cli", "sif"]
+                                ["task_prompt.md", *cli_exposed, "sif"]
                                 if cell["condition"] == "cli_sif" else
                                 ["task_prompt.md", "CAPABILITIES.md",
                                  "PORTABLE_SUBMISSION.md", "runtime_sif"]),
@@ -495,7 +604,9 @@ def _harness_command(manifest: dict, workspace: Path) -> list[str]:
     harness, model = manifest["harness"], manifest["model"]
     condition, thinking = manifest["condition"], manifest.get("thinking")
     executable = _harness_executable(harness)
-    skill_root = Path(manifest["environment"]["mdclaw_source"] or "") / "skills"
+    environment = manifest["environment"]
+    skill_root = (Path(environment["skills_dir"]) if environment.get("skills_dir")
+                  else Path(environment.get("mdclaw_source") or "") / "skills")
     if harness == "pi":
         command = [executable, "--print", "--mode", "json", "--model", model,
                    "--session-dir", str(workspace.parent / "agent-session"), "--approve"]
@@ -573,11 +684,6 @@ def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
     effective_timeout = int(timeout_seconds or
                             manifest["environment"]["agent_timeout_seconds"])
     command = _harness_command(manifest, workspace)
-    if dry_run:
-        return {"success": True, "attempt_id": manifest["attempt_id"],
-                "command": command, "cwd": str(workspace),
-                "timeout_seconds": effective_timeout,
-                "md_time_limit": manifest["environment"]["md_time_limit"]}
     stdout_path, stderr_path = attempt / "agent.stdout.jsonl", attempt / "agent.stderr.log"
     attempt_tmp = workspace / ".mddatabench" / "tmp"
     attempt_tmp.mkdir(parents=True, exist_ok=True)
@@ -625,8 +731,28 @@ def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
         if manifest["environment"].get("mdclaw_source"):
             environment["MDCLAW_SOURCE"] = manifest["environment"]["mdclaw_source"]
             environment["CLAUDE_PLUGIN_ROOT"] = manifest["environment"]["mdclaw_source"]
+        if manifest["environment"].get("source_mode") == "image":
+            # The agent reaches MDClaw only through `singularity exec` on the
+            # image. Apptainer reads these variables on every invocation, so
+            # the host Slurm clients and this attempt directory (manifest,
+            # sbatch shim, source-checked scripts) are visible inside without
+            # the agent naming them, and the image's Slurm tools resolve the
+            # shim first through the host search path.
+            binds = [str(attempt), *(manifest["environment"].get("container_binds") or [])]
+            environment["APPTAINER_BIND"] = environment["SINGULARITY_BIND"] = ",".join(binds)
+            environment["APPTAINERENV_MDCLAW_SLURM_PATH"] = environment["PATH"]
+            environment["SINGULARITYENV_MDCLAW_SLURM_PATH"] = environment["PATH"]
     if manifest["condition"] == "sif_only":
         environment["MDDATABENCH_RUNTIME_SIF"] = manifest["environment"]["runtime_sif"]
+    if dry_run:
+        exposed = {key: value for key, value in environment.items()
+                   if key == "PATH" or key.startswith(("APPTAINER", "SINGULARITY",
+                                                       "MDCLAW", "MDDATABENCH"))}
+        return {"success": True, "attempt_id": manifest["attempt_id"],
+                "command": command, "cwd": str(workspace),
+                "timeout_seconds": effective_timeout,
+                "md_time_limit": manifest["environment"]["md_time_limit"],
+                "environment": exposed}
     _append_event(attempt, "agent_start", command=command)
     started = time.monotonic()
     exit_reason, returncode = "completed", None
@@ -651,12 +777,31 @@ def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
             stderr.write(f"{type(exc).__name__}: {exc}\n")
     wall = time.monotonic() - started
     usage = _usage_from_jsonl(stdout_path)
+    audit = (_image_mode_audit(stdout_path)
+             if manifest["environment"].get("source_mode") == "image" else None)
     _append_event(attempt, "agent_end", exit_reason=exit_reason,
-                  returncode=returncode, wall_seconds=wall, usage=usage)
+                  returncode=returncode, wall_seconds=wall, usage=usage,
+                  source_audit=audit)
     return {"success": exit_reason == "completed" and returncode == 0,
             "attempt_id": manifest["attempt_id"], "exit_reason": exit_reason,
             "returncode": returncode, "agent_wall_seconds": wall, "usage": usage,
             "stdout": str(stdout_path), "stderr": str(stderr_path)}
+
+
+_AUDIT_PATTERNS = {
+    # The shim proves what compute jobs ran; login-node commands are only
+    # observable in the transcript. These counts flag an attempt that reached
+    # for a checkout wrapper or a source overlay so it can be inspected; they
+    # are diagnostics and change no score.
+    "launcher_mentions": re.compile(r"bin/mdclaw\b"),
+    "pythonpath_mentions": re.compile(r"PYTHONPATH=/"),
+    "source_bind_mentions": re.compile(r"--bind[^\n]*mdclaw(?!\S*\.sif)"),
+}
+
+
+def _image_mode_audit(transcript: Path) -> dict:
+    text = transcript.read_text(errors="replace") if transcript.exists() else ""
+    return {name: len(pattern.findall(text)) for name, pattern in _AUDIT_PATTERNS.items()}
 
 
 def record_sbatch(attempt_dir: str, argv: list[str], stdout: str,

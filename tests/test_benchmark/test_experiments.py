@@ -668,3 +668,182 @@ def test_portable_missing_submission_becomes_a_full_zero():
     assert report["total"] > 0
     assert report["scores"]["prep"] == 0
     assert report["scores"]["md"] == 0
+
+
+# ---- image mode: skills + SIF, no MDClaw source ------------------------------
+
+def image_spec(tmp_path, cells, **extra):
+    sif = tmp_path / "mdclaw.sif"
+    sif.write_text("stub image")
+    spec = tmp_path / "image-spec.json"
+    spec.write_text(json.dumps({
+        "experiment_id": "image-test", "replicates": 1, "tasks": [TASK],
+        "sif": str(sif), "source_mode": "image",
+        "container_binds": ["/usr/bin/sbatch", "/etc/slurm", "/host/passwd:/etc/passwd"],
+        "cells": cells, **extra}))
+    return spec, sif
+
+
+def fake_probe(monkeypatch):
+    seen = []
+
+    def probe(sif, sha256=None):
+        seen.append(str(sif))
+        return {"sif": str(sif), "sha256": sha256 or "imagedigest",
+                "mdclaw_module": "/opt/mdclaw/lib/python3.12/site-packages/mdclaw/__init__.py",
+                "mdclaw_version": "0.6.8"}
+
+    monkeypatch.setattr(ex, "_probe_image", probe)
+    return seen
+
+
+def test_image_mode_needs_only_skills_and_the_sif(tmp_path, monkeypatch):
+    probed = fake_probe(monkeypatch)
+    user_cell = {**cell(), "skill_source": "user"}
+    spec, sif = image_spec(tmp_path, [user_cell, cell("cli_sif")])
+    root = tmp_path / "experiment"
+    result = ex.init_experiment(str(root), str(spec), str(DATASET))
+
+    assert result["attempts"] == 2
+    assert probed == [str(sif)]
+    assert not (root / "frozen-source").exists()
+    experiment = json.loads((root / "experiment.json").read_text())
+    assert experiment["frozen_sources"] == []
+    assert experiment["images"][0]["mdclaw_version"] == "0.6.8"
+    for path in attempts(root):
+        manifest = json.loads(path.read_text())
+        environment = manifest["environment"]
+        workspace = Path(manifest["paths"]["workspace"])
+        assert environment["source_mode"] == "image"
+        assert environment["mdclaw_source"] is None
+        assert environment["mdclaw_cli"] is None
+        assert environment["source_overlay_required"] is False
+        assert environment["image_mdclaw_module"].endswith("site-packages/mdclaw/__init__.py")
+        assert environment["container_binds"] == ["/usr/bin/sbatch", "/etc/slurm",
+                                                  "/host/passwd:/etc/passwd"]
+        assert manifest["hashes"]["sif"] == "imagedigest"
+        assert manifest["revisions"]["mdclaw_image_sha256"] == "imagedigest"
+        assert manifest["revisions"]["mdclaw_tree_sha256"] is None
+        assert "mdclaw_cli" not in manifest["exposed"]
+        # No wrapper, no checkout: the agent is told to exec the image itself.
+        assert not (workspace / ".mddatabench/bin/mdclaw").exists()
+        capabilities = (workspace / "CAPABILITIES.md").read_text()
+        assert f"singularity exec --env PYTHONPATH= --env PYTHONHOME= {sif} mdclaw" in capabilities
+        assert "source overlay" in capabilities and "No MDClaw checkout" in capabilities
+        config = json.loads((workspace / ".mdclaw_cluster.json").read_text())
+        assert config["container"]["source_mode"] == "image"
+        launcher = (workspace / ".mddatabench/bin/sbatch").read_text()
+        assert "command -v python3" in launcher and "MDDATABENCH_MANIFEST=" in launcher
+
+        dry = ex.run_attempt_agent(str(path.parent), dry_run=True)
+        binds = dry["environment"]["APPTAINER_BIND"].split(",")
+        assert binds[0] == str(path.parent)
+        assert binds[1:] == environment["container_binds"]
+        assert dry["environment"]["SINGULARITY_BIND"] == dry["environment"]["APPTAINER_BIND"]
+        assert dry["environment"]["APPTAINERENV_MDCLAW_SLURM_PATH"] == dry["environment"]["PATH"]
+        assert dry["environment"]["PATH"].startswith(str(workspace / ".mddatabench/bin"))
+        assert "MDCLAW_SOURCE" not in dry["environment"]
+        assert "CLAUDE_PLUGIN_ROOT" not in dry["environment"]
+        if manifest["condition"] == "cli_skill_sif":
+            assert "--skill" not in dry["command"] and "--no-skills" not in dry["command"]
+        else:
+            assert "--no-skills" in dry["command"]
+
+
+def test_image_mode_can_load_a_named_skills_directory(tmp_path, monkeypatch):
+    fake_probe(monkeypatch)
+    skills = tmp_path / "package" / "skills"
+    (skills / "md-prepare").mkdir(parents=True)
+    (skills / "md-prepare" / "SKILL.md").write_text("# md-prepare\n")
+    spec, _ = image_spec(tmp_path, [cell()], skills_dir=str(skills))
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(spec), str(DATASET))
+    path = attempts(root)[0]
+    workspace = Path(json.loads(path.read_text())["paths"]["workspace"])
+    assert (workspace / ".agents/skills").resolve() == skills.resolve()
+    command = ex.run_attempt_agent(str(path.parent), dry_run=True)["command"]
+    assert "--skill" in command and str(skills) in command
+    assert f"MDClaw skills: {skills}" in (workspace / "CAPABILITIES.md").read_text()
+
+
+@pytest.mark.parametrize(("fault", "message"), [
+    ({"cells": [{**cell(), "mdclaw_source": "/live/checkout"}]}, "remove mdclaw_source"),
+    ({"cells": [{**cell(), "mdclaw_cli": "/live/bin/mdclaw"}]}, "remove mdclaw_source"),
+    ({"cells": [cell()]}, "skill_source=user"),
+    ({"cells": [cell()], "source_mode": "bind"}, "source_mode must be"),
+])
+def test_image_mode_rejects_source_fields_and_unlocatable_skills(tmp_path, monkeypatch,
+                                                                fault, message):
+    fake_probe(monkeypatch)
+    spec, _ = image_spec(tmp_path, fault.pop("cells"), **fault)
+    with pytest.raises(ValueError, match=message):
+        ex.init_experiment(str(tmp_path / "experiment"), str(spec), str(DATASET))
+
+
+def test_image_mode_discovers_host_binds_when_the_spec_names_none(tmp_path, monkeypatch):
+    fake_probe(monkeypatch)
+    monkeypatch.setattr(ex, "discover_slurm_binds",
+                        lambda out_dir: [f"{out_dir}/passwd:/etc/passwd", "/usr/bin/sbatch"])
+    sif = tmp_path / "mdclaw.sif"
+    sif.write_text("stub image")
+    spec = tmp_path / "spec.json"
+    spec.write_text(json.dumps({"tasks": [TASK], "replicates": 1, "sif": str(sif),
+                                "source_mode": "image",
+                                "cells": [{**cell(), "skill_source": "user"}]}))
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(spec), str(DATASET))
+    experiment = json.loads((root / "experiment.json").read_text())
+    assert experiment["container_binds"] == [f"{root}/host-binds/passwd:/etc/passwd",
+                                             "/usr/bin/sbatch"]
+
+
+def test_image_mode_audits_the_transcript_for_source_overlays(tmp_path, monkeypatch):
+    fake_probe(monkeypatch)
+    spec, _ = image_spec(tmp_path, [{**cell(), "skill_source": "user"}])
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(spec), str(DATASET))
+    attempt = attempts(root)[0].parent
+
+    def fake_run(*args, **kwargs):
+        kwargs["stdout"].write(json.dumps({"text": "export PYTHONPATH=/home/me/mdclaw; "
+                                                   "/home/me/mdclaw/bin/mdclaw --list"}) + "\n")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(ex.subprocess, "run", fake_run)
+    ex.run_attempt_agent(str(attempt), timeout_seconds=1)
+    end = [json.loads(line) for line in (attempt / "events.jsonl").read_text().splitlines()
+           if '"agent_end"' in line][-1]
+    assert end["source_audit"] == {"launcher_mentions": 1, "pythonpath_mentions": 1,
+                                   "source_bind_mentions": 0}
+
+
+def test_overlay_attempts_record_no_image_audit(tmp_path, monkeypatch):
+    spec = write_spec(tmp_path, [cell("cli_sif")], 1)
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(spec), str(DATASET))
+    attempt = attempts(root)[0].parent
+    monkeypatch.setattr(ex.subprocess, "run",
+                        lambda *args, **kwargs: SimpleNamespace(returncode=0))
+    ex.run_attempt_agent(str(attempt), timeout_seconds=1)
+    end = [json.loads(line) for line in (attempt / "events.jsonl").read_text().splitlines()
+           if '"agent_end"' in line][-1]
+    assert end["source_audit"] is None
+    manifest = json.loads(attempts(root)[0].read_text())
+    assert manifest["environment"]["source_mode"] == "overlay"
+
+
+def test_shim_hands_the_worker_a_host_environment_from_inside_a_sif(monkeypatch):
+    from mddatabench import sbatch_shim
+
+    inside = {"APPTAINER_CONTAINER": "/images/mdclaw.sif", "SINGULARITY_NAME": "mdclaw.sif",
+              "APPTAINERENV_X": "1", "LD_PRELOAD": "/opt/mdclaw/lib/libmdclaw_fusefix.so",
+              "LD_LIBRARY_PATH": "/usr/local/cuda/lib64", "PYTHONPATH": "",
+              "PATH": "/opt/mdclaw/bin:/usr/bin",
+              "MDCLAW_SLURM_PATH": "/work/.mddatabench/bin:/shared/apptainer/bin:/usr/bin",
+              "SBATCH_ACCOUNT": "project", "HOME": "/home/me"}
+    worker = sbatch_shim._worker_environment(inside)
+    assert worker == {"PATH": "/work/.mddatabench/bin:/shared/apptainer/bin:/usr/bin",
+                      "MDCLAW_SLURM_PATH": inside["MDCLAW_SLURM_PATH"],
+                      "SBATCH_ACCOUNT": "project", "HOME": "/home/me"}
+    outside = {"PATH": "/usr/bin", "LD_PRELOAD": "/host/lib.so", "SINGULARITY_BIND": "/a:/a"}
+    assert sbatch_shim._worker_environment(outside) == outside

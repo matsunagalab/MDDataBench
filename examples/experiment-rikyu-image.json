@@ -1,0 +1,26 @@
+{
+  "experiment_id": "mddatabench-rikyu-image-pilot",
+  "replicates": 3,
+  "agent_timeout_seconds": 1200,
+  "md_time_limit": "00:20:00",
+  "tasks": [
+    "027_complex_1b6c"
+  ],
+  "sif": "/data1/rkp00079/mdclaw-rikyu-arm64-cuda130-cufft121-fusefix-6f171d2f0fa5.sif",
+  "source_mode": "image",
+  "cells": [
+    {
+      "condition": "cli_skill_sif",
+      "harness": "pi",
+      "model": "rikyu/kimi-k3",
+      "thinking": "high",
+      "skill_source": "user"
+    },
+    {
+      "condition": "cli_sif",
+      "harness": "pi",
+      "model": "rikyu/kimi-k3",
+      "thinking": "high"
+    }
+  ]
+}

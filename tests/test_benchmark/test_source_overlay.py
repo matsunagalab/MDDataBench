@@ -153,3 +153,120 @@ def test_actual_mdclaw_generators_are_accepted(tmp_path, array):
         broken = head + "PYTHONPATH=/live" + tail
         with pytest.raises(ValueError, match="PYTHONPATH"):
             guard_script(broken, source, Path(container["image"]))
+
+
+# ---- image mode ---------------------------------------------------------------
+
+IMAGE_MODULE = "/opt/mdclaw/lib/python3.12/site-packages/mdclaw/__init__.py"
+
+
+def image_manifest(tmp_path, condition="cli_sif"):
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps({
+        "condition": condition,
+        "environment": {"source_mode": "image", "sif": "/images/mdclaw.sif",
+                        "image_mdclaw_module": IMAGE_MODULE},
+        "hashes": {"sif": "imagedigest"},
+        "revisions": {"mdclaw_tree_sha256": None},
+    }))
+    return path
+
+
+def image_command(*options, image="/images/mdclaw.sif"):
+    return shlex.join(["singularity", "exec", "--nv", *options, str(image), "mdclaw", "--version"])
+
+
+def test_image_mode_accepts_the_bare_image_and_records_it(tmp_path, monkeypatch):
+    path = image_manifest(tmp_path)
+    script = tmp_path / "job.sbatch"
+    script.write_text("#!/bin/bash\n" + image_command("--bind", "/data/study", "--env",
+                                                    "PYTHONPATH=") + "\n")
+    event_log = tmp_path / "events.jsonl"
+    monkeypatch.setenv("MDDATABENCH_MANIFEST", str(path))
+    monkeypatch.setenv("MDDATABENCH_EVENT_LOG", str(event_log))
+    captured = []
+    monkeypatch.setattr(sbatch_shim.subprocess, "run", lambda argv, **kwargs: (
+        captured.append(argv) or SimpleNamespace(returncode=0, stdout="Submitted batch job 7\n",
+                                                 stderr="")))
+    assert sbatch_shim.main([str(script)]) == 0
+    snapshot = Path(captured[0][-1]).read_text()
+    assert "expected image module" in snapshot and IMAGE_MODULE in snapshot
+    assert "PYTHONPATH reaches outside the image package" in snapshot
+    event = json.loads(event_log.read_text())
+    assert event["source_overlay"]["source_mode"] == "image"
+    assert event["source_overlay"]["source"] is None
+    assert event["source_overlay"]["image_mdclaw_module"] == IMAGE_MODULE
+    assert event["source_overlay"]["sif_sha256"] == "imagedigest"
+
+
+@pytest.mark.parametrize("fault", ["pythonpath", "other_image", "shadow_package",
+                                   "shadow_prefix", "overlay_style"])
+def test_image_mode_rejects_overlays_and_shadowing_binds(tmp_path, monkeypatch, capsys, fault):
+    path = image_manifest(tmp_path)
+    if fault == "pythonpath":
+        line = image_command("--env", "PYTHONPATH=/live/mdclaw")
+    elif fault == "other_image":
+        line = image_command(image="/images/other.sif")
+    elif fault == "shadow_package":
+        line = image_command("--bind", f"/live/mdclaw:{Path(IMAGE_MODULE).parent}")
+    elif fault == "shadow_prefix":
+        line = image_command("--bind", "/live/opt:/opt/mdclaw")
+    else:
+        line = command(tmp_path / "frozen")
+    script = tmp_path / "job.sbatch"
+    script.write_text("#!/bin/bash\n" + line + "\n")
+    monkeypatch.setenv("MDDATABENCH_MANIFEST", str(path))
+    monkeypatch.setenv("MDDATABENCH_EVENT_LOG", str(tmp_path / "events.jsonl"))
+    monkeypatch.setattr(sbatch_shim.subprocess, "run",
+                        lambda *a, **k: pytest.fail("invalid job reached sbatch"))
+    assert sbatch_shim.main([str(script)]) == 2
+    err = capsys.readouterr().err
+    assert "mddatabench_source_overlay_invalid" in err
+    assert "--source-mode image" in err
+
+
+@pytest.mark.parametrize("scenario", ["same_module", "own_site_on_pythonpath", "other_module",
+                                      "foreign_pythonpath"])
+def test_image_runtime_check_executes_only_the_probed_package(tmp_path, scenario):
+    from mddatabench.source_overlay import IMAGE_RUNTIME_CHECK
+
+    package = tmp_path / "site" / "mdclaw"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text("")
+    (package / "_cli.py").write_text("def main(argv):\n    print('CLI_EXECUTED', argv)\n")
+    expected = (package / "__init__.py").resolve()
+    if scenario == "other_module":
+        expected = tmp_path / "elsewhere" / "mdclaw" / "__init__.py"
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    if scenario == "own_site_on_pythonpath":
+        # The Rikyu image exports its own site-packages; measured 2026-09-09.
+        env["PYTHONPATH"] = str(tmp_path / "site")
+    elif scenario == "foreign_pythonpath":
+        env["PYTHONPATH"] = f"{tmp_path / 'site'}:{tmp_path / 'checkout'}"
+    # cwd-first import stands in for the image's site-packages.
+    completed = subprocess.run([sys.executable, "-c", IMAGE_RUNTIME_CHECK, str(expected),
+                                "--version"], cwd=tmp_path / "site", env=env, text=True,
+                               capture_output=True, timeout=30)
+    ok = scenario in {"same_module", "own_site_on_pythonpath"}
+    assert (completed.returncode == 0) is ok
+    assert ("CLI_EXECUTED" in completed.stdout) is ok
+    if not ok:
+        assert "mddatabench_source_mismatch" in completed.stderr
+
+
+def test_actual_mdclaw_image_generators_are_accepted(tmp_path):
+    sbatch = pytest.importorskip("mdclaw.slurm.sbatch")
+    container = {"image": "/images/mdclaw.sif", "source_mode": "image", "extra_flags": "--nv"}
+    script = sbatch._generate_sbatch_script(
+        command="mdclaw --version", nodes=1, ntasks=1, nodelist=None, job_name="probe",
+        partition="all", cpus_per_task=1, gpus=0, gres=None, time_limit="00:01:00",
+        memory=None, dependency=None, output_dir=str(tmp_path), account=None, qos=None,
+        extra_sbatch=None, environment=None, stdout_log="probe.out", stderr_log="probe.err",
+        container=container)
+    assert "PYTHONPATH" not in script
+    checked, count = guard_script(script, None, Path(container["image"]), mode="image",
+                                  module=Path(IMAGE_MODULE))
+    assert count == 1 and "MDDATABENCH_SOURCE" in checked
+    assert subprocess.run(["bash", "-n"], input=checked, text=True, capture_output=True).returncode == 0
+    with pytest.raises(ValueError, match="frozen"):
+        guard_script(script, tmp_path / "frozen", Path(container["image"]))
