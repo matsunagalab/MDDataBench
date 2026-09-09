@@ -222,6 +222,69 @@ without claiming a unique root cause. Explicit harness failures remain explicit.
 The snapshot is sealed with the result so later workspace cleanup cannot erase
 the diagnosis. No pass rule or check score is changed.
 
+## Tokens, failures and recovery
+
+Each attempt's transcript is reduced to one record per model call by
+`mddatabench/transcript.py`: pi's assistant `message_end` (its
+`message_start`/`message_update`/`turn_end`/`agent_end` repeat the same
+usage), Claude Code's `assistant` events merged by message id with the
+`result` event's session total taken as authoritative (per-message
+`output_tokens` are partial streaming counts), and Codex's `turn.completed`
+usage (one record per turn). Token fields follow the provider's own
+accounting: `prompt_uncached` (charged as new computation), `cache_read`,
+`cache_write`, `prompt_total` (their sum), `output`, and `reasoning` (the
+reasoning share of `output` when reported). A call whose usage is all zero,
+which is what pi records when a provider is not asked for usage, counts as
+missing; `calls_without_usage` says how many. `provenance` is `transcript`,
+`transcript_total` (Claude Code) or `unavailable`.
+
+Rikyu reports usage only when pi asks for it in streaming mode: set
+`"supportsUsageInStreaming": true` in the rikyu provider's `compat` block of
+`~/.pi/agent/models.json` (done on 2026-09-09; campaigns before that have no
+usage). Rikyu's prefix cache makes most of a multi-turn prompt `cache_read`,
+and hits depend on server state, so report `prompt_total` and `output` as the
+primary figures and `prompt_uncached` / `cache_hit_ratio` as effective-compute
+diagnostics. Token counts are tokenizer-specific: compare conditions within a
+model, not tokens across models. `tokens_per_success` is the cell's total
+prompt and output tokens divided by its successes, so failed attempts' spend
+is charged to the successes.
+
+`skill_reads` counts tool calls that read a skill page (paths under the
+attempt's skill roots, or any `/skills/` path or `SKILL.md`) and the characters
+they returned, which is the transcript cost of the skill itself. `phases`
+splits calls, seconds and prompt tokens by the stage each call worked on
+(`skill_read`, `source`, `prep`, `solv`, `topo`, `min`, `eq`, `prod`,
+`submission`, `probe`, `text`), labelled from the MDClaw tools named in its
+commands; `timeline.jsonl` beside the result keeps the per-call series.
+
+MDClaw results are recognised when a command's JSON reply is echoed into the
+transcript; agents that pipe output through python or redirect it to a file
+leave only the invocation. `execution_diagnostics.mdclaw_error_codes` counts
+the `code` of every recognised `success: false` reply, and `error_codes.csv`
+tabulates them by cell.
+
+`mddatabench/recovery.py` turns three kinds of failure evidence into
+episodes: a recognised tool failure, a DAG node whose status is `failed`
+(MDClaw never mutates a failed node, so recovery is a new node), and a
+Slurm job that ended in a non-completed state. Recovery is the same stage
+succeeding later: a later successful result of the stage, a later completed
+node of the same type, or a later completed job of the same stage. An
+episode records the stage, kind, code, the calls, tokens and seconds spent
+up to the recovery, the means observed in between (`diagnostic_tool` for
+`trace_failure`/`inspect_job`/`explain_node`, `new_node`, `read_documentation`,
+`argument_change` with the added flags, `resubmission`), and the outcome
+(`recovered`, `abandoned`, or `timed_out` when the agent hit its wall limit).
+These are observations, not causes: what was changed is listed so a person
+can judge. `recovery.csv` aggregates episodes by cell, stage, kind and code;
+the per-attempt `recovery` block also says whether the attempt was
+`failure_free`. `failure_digest/<attempt>.md` collects, for every failed
+attempt, the failure stage and code, failed checks, error codes, episodes,
+phases and the last five tool calls.
+
+Attempts sealed before schema version 3 gain these fields at
+`collect_experiment` time from their transcripts (`recovery.provenance` is
+`collect_time`); their `result.json` is not rewritten.
+
 GPU seconds mean allocated GPU count times allocation elapsed seconds, not
 measured device utilization. A complete total requires every expected job to
 have valid accounting. Attempt metrics retain `gpu_seconds_known`, observed

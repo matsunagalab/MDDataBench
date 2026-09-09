@@ -956,3 +956,79 @@ def test_runtime_probe_refuses_an_image_that_carries_mdclaw(tmp_path, monkeypatc
         record = ex._probe_runtime(runtime_sif, "abc")
         assert record == {"runtime_sif": str(runtime_sif), "sha256": "abc", "python": "3.12.1",
                           "packages": {"openmm": "8.5.1"}, "executables": ["tleap"]}
+
+
+# ---- transcript metrics at sealing and collection ------------------------------
+
+def test_seal_records_tokens_error_codes_and_recovery_and_collect_tabulates_them(tmp_path):
+    from tests.test_benchmark.test_transcript import write_pi_transcript
+
+    spec = write_spec(tmp_path, [cell("cli_sif")], 2)
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(spec), str(DATASET))
+    dirs = [path.parent for path in attempts(root)]
+    write_pi_transcript(dirs[0] / "agent.stdout.jsonl")
+    write_pi_transcript(dirs[1] / "agent.stdout.jsonl", timeout=True)
+    for attempt, reason in zip(dirs, ("completed", "timeout")):
+        ex._append_event(attempt, "agent_end", exit_reason=reason, wall_seconds=42.0,
+                         usage={"provenance": "unavailable"})
+    score = dirs[0] / "score.json"
+    score.write_text(json.dumps({"passed": 1, "total": 1, "checks": [
+        {"check_id": "md", "category": "md", "weight": 1, "passed": True}]}))
+    ex.finalize_attempt(str(dirs[0]), str(score))
+    ex.finalize_attempt(str(dirs[1]), failure_stage="agent", failure_code="agent_timeout")
+
+    first = json.loads((dirs[0] / "result.json").read_text())
+    assert first["schema_version"] == 3
+    usage = first["metrics"]["token_usage"]
+    assert usage["prompt_total"] == 4250 and usage["cache_read"] == 4000 and usage["calls"] == 6
+    assert first["metrics"]["skill_reads"]["reads"] == 1
+    assert first["execution_diagnostics"]["mdclaw_error_codes"] == {"unknown_forcefield": 1}
+    assert first["execution_diagnostics"]["agent_exit_reason"] == "completed"
+    assert first["recovery"]["counts"]["recovered"] == 1
+    assert first["metrics"]["phases"]["prep"]["calls"] == 2
+    assert Path(first["artifacts"]["timeline"]).is_file()
+    second = json.loads((dirs[1] / "result.json").read_text())
+    assert second["recovery"]["episodes"][0]["outcome"] == "recovered"   # prep recovered before the timeout
+
+    summary = ex.collect_experiment(str(root))
+    overall = next(row for row in summary["summary"] if row["axis"] == "all")
+    # The timed-out transcript lacks the final message (10 + 1000 prompt, 60 output).
+    assert overall["mean_prompt_total"] == pytest.approx((4250 + 3240) / 2)
+    assert overall["cache_hit_ratio"] == pytest.approx((4000 + 3000) / (4250 + 3240))
+    assert overall["recovery_episodes"] == 2 and overall["recovery_rate"] == 1.0
+    assert overall["failure_free_rate"] == 0.0
+    assert overall["tokens_per_success"] == pytest.approx(4250 + 3240 + 210 + 150)
+    recovery_rows = summary["recovery"]
+    assert recovery_rows[0]["stage"] == "prep" and recovery_rows[0]["episodes"] == 2
+    assert recovery_rows[0]["diagnostic_tool_share"] == 1.0
+    assert summary["error_codes"] == [{"condition": "cli_sif", "harness": "pi", "model": "rikyu/kimi-k3",
+                                       "code": "unknown_forcefield", "count": 2}]
+    out = root / "summary"
+    assert (out / "recovery.csv").is_file() and (out / "error_codes.csv").is_file()
+    digest = (out / "failure_digest" / f"{ex._slug(second['attempt_id'])}.md").read_text()
+    assert "agent_timeout" in digest and "unknown_forcefield" in digest and "Last tool calls" in digest
+    assert not (out / "failure_digest" / f"{ex._slug(first['attempt_id'])}.md").exists()
+
+
+def test_collect_derives_transcript_metrics_for_older_seals_without_rewriting_them(tmp_path):
+    from tests.test_benchmark.test_transcript import write_pi_transcript
+
+    spec = write_spec(tmp_path, [cell("cli_sif")], 1)
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(spec), str(DATASET))
+    attempt = attempts(root)[0].parent
+    write_pi_transcript(attempt / "agent.stdout.jsonl")
+    ex._append_event(attempt, "agent_end", exit_reason="completed", wall_seconds=1.0, usage={})
+    ex.finalize_attempt(str(attempt), failure_stage="agent", failure_code="agent_no_submission")
+    result = json.loads((attempt / "result.json").read_text())
+    legacy = {**result, "schema_version": 2,
+              "metrics": {**result["metrics"], "token_usage": {"provenance": "unavailable"}}}
+    legacy.pop("recovery")
+    (attempt / "result.json").write_text(json.dumps(legacy))
+    summary = ex.collect_experiment(str(root))
+    row = json.loads((root / "summary" / "attempts.jsonl").read_text().splitlines()[0])
+    assert row["metrics"]["token_usage"]["prompt_total"] == 4250
+    assert row["recovery"]["provenance"] == "collect_time"
+    assert json.loads((attempt / "result.json").read_text())["schema_version"] == 2
+    assert summary["summary"][0]["recovery_episodes"] == 1

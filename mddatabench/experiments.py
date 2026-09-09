@@ -26,7 +26,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .attempt_diagnostics import diagnose, gpu_totals, measured, read_record
+from .recovery import recovery_report
 from .slurm_binds import discover_slurm_binds
+from .transcript import (error_codes, iter_calls, mdclaw_results, skill_reads, timeline,
+                         token_usage)
 
 
 CONDITIONS = frozenset({"cli_skill_sif", "cli_sif", "sif_only"})
@@ -722,41 +725,6 @@ def _harness_command(manifest: dict, workspace: Path) -> list[str]:
     raise ValueError(f"unsupported harness {harness!r}; choose pi, claude-code, or codex")
 
 
-def _sum_usage(value, totals: Counter) -> None:
-    if isinstance(value, dict):
-        for key, item in value.items():
-            normal = key.lower().replace("-", "_")
-            if isinstance(item, (int, float)):
-                if normal in {"input_tokens", "inputtokens", "prompt_tokens"}:
-                    totals["input_tokens"] += int(item)
-                elif normal in {"output_tokens", "outputtokens", "completion_tokens"}:
-                    totals["output_tokens"] += int(item)
-                elif normal in {"reasoning_tokens", "thinking_tokens"}:
-                    totals["reasoning_tokens"] += int(item)
-            elif normal in {"usage", "token_usage", "modelusage"}:
-                _sum_usage(item, totals)
-            else:
-                _sum_usage(item, totals)
-    elif isinstance(value, list):
-        for item in value:
-            _sum_usage(item, totals)
-
-
-def _usage_from_jsonl(path: Path) -> dict:
-    totals, parsed = Counter(), 0
-    for line in path.read_text(errors="replace").splitlines() if path.exists() else []:
-        try:
-            payload = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        parsed += 1
-        _sum_usage(payload, totals)
-    return {"input_tokens": totals.get("input_tokens"),
-            "output_tokens": totals.get("output_tokens"),
-            "reasoning_tokens": totals.get("reasoning_tokens"),
-            "provenance": "transcript" if parsed and totals else "unavailable"}
-
-
 def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
                       dry_run: bool = False) -> dict:
     """Run one pi/Claude Code/Codex attempt and capture its transcript and usage."""
@@ -863,7 +831,7 @@ def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
             exit_reason = "launch_error"
             stderr.write(f"{type(exc).__name__}: {exc}\n")
     wall = time.monotonic() - started
-    usage = _usage_from_jsonl(stdout_path)
+    usage = token_usage(_safe_calls(stdout_path, manifest["harness"]))
     audit = (_image_mode_audit(stdout_path)
              if manifest["environment"].get("source_mode") == "image" else None)
     _append_event(attempt, "agent_end", exit_reason=exit_reason,
@@ -1034,6 +1002,66 @@ def _reconcile_scorer(attempt: Path) -> dict | None:
     )
 
 
+def _safe_calls(transcript: Path, harness: str) -> list[dict]:
+    try:
+        return iter_calls(transcript, harness)
+    except (OSError, ValueError):
+        return []
+
+
+def _skill_roots(manifest: dict) -> list[str]:
+    environment = manifest.get("environment") or {}
+    roots = [environment.get("skills_dir"),
+             str(Path(environment["mdclaw_source"]) / "skills") if environment.get("mdclaw_source") else None]
+    if manifest.get("skill_source") == "user" and manifest.get("harness") == "pi":
+        home = Path(os.environ.get("PI_CODING_AGENT_DIR", Path.home() / ".pi" / "agent"))
+        roots += [str(home / "skills"), *map(str, home.glob("git/*/*/*/skills"))]
+    return [root for root in roots if root]
+
+
+def transcript_metrics(attempt: Path, manifest: dict, md_jobs: list[dict],
+                       exit_reason: str | None, write_timeline: bool = True) -> dict:
+    """Tokens, skill reads, MDClaw error codes and recovery episodes of one attempt.
+
+    Everything here is derived from the harness transcript and the DAG the
+    agent left behind; it can be recomputed later and never changes a score.
+    """
+    calls = _safe_calls(attempt / "agent.stdout.jsonl", manifest["harness"])
+    results = mdclaw_results(calls)
+    roots = _skill_roots(manifest)
+    job_dir = None
+    if manifest["condition"] != "sif_only":
+        job_dir = _submission_dir(Path(manifest["paths"]["workspace"]), manifest["condition"])
+    report = recovery_report(calls, results, job_dir, md_jobs, exit_reason)
+    rows = timeline(calls, results, roots)
+    timeline_file = None
+    if write_timeline and rows:
+        timeline_file = attempt / "timeline.jsonl"
+        with timeline_file.open("w") as handle:
+            for row in rows:
+                handle.write(json.dumps(row, sort_keys=True) + "\n")
+    return {"token_usage": token_usage(calls), "skill_reads": skill_reads(calls, roots),
+            "mdclaw_error_codes": error_codes(results), "mdclaw_results": len(results),
+            "recovery": report, "timeline": str(timeline_file) if timeline_file else None,
+            "phases": _phase_summary(rows)}
+
+
+def _phase_summary(rows: list[dict]) -> dict:
+    """Calls, seconds and prompt tokens per timeline stage."""
+    phases: dict[str, dict] = {}
+    for index, row in enumerate(rows):
+        stage = row["stage"]
+        entry = phases.setdefault(stage, {"calls": 0, "prompt_total": 0, "output": 0, "seconds": 0.0})
+        entry["calls"] += 1
+        usage = row.get("usage") or {}
+        entry["prompt_total"] += int(usage.get("prompt_total") or 0)
+        entry["output"] += int(usage.get("output") or 0)
+        nxt = rows[index + 1]["elapsed_seconds"] if index + 1 < len(rows) else None
+        if row.get("elapsed_seconds") is not None and nxt is not None:
+            entry["seconds"] += max(0.0, nxt - row["elapsed_seconds"])
+    return phases
+
+
 def finalize_attempt(attempt_dir: str, score_file: str = None,
                      failure_stage: str = None, failure_code: str = None,
                      failure_detail: str = None) -> dict:
@@ -1060,13 +1088,17 @@ def finalize_attempt(attempt_dir: str, score_file: str = None,
     events = _events(attempt)
     agent_end = next((row for row in reversed(events) if row.get("event") == "agent_end"), {})
     slurm_metrics = _slurm_metrics(attempt / "md_sacct.txt", md_job_ids(attempt))
+    enrichment = transcript_metrics(attempt, manifest, slurm_metrics["md_jobs"],
+                                    agent_end.get("exit_reason"))
     explicit = ({"stage": failure_stage or "unknown", "code": failure_code or "reported_failure",
                  "detail": failure_detail} if failure_stage or failure_code or failure_detail else None)
     diagnosis = diagnose(_submission_dir(Path(manifest["paths"]["workspace"]), manifest["condition"]),
                          report, passed, slurm_metrics["md_jobs"], explicit, str(attempt / "md_sacct.txt"))
     finished_at = _now()
+    diagnosis["execution_diagnostics"]["mdclaw_error_codes"] = enrichment["mdclaw_error_codes"]
+    diagnosis["execution_diagnostics"]["agent_exit_reason"] = agent_end.get("exit_reason")
     result = {
-        "schema_version": 2,
+        "schema_version": 3,
         "attempt_id": manifest["attempt_id"],
         "experiment_id": manifest["experiment_id"],
         "task_id": manifest["task_id"],
@@ -1089,14 +1121,16 @@ def finalize_attempt(attempt_dir: str, score_file: str = None,
             "total_wall_seconds": _elapsed_between(manifest.get("created_at"), finished_at),
             "node_wall_seconds": _node_wall_seconds(_submission_dir(
                 Path(manifest["paths"]["workspace"]), manifest["condition"])),
-            "token_usage": agent_end.get("usage") or {
-                "input_tokens": None, "output_tokens": None,
-                "reasoning_tokens": None, "provenance": "unavailable"},
+            "token_usage": enrichment["token_usage"],
+            "skill_reads": enrichment["skill_reads"],
+            "phases": enrichment["phases"],
         },
+        "recovery": enrichment["recovery"],
         "artifacts": {
             "score": str(Path(score_file).resolve()) if report else None,
             "backbone_connectivity": (
                 str(connectivity_file.resolve()) if connectivity_file else None),
+            "timeline": enrichment["timeline"],
         },
         "finished_at": finished_at,
     }
@@ -1446,6 +1480,27 @@ def collect_experiment(experiment_dir: str, out_dir: str = None,
                                                     manifest["condition"]),
                                     report, row["passed"], metrics["md_jobs"], explicit, str(attempt / "md_sacct.txt")))
             row["schema_version"] = 2
+    sources = {read_record(p).get("attempt_id"): p.parent
+               for p in (root / "attempts").glob("*/*/manifest.json")}
+    for row in rows:
+        if row.get("schema_version", 1) >= 3 or row["attempt_id"] not in sources:
+            continue
+        # Older seals predate transcript metrics; derive them now without
+        # rewriting the sealed result.
+        attempt = sources[row["attempt_id"]]
+        manifest = _json(attempt / "manifest.json")
+        exit_reason = next((e.get("exit_reason") for e in reversed(_events(attempt))
+                            if e.get("event") == "agent_end"), None)
+        enrichment = transcript_metrics(attempt, manifest, row.get("metrics", {}).get("md_jobs", []),
+                                        exit_reason, write_timeline=False)
+        metrics = row.setdefault("metrics", {})
+        if (metrics.get("token_usage") or {}).get("provenance", "unavailable") == "unavailable":
+            metrics["token_usage"] = enrichment["token_usage"]
+        metrics.setdefault("skill_reads", enrichment["skill_reads"])
+        metrics.setdefault("phases", enrichment["phases"])
+        row.setdefault("recovery", {**enrichment["recovery"], "provenance": "collect_time"})
+        row.setdefault("execution_diagnostics", {}).setdefault(
+            "mdclaw_error_codes", enrichment["mdclaw_error_codes"])
     with (out / "attempts.jsonl").open("w") as handle:
         for row in rows:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
@@ -1461,11 +1516,17 @@ def collect_experiment(experiment_dir: str, out_dir: str = None,
             per_task[row["task_id"]].append(row)
         task_any = [int(any(run["passed"] for run in runs)) for runs in per_task.values()]
         task_all = [int(all(run["passed"] for run in runs)) for runs in per_task.values()]
-        token_usage = [row.get("metrics", {}).get("token_usage", {}) for row in attempts]
-        input_tokens = [item.get("input_tokens") for item in token_usage
+        usage_rows = [row.get("metrics", {}).get("token_usage", {}) for row in attempts]
+        measured_usage = [item for item in usage_rows if item.get("prompt_total") is not None]
+        input_tokens = [item.get("input_tokens") for item in usage_rows
                         if item.get("input_tokens") is not None]
-        output_tokens = [item.get("output_tokens") for item in token_usage
+        output_tokens = [item.get("output_tokens") for item in usage_rows
                          if item.get("output_tokens") is not None]
+        recoveries = [row.get("recovery") or {} for row in attempts]
+        episodes = [e for item in recoveries for e in item.get("episodes", [])]
+        recovered = sum(e.get("outcome") == "recovered" for e in episodes)
+        prompt_total_sum = sum(item["prompt_total"] for item in measured_usage)
+        cache_read_sum = sum(item.get("cache_read") or 0 for item in measured_usage)
         successes = sum(int(row["attempt_score"]) for row in attempts)
         ci_low, ci_high = _wilson(successes, len(attempts))
         gpu = gpu_totals(row.get("metrics", {}).get("gpu_seconds") for row in attempts)
@@ -1501,6 +1562,21 @@ def collect_experiment(experiment_dir: str, out_dir: str = None,
             "mean_input_tokens": _mean([float(value) for value in input_tokens]),
             "mean_output_tokens": _mean([float(value) for value in output_tokens]),
             "token_coverage": len(input_tokens) / len(attempts) if attempts else 0.0,
+            "mean_calls": _mean([float(item["calls"]) for item in usage_rows if item.get("calls") is not None]),
+            "mean_prompt_total": _mean([float(item["prompt_total"]) for item in measured_usage]),
+            "mean_prompt_uncached": _mean([float(item.get("prompt_uncached") or 0) for item in measured_usage]),
+            "mean_cache_read": _mean([float(item.get("cache_read") or 0) for item in measured_usage]),
+            "mean_cache_write": _mean([float(item.get("cache_write") or 0) for item in measured_usage]),
+            "mean_output_tokens_measured": _mean([float(item.get("output") or 0) for item in measured_usage]),
+            "mean_reasoning_tokens": _mean([float(item.get("reasoning") or 0) for item in measured_usage]),
+            "cache_hit_ratio": (cache_read_sum / prompt_total_sum) if prompt_total_sum else None,
+            "tokens_per_success": ((prompt_total_sum + sum(item.get("output") or 0 for item in measured_usage))
+                                   / successes if successes and measured_usage else None),
+            "mean_skill_read_chars": _mean([float(row["metrics"]["skill_reads"]["chars"]) for row in attempts
+                                            if row.get("metrics", {}).get("skill_reads")]),
+            "recovery_episodes": len(episodes),
+            "recovery_rate": (recovered / len(episodes)) if episodes else None,
+            "failure_free_rate": _mean([float(item.get("failure_free", True)) for item in recoveries]),
         })
     columns = ["condition", "harness", "model", "axis", "tasks", "attempts",
                "successes", "success_rate", "success_rate_ci95_low",
@@ -1509,7 +1585,11 @@ def collect_experiment(experiment_dir: str, out_dir: str = None,
     columns += ["mean_agent_wall_seconds", "mean_md_queue_seconds", "mean_md_run_seconds",
                 "mean_total_wall_seconds", "total_gpu_seconds", "known_gpu_seconds",
                 "gpu_observed_attempts", "gpu_expected_attempts", "gpu_coverage", "mean_input_tokens",
-                "mean_output_tokens", "token_coverage"]
+                "mean_output_tokens", "token_coverage", "mean_calls", "mean_prompt_total",
+                "mean_prompt_uncached", "mean_cache_read", "mean_cache_write",
+                "mean_output_tokens_measured", "mean_reasoning_tokens", "cache_hit_ratio",
+                "tokens_per_success", "mean_skill_read_chars", "recovery_episodes",
+                "recovery_rate", "failure_free_rate"]
     with (out / "summary.csv").open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=columns)
         writer.writeheader()
@@ -1537,12 +1617,120 @@ def collect_experiment(experiment_dir: str, out_dir: str = None,
                                                     "category", "check_id", "count"])
         writer.writeheader()
         writer.writerows(scoring_rows)
-    payload = {"schema_version": 2, "generated_at": _now(), "attempts": len(rows),
+    recovery_rows = _recovery_rows(rows)
+    with (out / "recovery.csv").open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["condition", "harness", "model", "stage", "kind",
+                                                    "code", "episodes", "recovered", "abandoned",
+                                                    "timed_out", "recovery_rate", "mean_calls",
+                                                    "mean_prompt_total", "mean_seconds",
+                                                    "diagnostic_tool_share", "argument_change_share"])
+        writer.writeheader()
+        writer.writerows(recovery_rows)
+    codes = Counter((row["condition"], row["harness"], row["model"], code)
+                    for row in rows
+                    for code, count in (row.get("execution_diagnostics", {}).get("mdclaw_error_codes") or {}).items()
+                    for _ in range(int(count)))
+    code_rows = [dict(zip(("condition", "harness", "model", "code"), key), count=count)
+                 for key, count in sorted(codes.items(), key=lambda item: tuple(str(v) for v in item[0]))]
+    with (out / "error_codes.csv").open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["condition", "harness", "model", "code", "count"])
+        writer.writeheader()
+        writer.writerows(code_rows)
+    digests = out / "failure_digest"
+    digests.mkdir(exist_ok=True)
+    for row in rows:
+        if not row["passed"]:
+            (digests / f"{_slug(row['attempt_id'])}.md").write_text(_failure_digest(row, sources.get(row["attempt_id"])))
+    payload = {"schema_version": 3, "generated_at": _now(), "attempts": len(rows),
                "diagnostics_refreshed": refresh_diagnostics,
                "incomplete_attempts": incomplete, "summary": summaries,
-               "failures": failure_rows, "scoring_failures": scoring_rows}
+               "failures": failure_rows, "scoring_failures": scoring_rows,
+               "recovery": recovery_rows, "error_codes": code_rows}
     _write_json(out / "summary.json", payload)
     return {"success": not incomplete, "out_dir": str(out), **payload}
+
+
+def _recovery_rows(rows: list[dict]) -> list[dict]:
+    groups: dict[tuple, list[dict]] = defaultdict(list)
+    for row in rows:
+        for episode in (row.get("recovery") or {}).get("episodes", []):
+            groups[(row["condition"], row["harness"], row["model"], episode.get("stage"),
+                    episode.get("kind"), episode.get("code"))].append(episode)
+    table = []
+    for key, episodes in sorted(groups.items(), key=lambda item: tuple(str(v) for v in item[0])):
+        outcomes = Counter(e.get("outcome") for e in episodes)
+        costs = [e.get("cost") or {} for e in episodes]
+        table.append({"condition": key[0], "harness": key[1], "model": key[2], "stage": key[3],
+                      "kind": key[4], "code": key[5], "episodes": len(episodes),
+                      "recovered": outcomes.get("recovered", 0),
+                      "abandoned": outcomes.get("abandoned", 0),
+                      "timed_out": outcomes.get("timed_out", 0),
+                      "recovery_rate": outcomes.get("recovered", 0) / len(episodes),
+                      "mean_calls": _mean([float(c["calls"]) for c in costs if c.get("calls") is not None]),
+                      "mean_prompt_total": _mean([float(c["prompt_total"]) for c in costs
+                                                  if c.get("prompt_total") is not None]),
+                      "mean_seconds": _mean([float(c["seconds"]) for c in costs if c.get("seconds") is not None]),
+                      "diagnostic_tool_share": _mean([float("diagnostic_tool" in (e.get("means") or []))
+                                                      for e in episodes]),
+                      "argument_change_share": _mean([float("argument_change" in (e.get("means") or []))
+                                                      for e in episodes])})
+    return table
+
+
+def _failure_digest(row: dict, attempt: Path | None) -> str:
+    """A human-readable digest of one failed attempt, from sealed evidence only."""
+    lines = [f"# {row['attempt_id']}", "",
+             f"- condition: {row['condition']}  harness: {row['harness']}  model: {row['model']}",
+             f"- failure stage: {row.get('failure_stage')}  code: {row.get('failure_code')}",
+             f"- detail: {row.get('failure_detail')}",
+             f"- checks: {row.get('checks_passed')}/{row.get('checks_total')}",
+             f"- agent exit: {(row.get('execution_diagnostics') or {}).get('agent_exit_reason')}",
+             f"- agent wall: {(row.get('metrics') or {}).get('agent_wall_seconds')} s", ""]
+    usage = (row.get("metrics") or {}).get("token_usage") or {}
+    lines += ["## Tokens", "",
+              f"- calls: {usage.get('calls')}  prompt_total: {usage.get('prompt_total')}  "
+              f"uncached: {usage.get('prompt_uncached')}  cache_read: {usage.get('cache_read')}  "
+              f"output: {usage.get('output')}  reasoning: {usage.get('reasoning')}  "
+              f"({usage.get('provenance')})", ""]
+    checks = row.get("scoring_failures") or []
+    if checks:
+        lines += ["## Failed checks", ""] + [f"- {c.get('check_id')} ({c.get('category')}): "
+                                             f"{str(c.get('detail') or c.get('reason') or '')[:200]}"
+                                             for c in checks] + [""]
+    codes = (row.get("execution_diagnostics") or {}).get("mdclaw_error_codes") or {}
+    if codes:
+        lines += ["## MDClaw error codes", ""] + [f"- {code}: {count}" for code, count in
+                                                  sorted(codes.items())] + [""]
+    episodes = (row.get("recovery") or {}).get("episodes") or []
+    if episodes:
+        lines += ["## Recovery episodes", ""]
+        for e in episodes:
+            cost = e.get("cost") or {}
+            lines.append(f"- [{e.get('kind')}] {e.get('stage')} {e.get('code')} -> {e.get('outcome')}"
+                         f"; means: {', '.join(e.get('means') or []) or 'none'}"
+                         f"; calls {cost.get('calls')}, prompt {cost.get('prompt_total')}, "
+                         f"{cost.get('seconds')} s"
+                         + (f"; changed: {' '.join(e.get('argument_changes') or [])}"
+                            if e.get('argument_changes') else ""))
+            if e.get("message"):
+                lines.append(f"  {str(e['message'])[:200]}")
+        lines.append("")
+    phases = (row.get("metrics") or {}).get("phases") or {}
+    if phases:
+        lines += ["## Phases", ""] + [f"- {stage}: {v['calls']} calls, {v['prompt_total']} prompt tokens, "
+                                      f"{round(v['seconds'])} s" for stage, v in phases.items()] + [""]
+    if attempt and (attempt / "agent.stdout.jsonl").exists():
+        calls = _safe_calls(attempt / "agent.stdout.jsonl", row["harness"])
+        tail = calls[-5:]
+        if tail:
+            lines += ["## Last tool calls", ""]
+            for call in tail:
+                for tool in call["tool_calls"]:
+                    arguments = tool.get("arguments") or {}
+                    text = arguments.get("command") or arguments.get("path") or json.dumps(arguments)
+                    lines.append(f"- #{call['index']} {tool.get('name')}: {str(text)[:160]}")
+            lines.append("")
+    return "\n".join(lines)
 
 
 def model_inventory(harness: str = "pi", out: str = None) -> dict:
