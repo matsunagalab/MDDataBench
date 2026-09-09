@@ -172,6 +172,68 @@ def _probe_image(sif: Path, sha256: str | None = None) -> dict:
             "mdclaw_module": module.strip(), "mdclaw_version": version.strip() or None}
 
 
+RUNTIME_PACKAGES = ("openmm", "openmmforcefields", "openff-toolkit", "pdbfixer", "parmed",
+                    "mdtraj", "MDAnalysis", "numpy", "scipy", "rdkit", "pymbar", "ambertools")
+RUNTIME_EXECUTABLES = ("tleap", "pdb4amber", "antechamber", "parmchk2", "cpptraj", "packmol",
+                       "packmol-memgen", "reduce", "obabel", "gmx", "hole")
+_RUNTIME_PROBE = """import json, shutil, sys
+from importlib import metadata
+packages = {}
+for name in %r:
+    try:
+        packages[name] = metadata.version(name)
+    except metadata.PackageNotFoundError:
+        pass
+executables = [name for name in %r if shutil.which(name)]
+try:
+    import mdclaw
+    mdclaw_present = True
+except ImportError:
+    mdclaw_present = False
+print(json.dumps({"python": sys.version.split()[0], "packages": packages,
+                  "executables": executables, "mdclaw_present": mdclaw_present}))
+""" % (RUNTIME_PACKAGES, RUNTIME_EXECUTABLES)
+
+
+def _probe_runtime(runtime_sif: Path, sha256: str | None = None) -> dict:
+    """Inventory a `sif_only` runtime image from inside the image itself.
+
+    The inventory is environment documentation for the agent, generated
+    rather than hand-written so it cannot drift from the image, and the
+    probe doubles as the content check that the image carries no MDClaw.
+    """
+    runtime_sif = runtime_sif.resolve()
+    if not runtime_sif.is_file():
+        raise ValueError(f"runtime_sif is not a file: {runtime_sif}")
+    runtime = shutil.which("singularity") or shutil.which("apptainer")
+    if not runtime:
+        raise ValueError("probing a runtime image needs singularity or apptainer")
+    completed = subprocess.run(
+        [runtime, "exec", "--env", "PYTHONPATH=", "--env", "PYTHONHOME=", str(runtime_sif),
+         "python", "-c", _RUNTIME_PROBE], text=True, capture_output=True, timeout=900, check=False)
+    if completed.returncode:
+        raise ValueError(f"could not probe {runtime_sif}: {completed.stderr.strip()[-500:]}")
+    inventory = json.loads(completed.stdout.strip().splitlines()[-1])
+    if inventory.get("mdclaw_present"):
+        raise ValueError(f"sif_only runtime_sif must not contain MDClaw: {runtime_sif}")
+    return {"runtime_sif": str(runtime_sif), "sha256": sha256 or _sha256(runtime_sif),
+            "python": inventory.get("python"), "packages": inventory.get("packages") or {},
+            "executables": inventory.get("executables") or []}
+
+
+def _runtime_capabilities(record: dict) -> list[str]:
+    packages = ", ".join(f"{name} {version}" for name, version in record["packages"].items())
+    executables = ", ".join(record["executables"]) or "none of the probed names"
+    return [
+        f"Runtime SIF: {record['runtime_sif']} (sha256 {record['sha256']})",
+        f"Runtime contents, probed from the image at campaign setup and listed as documentation, "
+        f"not as a recommendation: python {record['python']}; {packages}",
+        f"Runtime executables on PATH inside the image: {executables}",
+        f"Run it as: singularity exec --env PYTHONPATH= --env PYTHONHOME= {record['runtime_sif']} "
+        "python ...   (add --nv inside a GPU allocation for OpenMM CUDA)",
+    ]
+
+
 def _version(command: str) -> str | None:
     try:
         return subprocess.run(
@@ -269,9 +331,13 @@ def _normalise_spec(spec: dict, experiment_dir: Path, dataset_dir: Path) -> dict
             full = cell.get("sif") or spec.get("sif")
             if full and runtime == Path(full).resolve():
                 raise ValueError("sif_only runtime_sif must differ from the MDClaw SIF")
+        inventory = cell.get("runtime_inventory", spec.get("runtime_inventory", True))
+        if not isinstance(inventory, bool):
+            raise ValueError("runtime_inventory must be true or false")
         normal_cells.append({**cell, "condition": condition, "harness": harness,
                              "model": model, "skill_source": skill_source,
-                             "source_mode": source_mode, "skills_dir": skills_dir})
+                             "source_mode": source_mode, "skills_dir": skills_dir,
+                             "runtime_inventory": inventory})
     return {
         **spec,
         "schema_version": 1,
@@ -396,12 +462,20 @@ def init_experiment(experiment_dir: str, spec_file: str,
     container_binds = spec.get("container_binds")
     if images and container_binds is None:
         container_binds = discover_slurm_binds(str(root / "host-binds"))
+    runtimes: dict[str, dict] = {}
+    for cell in spec["cells"]:
+        runtime_sif = cell.get("runtime_sif") or spec.get("runtime_sif")
+        if cell["condition"] != "sif_only" or not cell["runtime_inventory"] or runtime_sif in runtimes:
+            continue
+        runtimes[runtime_sif] = _probe_runtime(
+            Path(runtime_sif), cell.get("runtime_sif_sha256") or spec.get("runtime_sif_sha256"))
 
     _write_json(root / "experiment.json", {
         **spec, "created_at": _now(), "spec_sha256": _sha256(spec_path),
         "mddatabench_revision": _git_revision(Path(__file__).resolve().parents[1]),
         "frozen_sources": list(frozen.values()),
         "images": list(images.values()),
+        "runtime_images": list(runtimes.values()),
         "container_binds": container_binds,
     })
 
@@ -433,6 +507,8 @@ def init_experiment(experiment_dir: str, spec_file: str,
                 cell_cli = None if image_mode else (
                     cell.get("mdclaw_cli") or spec.get("mdclaw_cli"))
                 image = images.get(cell.get("sif") or spec.get("sif")) if image_mode else None
+                runtime_record = (runtimes.get(cell.get("runtime_sif") or spec.get("runtime_sif"))
+                                  if cell["condition"] == "sif_only" else None)
                 source_record = frozen.get(
                     str(Path(cell_source).resolve())) if cell_source else None
                 if source_record:
@@ -457,6 +533,9 @@ def init_experiment(experiment_dir: str, spec_file: str,
                     "image_mdclaw_version": image["mdclaw_version"] if image else None,
                     "container_binds": list(container_binds or []) if image_mode else None,
                     "skills_dir": cell.get("skills_dir"),
+                    "runtime_inventory": ({k: runtime_record[k] for k in
+                                           ("python", "packages", "executables")}
+                                          if runtime_record else None),
                     "agent_timeout_seconds": (int(cell.get("agent_timeout_seconds") or
                                                   spec["agent_timeout_seconds"])),
                     "md_time_limit": cell.get("md_time_limit") or spec["md_time_limit"],
@@ -537,9 +616,10 @@ def init_experiment(experiment_dir: str, spec_file: str,
                         if cell["skill_source"] == "user" else
                         f"MDClaw skills: {cell['skills_dir']}" if cell.get("skills_dir") else
                         f"MDClaw project skills: {environment_spec['mdclaw_source']}/skills")
-                else:
-                    capabilities += [f"Runtime SIF: {environment_spec['runtime_sif']}",
-                                     "MDClaw CLI and MDClaw skills are not available."]
+                if cell["condition"] == "sif_only":
+                    capabilities += (_runtime_capabilities(runtime_record) if runtime_record
+                                     else [f"Runtime SIF: {environment_spec['runtime_sif']}"])
+                    capabilities.append("MDClaw CLI and MDClaw skills are not available.")
                 (workspace / "CAPABILITIES.md").write_text("\n".join(capabilities) + "\n")
                 cli_exposed = ["CAPABILITIES.md"] if image_mode else ["mdclaw_cli"]
                 manifest = {
@@ -568,7 +648,8 @@ def init_experiment(experiment_dir: str, spec_file: str,
                         "prompt_md": _sha256(prompt_file),
                         "sif": (image["sha256"] if image else
                                 cell.get("sif_sha256") or spec.get("sif_sha256")),
-                        "runtime_sif": (cell.get("runtime_sif_sha256") or
+                        "runtime_sif": (runtime_record["sha256"] if runtime_record else
+                                        cell.get("runtime_sif_sha256") or
                                         spec.get("runtime_sif_sha256")),
                     },
                     "revisions": {

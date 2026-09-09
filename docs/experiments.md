@@ -50,6 +50,18 @@ not the package implementation being evaluated.
 For `sif_only`, use a separate `runtime_sif` that does not contain MDClaw. The
 runner rejects the MDClaw SIF itself for this condition: merely hiding the host
 CLI would not prevent an agent from invoking the package baked into the image.
+`init_experiment` also probes the runtime image from inside (`import mdclaw`
+must fail there) and records a generated inventory: the Python version, the
+versions of a fixed list of MD packages (`RUNTIME_PACKAGES`) and which of a
+fixed list of executables (`RUNTIME_EXECUTABLES`) are on the image's PATH.
+The attempt's `CAPABILITIES.md` lists that inventory as documentation, not
+as a recommendation, together with the `singularity exec` form to run it. A
+CLI condition can ask `mdclaw --list`; a bare runtime has no such index, and
+minutes spent discovering an unknown image measure something other than the
+agent's molecular dynamics. The inventory is generated, never hand-written,
+so it cannot drift from the image; `"runtime_inventory": false` (top-level or
+per cell) restores the bare `Runtime SIF:` line. Results with and without the
+inventory are different conditions; the manifest records which one applied.
 Skill-enabled attempts explicitly load `mdclaw_source/skills` from this checkout
 for each harness by default. A pi cell may instead set `"skill_source": "user"`
 to use normal user-wide discovery, as the laboratory DeepSeek example does.

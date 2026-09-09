@@ -42,6 +42,13 @@
       "harness": "pi",
       "model": "rikyu/kimi-k3",
       "thinking": "high"
+    },
+    {
+      "condition": "sif_only",
+      "harness": "pi",
+      "model": "rikyu/kimi-k3",
+      "thinking": "high"
     }
-  ]
+  ],
+  "runtime_sif": "/data1/rkp00079/rku00161/mddatabench-runtime-nomdclaw.sif"
 }

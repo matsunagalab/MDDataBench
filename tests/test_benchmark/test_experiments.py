@@ -15,6 +15,20 @@ DATASET = Path("benchmarks/mddatabench")
 TASK = "027_complex_1b6c"
 
 
+FAKE_RUNTIME = {"python": "3.12.14",
+                "packages": {"openmm": "8.5.1", "pdbfixer": "1.11", "mdtraj": "1.10.3"},
+                "executables": ["tleap", "pdb4amber", "packmol"]}
+
+
+@pytest.fixture(autouse=True)
+def fake_runtime_probe(monkeypatch):
+    """sif_only cells probe their runtime image at init; tests use a stub image."""
+    def probe(runtime_sif, sha256=None):
+        return {"runtime_sif": str(runtime_sif), "sha256": sha256 or "runtimedigest",
+                **FAKE_RUNTIME}
+    monkeypatch.setattr(ex, "_probe_runtime", probe)
+
+
 def fake_checkout(tmp_path):
     """A minimal stand-in for an MDClaw checkout, which init now freezes."""
     root = tmp_path / "mdclaw"
@@ -730,6 +744,8 @@ def test_image_mode_needs_only_skills_and_the_sif(tmp_path, monkeypatch):
         capabilities = (workspace / "CAPABILITIES.md").read_text()
         assert f"singularity exec --env PYTHONPATH= --env PYTHONHOME= {sif} mdclaw" in capabilities
         assert "source overlay" in capabilities and "No MDClaw checkout" in capabilities
+        # The no-skill cell must not inherit sif_only's "no CLI" lines.
+        assert "not available" not in capabilities and "Runtime SIF" not in capabilities
         config = json.loads((workspace / ".mdclaw_cluster.json").read_text())
         assert config["container"]["source_mode"] == "image"
         launcher = (workspace / ".mddatabench/bin/sbatch").read_text()
@@ -881,3 +897,62 @@ def test_shim_hands_the_worker_a_host_environment_from_inside_a_sif(monkeypatch)
                       "SBATCH_ACCOUNT": "project", "HOME": "/home/me"}
     outside = {"PATH": "/usr/bin", "LD_PRELOAD": "/host/lib.so", "SINGULARITY_BIND": "/a:/a"}
     assert sbatch_shim._worker_environment(outside) == outside
+
+
+# ---- sif_only runtime inventory ----------------------------------------------
+
+def test_sif_only_gets_a_generated_runtime_inventory(tmp_path):
+    spec = write_spec(tmp_path, [cell("sif_only")], 1)
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(spec), str(DATASET))
+    experiment = json.loads((root / "experiment.json").read_text())
+    assert experiment["runtime_images"][0]["packages"]["openmm"] == "8.5.1"
+    manifest_path = attempts(root)[0]
+    manifest = json.loads(manifest_path.read_text())
+    assert manifest["environment"]["runtime_inventory"] == FAKE_RUNTIME
+    assert manifest["hashes"]["runtime_sif"] == "runtimedigest"
+    capabilities = (Path(manifest["paths"]["workspace"]) / "CAPABILITIES.md").read_text()
+    assert "Runtime SIF: /images/runtime.sif (sha256 runtimedigest)" in capabilities
+    assert "openmm 8.5.1, pdbfixer 1.11, mdtraj 1.10.3" in capabilities
+    assert "tleap, pdb4amber, packmol" in capabilities
+    assert "not as a recommendation" in capabilities
+    assert "singularity exec --env PYTHONPATH= --env PYTHONHOME= /images/runtime.sif python" in capabilities
+    assert "MDClaw CLI and MDClaw skills are not available." in capabilities
+    # Never leaks into the CLI conditions.
+    assert "mdclaw" not in capabilities.split("MDClaw CLI and MDClaw skills")[0].lower()
+
+
+def test_runtime_inventory_can_be_switched_off(tmp_path, monkeypatch):
+    monkeypatch.setattr(ex, "_probe_runtime",
+                        lambda *args, **kwargs: pytest.fail("probe must not run"))
+    fake_checkout(tmp_path)
+    spec = tmp_path / "spec.json"
+    spec.write_text(json.dumps({"tasks": [TASK], "replicates": 1, "runtime_inventory": False,
+                                "sif": "/images/mdclaw.sif", "runtime_sif": "/images/runtime.sif",
+                                "cells": [cell("sif_only")]}))
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(spec), str(DATASET))
+    manifest = json.loads(attempts(root)[0].read_text())
+    assert manifest["environment"]["runtime_inventory"] is None
+    capabilities = (Path(manifest["paths"]["workspace"]) / "CAPABILITIES.md").read_text()
+    assert "Runtime SIF: /images/runtime.sif\n" in capabilities
+    assert "probed" not in capabilities
+
+
+@pytest.mark.parametrize("present", [False, True])
+def test_runtime_probe_refuses_an_image_that_carries_mdclaw(tmp_path, monkeypatch, present):
+    monkeypatch.undo()   # use the real _probe_runtime with a fake container runtime
+    runtime_sif = tmp_path / "runtime.sif"
+    runtime_sif.write_text("stub")
+    monkeypatch.setattr(ex.shutil, "which", lambda name: "/usr/bin/singularity")
+    payload = json.dumps({"python": "3.12.1", "packages": {"openmm": "8.5.1"},
+                          "executables": ["tleap"], "mdclaw_present": present})
+    monkeypatch.setattr(ex.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(
+        returncode=0, stdout="noise\n" + payload + "\n", stderr=""))
+    if present:
+        with pytest.raises(ValueError, match="must not contain MDClaw"):
+            ex._probe_runtime(runtime_sif, "abc")
+    else:
+        record = ex._probe_runtime(runtime_sif, "abc")
+        assert record == {"runtime_sif": str(runtime_sif), "sha256": "abc", "python": "3.12.1",
+                          "packages": {"openmm": "8.5.1"}, "executables": ["tleap"]}
