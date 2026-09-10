@@ -705,7 +705,7 @@ def fake_probe(monkeypatch):
         seen.append(str(sif))
         return {"sif": str(sif), "sha256": sha256 or "imagedigest",
                 "mdclaw_module": "/opt/mdclaw/lib/python3.12/site-packages/mdclaw/__init__.py",
-                "mdclaw_version": "0.6.8"}
+                "mdclaw_version": "0.6.8", "python": "/opt/mdclaw/bin/python3"}
 
     monkeypatch.setattr(ex, "_probe_image", probe)
     return seen
@@ -749,7 +749,11 @@ def test_image_mode_needs_only_skills_and_the_sif(tmp_path, monkeypatch):
         config = json.loads((workspace / ".mdclaw_cluster.json").read_text())
         assert config["container"]["source_mode"] == "image"
         launcher = (workspace / ".mddatabench/bin/sbatch").read_text()
-        assert "command -v python3" in launcher and "MDDATABENCH_MANIFEST=" in launcher
+        assert "MDDATABENCH_MANIFEST=" in launcher
+        # The image's interpreter comes first: inside the SIF, sbatch runs with
+        # the host PATH, where `python3` resolves to nothing.
+        assert launcher.index("/opt/mdclaw/bin/python3") < launcher.index("command -v python3")
+        assert environment["image_python"] == "/opt/mdclaw/bin/python3"
 
         dry = ex.run_attempt_agent(str(path.parent), dry_run=True)
         binds = dry["environment"]["APPTAINER_BIND"].split(",")
@@ -1094,3 +1098,32 @@ def test_slurm_notes_must_be_strings(tmp_path):
                                 "slurm_notes": "use --gpus", "cells": [cell()]}))
     with pytest.raises(ValueError, match="slurm_notes"):
         ex.init_experiment(str(tmp_path / "experiment"), str(spec), str(DATASET))
+
+
+def test_run_experiment_dispatches_in_spec_task_order(tmp_path, monkeypatch):
+    fake_checkout(tmp_path)
+    tasks = ["027_complex_1b6c", "001_membrane_5yc8"]
+    spec = tmp_path / "spec.json"
+    spec.write_text(json.dumps({"tasks": tasks, "replicates": 1, "sif": "/images/mdclaw.sif",
+                                "mdclaw_cli": "/bin/true", "mdclaw_source": str(tmp_path / "mdclaw"),
+                                "cells": [cell("cli_sif")]}))
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(spec), str(DATASET))
+    launched = []
+    monkeypatch.setattr(ex, "run_attempt_agent",
+                        lambda attempt, timeout_seconds=0: launched.append(Path(attempt).parent.name) or {})
+    monkeypatch.setattr(ex, "submit_attempt_scorer", lambda *args, **kwargs: {"success": True})
+    ex.run_experiment(str(root), str(tmp_path / "bundles"), "/images/mdclaw.sif", max_agents=1)
+    assert launched == ["027_complex_1b6c", "001_membrane_5yc8"]
+
+
+def test_shim_passes_version_probes_through_unguarded(tmp_path, monkeypatch):
+    from mddatabench import sbatch_shim
+
+    event_log = tmp_path / "events.jsonl"
+    monkeypatch.setenv("MDDATABENCH_EVENT_LOG", str(event_log))
+    monkeypatch.setenv("MDDATABENCH_MANIFEST", str(tmp_path / "missing-manifest.json"))
+    monkeypatch.setattr(sbatch_shim.subprocess, "run", lambda argv, **kwargs: SimpleNamespace(
+        returncode=0, stdout="slurm 25.11.5\n", stderr=""))
+    assert sbatch_shim.main(["--version"]) == 0
+    assert not event_log.exists()

@@ -111,9 +111,19 @@ def _declared_source_mode(manifest_path: str) -> str:
         return "overlay"
 
 
+_PASSTHROUGH = frozenset({"--version", "-V", "--help", "-h", "--usage"})
+
+
 def main(argv=None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     real = os.environ.get("MDDATABENCH_REAL_SBATCH", "/usr/bin/sbatch")
+    if any(argument in _PASSTHROUGH for argument in arguments):
+        # MDClaw probes `sbatch --version` before submitting; that is not a
+        # job and must neither be guarded nor recorded as a submission.
+        completed = subprocess.run([real, *arguments], text=True, capture_output=True, check=False)
+        sys.stdout.write(completed.stdout)
+        sys.stderr.write(completed.stderr)
+        return completed.returncode
     limit = os.environ.get("MDDATABENCH_MD_TIME_LIMIT", "00:20:00")
     partition = os.environ.get("MDDATABENCH_MD_PARTITION")
     nodelist = os.environ.get("MDDATABENCH_MD_NODELIST")

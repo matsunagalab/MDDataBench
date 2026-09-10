@@ -164,15 +164,18 @@ def _probe_image(sif: Path, sha256: str | None = None) -> dict:
         raise ValueError("image mode needs singularity or apptainer on the submission host")
     probe = ("import sys; sys.path = [p for p in sys.path if p]; import mdclaw; "
              "from pathlib import Path; print(Path(mdclaw.__file__).resolve()); "
-             "print(getattr(mdclaw, '__version__', ''))")
+             "print(getattr(mdclaw, '__version__', '')); print(sys.executable)")
     completed = subprocess.run(
         [runtime, "exec", "--env", "PYTHONPATH=", "--env", "PYTHONHOME=", str(sif),
          "python", "-c", probe], text=True, capture_output=True, timeout=900, check=False)
     if completed.returncode:
         raise ValueError(f"could not import mdclaw from {sif}: {completed.stderr.strip()[-500:]}")
-    module, _, version = completed.stdout.strip().partition("\n")
+    lines = completed.stdout.strip().splitlines()
+    module, version = lines[0].strip(), (lines[1].strip() if len(lines) > 1 else "")
+    python = lines[2].strip() if len(lines) > 2 else None
     return {"sif": str(sif), "sha256": sha256 or _sha256(sif),
-            "mdclaw_module": module.strip(), "mdclaw_version": version.strip() or None}
+            "mdclaw_module": module, "mdclaw_version": version or None,
+            "python": python}
 
 
 RUNTIME_PACKAGES = ("openmm", "openmmforcefields", "openff-toolkit", "pdbfixer", "parmed",
@@ -537,6 +540,7 @@ def init_experiment(experiment_dir: str, spec_file: str,
                                                 and not image_mode),
                     "image_mdclaw_module": image["mdclaw_module"] if image else None,
                     "image_mdclaw_version": image["mdclaw_version"] if image else None,
+                    "image_python": image.get("python") if image else None,
                     "container_binds": list(container_binds or []) if image_mode else None,
                     "skills_dir": cell.get("skills_dir"),
                     "runtime_inventory": ({k: runtime_record[k] for k in
@@ -554,11 +558,18 @@ def init_experiment(experiment_dir: str, spec_file: str,
                 shutil.copy2(Path(__file__).with_name("source_overlay.py"),
                              bin_dir / "source_overlay.py")
                 # The shim is stdlib-only. In image mode it runs inside the SIF,
-                # which has no /usr/bin/python3; the image's python3 is on PATH.
+                # which has no /usr/bin/python3, and MDClaw invokes sbatch with
+                # the host PATH there (measured 2026-09-10: `command -v python3`
+                # then finds nothing), so the image's own interpreter, probed at
+                # init, is tried before PATH and the host fallback.
+                candidates = [image.get("python") if image else None, "/usr/bin/python3"]
+                launcher_python = " ".join(shlex.quote(c) for c in candidates if c)
                 (bin_dir / "sbatch").write_text(
                     "#!/bin/sh\n"
                     f"export MDDATABENCH_MANIFEST={shlex.quote(str(attempt / 'manifest.json'))}\n"
-                    'PY="$(command -v python3 2>/dev/null || echo /usr/bin/python3)"\n'
+                    f'for PY in {launcher_python} "$(command -v python3 2>/dev/null)"; do\n'
+                    '    [ -n "$PY" ] && [ -x "$PY" ] && break\n'
+                    "done\n"
                     f"exec \"$PY\" {shlex.quote(str(shim))} \"$@\"\n")
                 (bin_dir / "sbatch").chmod(0o755)
                 mdclaw_cli = environment_spec["mdclaw_cli"]
@@ -1369,8 +1380,15 @@ def run_experiment(experiment_dir: str, bundle_root: str, scorer_sif: str,
     ``limit`` bounds newly launched attempts (zero means all pending).
     """
     root = Path(experiment_dir).resolve()
+    # Dispatch in the spec's task order, not alphabetically: a campaign that
+    # lists the tasks most likely to fail first surfaces benchmark and tool
+    # defects while a restart is still cheap (asked for on 2026-09-10).
+    order = {task: index for index, task in
+             enumerate(read_record(root / "experiment.json").get("tasks") or [])}
     pending = []
-    for manifest_path in sorted((root / "attempts").glob("*/*/manifest.json")):
+    for manifest_path in sorted((root / "attempts").glob("*/*/manifest.json"),
+                                key=lambda p: (order.get(p.parent.parent.name, len(order)),
+                                               p.parent.parent.name, p.parent.name)):
         attempt = manifest_path.parent
         if (attempt / "result.json").exists():
             continue
