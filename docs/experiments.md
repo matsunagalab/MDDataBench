@@ -120,6 +120,31 @@ evaluator scorer submits plain `sbatch` and relies on it as well.
 [`examples/experiment-rikyu-image.json`](../examples/experiment-rikyu-image.json)
 is a complete image-mode spec.
 
+## Site scheduler notes
+
+`slurm_notes` (top-level or per cell) is a list of sentences shown in every
+condition's `CAPABILITIES.md` as `Slurm note: ...`. It is environment
+documentation in the same sense as the runtime inventory: on Rikyu the
+scheduler rejects `--gres=gpu:N` in favour of `--gpus=N`, and the account is
+preset through `SBATCH_ACCOUNT`. MDClaw's `submit_job` already uses `--gpus`,
+so without the note only `sif_only` agents paid to discover the rule
+(measured 2026-09-10). The notes are recorded in each manifest.
+
+## Chained production
+
+MDClaw continues a production across nodes: `prod_002` has `prod_001` as its
+parent and restarts from its state. Under a 20-minute job limit a membrane
+system reaches 1 ns only that way. The scorer therefore grades the chain that
+ends at the latest completed production node as one production: the
+trajectories are concatenated oldest first, `simulation_time_ns` is summed,
+the state logs are concatenated, and the frame interval is read from the
+first segment. Segments must agree on temperature, pressure, timestep, HMR
+and ensemble; a restart under different conditions is not a continuation, and
+only the last node is graded (the report says which segments were dropped).
+The lineage used for prep, topo and min selection is unchanged. Measured
+2026-09-10: four otherwise correct attempts, graded as 0.4 ns from the last
+segment alone, failed four checks; re-scored as 1.2 ns they pass.
+
 ## Run a campaign
 
 Start from [`examples/experiment-rikyu.json`](../examples/experiment-rikyu.json)

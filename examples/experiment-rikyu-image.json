@@ -50,5 +50,9 @@
       "thinking": "high"
     }
   ],
-  "runtime_sif": "/data1/rkp00079/rku00161/mddatabench-runtime-nomdclaw.sif"
+  "runtime_sif": "/data1/rkp00079/rku00161/mddatabench-runtime-nomdclaw.sif",
+  "slurm_notes": [
+    "Request GPUs with --gpus=N (for example --gpus=1); --gres=gpu:N and --gpus-per-node are rejected by this site's scheduler policy.",
+    "The Slurm account is preset through the environment; do not pass --account."
+  ]
 }

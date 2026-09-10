@@ -230,6 +230,68 @@ def find_node(job_dir: pathlib.Path, node_type: str) -> pathlib.Path:
     return best
 
 
+def production_segments(job_dir: pathlib.Path, prod: pathlib.Path) -> list:
+    """The chained production nodes that end at ``prod``, oldest first.
+
+    A production continued across nodes -- prod_002 whose parent is prod_001,
+    restarted from its state, with ``final_step`` carrying on -- is one
+    production. Under a 20-minute job limit a membrane system reaches 1 ns
+    only that way: measured 2026-09-10, four otherwise correct attempts ran
+    0.4 ns x 3 and were graded as 0.4 ns because only the last node's
+    trajectory was read. Walk ``parent_node_ids`` back while the parent is a
+    completed production node with a trajectory.
+    """
+    nodes = _read_nodes(job_dir)
+    chain, current = [prod.name], nodes.get(prod.name)
+    while current:
+        parents = [name for name in (current[1].get("parent_node_ids") or [])
+                   if name in nodes and nodes[name][1].get("node_type") == "prod"
+                   and nodes[name][1].get("status") == "completed"
+                   and any((nodes[name][0] / "artifacts").glob("*.dcd"))]
+        if not parents or parents[0] in chain:
+            break
+        chain.append(parents[0])
+        current = nodes[parents[0]]
+    return [nodes[name][0] for name in reversed(chain)]
+
+
+_CONTINUATION_KEYS = ("temperature_kelvin", "pressure_bar", "timestep_fs", "hmr")
+
+
+def production_summary(segments: list) -> dict:
+    """Total length and consistency of a chained production.
+
+    Segments must agree on temperature, pressure, timestep, HMR and ensemble;
+    otherwise they are not one production and only the last node is graded.
+    """
+    metas = [json.loads((node / "node.json").read_text()).get("metadata", {}) for node in segments]
+    head = metas[-1]
+    consistent = all(
+        all(meta.get(key) == head.get(key) for key in _CONTINUATION_KEYS)
+        and (meta.get("system_signature") or {}).get("ensemble")
+        == (head.get("system_signature") or {}).get("ensemble")
+        for meta in metas[:-1])
+    used = segments if consistent else segments[-1:]
+    used_metas = metas if consistent else metas[-1:]
+    lengths = [float(meta.get("simulation_time_ns", 0.0) or 0.0) for meta in used_metas]
+    return {"segments": [node.name for node in used], "lengths_ns": lengths,
+            "simulation_time_ns": sum(lengths), "consistent": consistent,
+            "dropped": [node.name for node in segments if node not in used]}
+
+
+def merge_energy_logs(paths: list) -> dict:
+    """StateDataReporter columns concatenated across production segments."""
+    logs = [dy.energy_series(path) for path in paths]
+    logs = [log for log in logs if log]
+    if not logs:
+        return {}
+    merged = {}
+    for name in logs[0]:
+        columns = [log[name] for log in logs if name in log]
+        merged[name] = np.concatenate(columns) if columns else logs[0][name]
+    return merged
+
+
 def _load_system(path: pathlib.Path, system=None):
     """Validate a submitted OpenMM System. Returns (system, error_message).
 
@@ -500,6 +562,8 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     amber = json.loads((topo / "artifacts" / "amber_metadata.json").read_text())
     prod_meta = json.loads((prod / "node.json").read_text()).get("metadata", {})
     signature = prod_meta.get("system_signature", {})
+    production = production_summary(production_segments(job_dir, prod))
+    segments = [prod.parent / name for name in production["segments"]]
     # ``reference["reference_system"]`` is provenance only: every composition
     # expectation is recomputed from the fetched bundle at scoring time, so
     # nothing here reads the curated copy.
@@ -831,16 +895,23 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
           abs(temperature - float(task["reference"]["reference_conditions"]["TEMP"])) <= 1.0
           and signature.get("ensemble") == task["reference"]["reference_conditions"]["ENSEMBLE"],
           f"T={temperature} K, ensemble={signature.get('ensemble')}, P={prod_meta.get('pressure_bar')} bar")
+    chained = (f" over {len(segments)} chained segments "
+               f"({' + '.join(f'{ns:g}' for ns in production['lengths_ns'])})"
+               if len(segments) > 1 else "")
+    dropped = (f"; {len(production['dropped'])} earlier segment(s) with different conditions "
+               "not counted" if production["dropped"] else "")
     check("production_ran_for_one_nanosecond",
-          float(prod_meta.get("simulation_time_ns", 0.0)) >= 1.0,
-          f"{prod_meta.get('simulation_time_ns')} ns at {prod_meta.get('timestep_fs')} fs "
-          f"(HMR={prod_meta.get('hmr')})")
+          production["simulation_time_ns"] >= 1.0,
+          f"{production['simulation_time_ns']:g} ns{chained} at {prod_meta.get('timestep_fs')} fs "
+          f"(HMR={prod_meta.get('hmr')}){dropped}")
 
-    traj_path = next((prod / "artifacts").glob("*.dcd"))
-    traj = md.load(str(traj_path), top=str(topo / "artifacts" / "system.topology.pdb"))
+    traj_paths = [next((node / "artifacts").glob("*.dcd")) for node in segments]
+    traj_path = traj_paths[0]
+    traj = md.load([str(path) for path in traj_paths],
+                   top=str(topo / "artifacts" / "system.topology.pdb"))
 
     # --- the clock: reference-independent evidence that time passed -----------
-    claimed = float(prod_meta.get("simulation_time_ns", 0.0)) * 1000.0
+    claimed = production["simulation_time_ns"] * 1000.0
     interval = ex.dcd_frame_interval_ps(traj_path)
     clock = ex.elapsed_time_ps(traj, dt_ps=interval)
     spec_time = spec["elapsed_simulated_time_is_physical"]
@@ -1020,8 +1091,8 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
                "radius_of_gyration_angstrom", " A")
 
     # --- what the run reported about itself, measured rather than declared ----
-    log = dy.energy_series(next(iter((prod / "artifacts").glob("energy.dat")), None)) \
-        if any((prod / "artifacts").glob("energy.dat")) else {}
+    log = merge_energy_logs([path for node in segments
+                             for path in (node / "artifacts").glob("energy.dat")])
     spec_temperature = spec["measured_temperature_matches_reference"]
     wanted = float(task["reference"]["reference_conditions"]["TEMP"])
     measured = log.get("Temperature (K)")
@@ -1087,6 +1158,9 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
         } if not topology_error else None),
         "fluctuation_rank_correlation": agreement,
         "n_frames": int(traj.n_frames),
+        "production_segments": production["segments"],
+        "production_segment_lengths_ns": production["lengths_ns"],
+        "production_segments_dropped": production["dropped"],
         "built_energy_per_atom_kj_mol": built.get("energy_per_particle_kj_mol"),
         "minimized_energy_per_atom_kj_mol":
             (relaxed.get("energy_per_particle_kj_mol") if minimized is not None else None),

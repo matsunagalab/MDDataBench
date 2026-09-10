@@ -337,10 +337,13 @@ def _normalise_spec(spec: dict, experiment_dir: Path, dataset_dir: Path) -> dict
         inventory = cell.get("runtime_inventory", spec.get("runtime_inventory", True))
         if not isinstance(inventory, bool):
             raise ValueError("runtime_inventory must be true or false")
+        notes = cell.get("slurm_notes", spec.get("slurm_notes")) or []
+        if not isinstance(notes, list) or not all(isinstance(n, str) and n.strip() for n in notes):
+            raise ValueError("slurm_notes must be a list of non-empty strings")
         normal_cells.append({**cell, "condition": condition, "harness": harness,
                              "model": model, "skill_source": skill_source,
                              "source_mode": source_mode, "skills_dir": skills_dir,
-                             "runtime_inventory": inventory})
+                             "runtime_inventory": inventory, "slurm_notes": list(notes)})
     return {
         **spec,
         "schema_version": 1,
@@ -539,6 +542,7 @@ def init_experiment(experiment_dir: str, spec_file: str,
                     "runtime_inventory": ({k: runtime_record[k] for k in
                                            ("python", "packages", "executables")}
                                           if runtime_record else None),
+                    "slurm_notes": list(cell.get("slurm_notes") or []),
                     "agent_timeout_seconds": (int(cell.get("agent_timeout_seconds") or
                                                   spec["agent_timeout_seconds"])),
                     "md_time_limit": cell.get("md_time_limit") or spec["md_time_limit"],
@@ -588,6 +592,10 @@ def init_experiment(experiment_dir: str, spec_file: str,
                     f"Agent/preparation wall limit: {environment_spec['agent_timeout_seconds']} s",
                     f"Each MD Slurm job wall limit: {environment_spec['md_time_limit']}",
                 ]
+                # Site scheduler conventions are environment documentation, shown to
+                # every condition alike: on Rikyu a sif_only agent wrote --gres=gpu:1,
+                # which the site rejects, and paid for the discovery (2026-09-10).
+                capabilities += [f"Slurm note: {note}" for note in cell.get("slurm_notes") or []]
                 if image_mode:
                     sif = environment_spec["sif"]
                     capabilities += [

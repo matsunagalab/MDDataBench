@@ -1064,3 +1064,33 @@ def test_sif_only_failed_checks_are_an_evaluation_failure():
     failed_job = [{"job_id": "1", "job_name": "stage1", "state": "FAILED"}]
     scheduler = diagnose("/nonexistent/submission", report, False, failed_job, portable=True)
     assert (scheduler["failure_stage"], scheduler["failure_code"]) == ("execution", "scheduler_failure_observed")
+
+
+def test_slurm_notes_reach_every_condition_and_are_recorded(tmp_path):
+    fake_checkout(tmp_path)
+    spec = tmp_path / "spec.json"
+    spec.write_text(json.dumps({
+        "tasks": [TASK], "replicates": 1, "sif": "/images/mdclaw.sif",
+        "runtime_sif": "/images/runtime.sif", "mdclaw_cli": "/bin/true",
+        "mdclaw_source": str(tmp_path / "mdclaw"),
+        "slurm_notes": ["Request GPUs with --gpus=N; --gres=gpu:N is rejected on this site.",
+                        "The Slurm account is preset; do not pass --account."],
+        "cells": [cell(), cell("cli_sif"), cell("sif_only")]}))
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(spec), str(DATASET))
+    for path in attempts(root):
+        manifest = json.loads(path.read_text())
+        assert len(manifest["environment"]["slurm_notes"]) == 2
+        capabilities = (Path(manifest["paths"]["workspace"]) / "CAPABILITIES.md").read_text()
+        assert "Slurm note: Request GPUs with --gpus=N" in capabilities
+        assert "Slurm note: The Slurm account is preset" in capabilities
+
+
+def test_slurm_notes_must_be_strings(tmp_path):
+    fake_checkout(tmp_path)
+    spec = tmp_path / "spec.json"
+    spec.write_text(json.dumps({"tasks": [TASK], "replicates": 1, "sif": "/images/mdclaw.sif",
+                                "mdclaw_cli": "/bin/true", "mdclaw_source": str(tmp_path / "mdclaw"),
+                                "slurm_notes": "use --gpus", "cells": [cell()]}))
+    with pytest.raises(ValueError, match="slurm_notes"):
+        ex.init_experiment(str(tmp_path / "experiment"), str(spec), str(DATASET))
