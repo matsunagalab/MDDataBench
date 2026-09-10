@@ -925,9 +925,10 @@ def _image_mode_audit(transcript: Path) -> dict:
 def record_sbatch(attempt_dir: str, argv: list[str], stdout: str,
                   returncode: int) -> str | None:
     """Record one transparent sbatch invocation; used by the console shim."""
+    from .sbatch_shim import job_id_from_stdout
+
     attempt = Path(attempt_dir).resolve()
-    match = re.search(r"Submitted batch job\s+(\d+)", stdout)
-    job_id = match.group(1) if match else None
+    job_id = job_id_from_stdout(stdout)
     _append_event(attempt, "sbatch", argv=argv, job_id=job_id,
                   returncode=returncode)
     return job_id
@@ -1093,7 +1094,8 @@ def finalize_attempt(attempt_dir: str, score_file: str = None,
     explicit = ({"stage": failure_stage or "unknown", "code": failure_code or "reported_failure",
                  "detail": failure_detail} if failure_stage or failure_code or failure_detail else None)
     diagnosis = diagnose(_submission_dir(Path(manifest["paths"]["workspace"]), manifest["condition"]),
-                         report, passed, slurm_metrics["md_jobs"], explicit, str(attempt / "md_sacct.txt"))
+                         report, passed, slurm_metrics["md_jobs"], explicit, str(attempt / "md_sacct.txt"),
+                         portable=manifest["condition"] == "sif_only")
     finished_at = _now()
     diagnosis["execution_diagnostics"]["mdclaw_error_codes"] = enrichment["mdclaw_error_codes"]
     diagnosis["execution_diagnostics"]["agent_exit_reason"] = agent_end.get("exit_reason")
@@ -1470,15 +1472,19 @@ def collect_experiment(experiment_dir: str, out_dir: str = None,
             metrics = (row["metrics"] if row.get("schema_version", 1) >= 2 else
                        _slurm_metrics(attempt / "md_sacct.txt", md_job_ids(attempt)))
             row["metrics"] = {**row.get("metrics", {}), **metrics}
-            if not row.get("execution_diagnostics"):
+            if (not row.get("execution_diagnostics")
+                    or row.get("failure_code") == "execution_evidence_unavailable"):
                 # Legacy infra/agent/scorer reasons were explicitly supplied;
                 # prep/md check IDs were inferred from score order, not causes.
+                # A sealed "no evidence" verdict is re-read too: scored portable
+                # attempts were classified that way before 2026-09-10.
                 explicit = ({"stage": row["failure_stage"], "code": row.get("failure_code"),
                              "detail": row.get("failure_detail")}
                             if row.get("failure_stage") in {"infra", "agent", "scorer"} else None)
                 row.update(diagnose(_submission_dir(Path(manifest["paths"]["workspace"]),
                                                     manifest["condition"]),
-                                    report, row["passed"], metrics["md_jobs"], explicit, str(attempt / "md_sacct.txt")))
+                                    report, row["passed"], metrics["md_jobs"], explicit, str(attempt / "md_sacct.txt"),
+                                    portable=manifest["condition"] == "sif_only"))
             row["schema_version"] = 2
     sources = {read_record(p).get("attempt_id"): p.parent
                for p in (root / "attempts").glob("*/*/manifest.json")}

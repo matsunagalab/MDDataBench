@@ -51,12 +51,26 @@ def _without_node_target(arguments: list[str]) -> list[str]:
     return result
 
 
+_JOB_ID = re.compile(r"Submitted batch job\s+(\d+)|^\s*(\d+)(?:;\S*)?\s*$", re.MULTILINE)
+
+
+def job_id_from_stdout(stdout: str) -> str | None:
+    """The job id from sbatch's normal or ``--parsable`` (``id;cluster``) output.
+
+    Measured 2026-09-10: a sif_only agent submitted with ``--parsable``, the
+    id was not recognised, and the attempt was sealed as ``agent_no_submission``
+    although its jobs ran and no scorer was attached.
+    """
+    match = _JOB_ID.search(stdout or "")
+    return (match.group(1) or match.group(2)) if match else None
+
+
 def _record(path: Path, arguments: list[str], stdout: str, returncode: int,
-            source_overlay: dict | None = None) -> None:
-    match = re.search(r"Submitted batch job\s+(\d+)", stdout)
+            source_overlay: dict | None = None, stderr: str = "") -> None:
     row = {"at": datetime.now(timezone.utc).isoformat(), "event": "sbatch",
-           "argv": arguments, "job_id": match.group(1) if match else None,
-           "returncode": returncode}
+           "argv": arguments, "job_id": job_id_from_stdout(stdout),
+           "returncode": returncode, "stdout": (stdout or "")[:500],
+           "stderr": (stderr or "")[-1000:]}
     if source_overlay is not None:
         row["source_overlay"] = source_overlay
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -138,7 +152,8 @@ def main(argv=None) -> int:
     sys.stderr.write(completed.stderr)
     event_log = os.environ.get("MDDATABENCH_EVENT_LOG")
     if event_log:
-        _record(Path(event_log), submitted, completed.stdout, completed.returncode, overlay)
+        _record(Path(event_log), submitted, completed.stdout, completed.returncode, overlay,
+                completed.stderr)
     return completed.returncode
 
 

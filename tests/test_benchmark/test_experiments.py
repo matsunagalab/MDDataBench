@@ -1032,3 +1032,35 @@ def test_collect_derives_transcript_metrics_for_older_seals_without_rewriting_th
     assert row["recovery"]["provenance"] == "collect_time"
     assert json.loads((attempt / "result.json").read_text())["schema_version"] == 2
     assert summary["summary"][0]["recovery_episodes"] == 1
+
+
+def test_shim_recognises_parsable_job_ids_and_keeps_sbatch_output(tmp_path, monkeypatch):
+    from mddatabench import sbatch_shim
+
+    assert sbatch_shim.job_id_from_stdout("Submitted batch job 92488\n") == "92488"
+    assert sbatch_shim.job_id_from_stdout("92488;rikyu\n") == "92488"
+    assert sbatch_shim.job_id_from_stdout("92488\n") == "92488"
+    assert sbatch_shim.job_id_from_stdout("sbatch: error: gres\n") is None
+    event_log = tmp_path / "events.jsonl"
+    monkeypatch.setenv("MDDATABENCH_EVENT_LOG", str(event_log))
+    monkeypatch.setattr(sbatch_shim.subprocess, "run", lambda argv, **kwargs: SimpleNamespace(
+        returncode=1, stdout="", stderr="sbatch: error: Invalid generic resource (gres) specification\n"))
+    assert sbatch_shim.main(["--parsable", "job.sh"]) == 1
+    row = json.loads(event_log.read_text())
+    assert row["job_id"] is None and "gres" in row["stderr"]
+
+
+def test_sif_only_failed_checks_are_an_evaluation_failure():
+    from mddatabench.attempt_diagnostics import diagnose
+
+    report = {"total": 20, "passed": 0, "checks": [
+        {"check_id": "monomer_count_matches_reference", "weight": 1, "passed": False}]}
+    diagnosis = diagnose("/nonexistent/submission", report, False, portable=True)
+    assert diagnosis["failure_stage"] == "evaluation"
+    assert diagnosis["failure_code"] == "checks_failed"
+    assert diagnosis["execution_diagnostics"]["status"] == "completed"
+    # A DAG condition with no nodes stays "unknown": the report alone is not execution evidence.
+    assert diagnose("/nonexistent/job", report, False)["failure_stage"] == "unknown"
+    failed_job = [{"job_id": "1", "job_name": "stage1", "state": "FAILED"}]
+    scheduler = diagnose("/nonexistent/submission", report, False, failed_job, portable=True)
+    assert (scheduler["failure_stage"], scheduler["failure_code"]) == ("execution", "scheduler_failure_observed")

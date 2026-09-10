@@ -27,7 +27,8 @@ def read_record(path):
         return {}
 
 
-def diagnose(job_dir, report, passed, jobs=(), explicit=None, scheduler_source=None):
+def diagnose(job_dir, report, passed, jobs=(), explicit=None, scheduler_source=None,
+             portable=False):
     """Preserve failures, without treating recovered branches as final causes.
 
     A unique failed node is an observed execution failure, not a proven causal
@@ -67,7 +68,14 @@ def diagnose(job_dir, report, passed, jobs=(), explicit=None, scheduler_source=N
     for job in jobs:
         if job.get("state") not in {None, "COMPLETED", "RUNNING", "PENDING"}:
             evidence.append({"kind": "scheduler_failure", "source": scheduler_source, **job})
-    complete = passed or any(n["node_type"] == "prod" and n["status"] == "completed" for n in nodes)
+    # A portable (sif_only) submission has no DAG. A failed Slurm job is then
+    # its execution failure, and otherwise a scorer report with checks is its
+    # completion evidence whose failed checks are an evaluation outcome, not
+    # missing execution evidence (observed 2026-09-10).
+    scheduler_failed = any(e["kind"] == "scheduler_failure" for e in evidence)
+    scored = bool((report or {}).get("total"))
+    complete = passed or any(n["node_type"] == "prod" and n["status"] == "completed" for n in nodes) \
+        or (portable and scored and not scheduler_failed)
     failed = [n for n in nodes if n["status"] == "failed"]
     # Old failed branches/events remain evidence; successful production means
     # they must not be selected as the final execution failure.
@@ -77,6 +85,8 @@ def diagnose(job_dir, report, passed, jobs=(), explicit=None, scheduler_source=N
         if explicit:
             stage, code, detail = explicit.get("stage"), explicit.get("code"), explicit.get("detail")
             status = "reported_failure"
+        elif portable and scheduler_failed:
+            stage, code, status = "execution", "scheduler_failure_observed", "failed"
         elif complete:
             stage, code = "evaluation", "checks_failed" if checks else "score_unavailable"
         elif failed:
