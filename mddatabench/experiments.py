@@ -20,8 +20,8 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections import Counter, defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+from collections import Counter, defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -289,6 +289,19 @@ def _normalise_spec(spec: dict, experiment_dir: Path, dataset_dir: Path) -> dict
         raise ValueError("agent_timeout_seconds must be positive")
     if not re.fullmatch(r"[0-9:-]+", md_time_limit):
         raise ValueError("md_time_limit must be a Slurm time value")
+    axis_overrides = spec.get("axis_overrides") or {}
+    if not isinstance(axis_overrides, dict):
+        raise ValueError("axis_overrides must map a task axis to its limits")
+    for axis, limits in axis_overrides.items():
+        if not isinstance(limits, dict) or not limits:
+            raise ValueError(f"axis_overrides[{axis!r}] must be a non-empty object")
+        unknown = set(limits) - {"agent_timeout_seconds", "md_time_limit"}
+        if unknown:
+            raise ValueError(f"axis_overrides[{axis!r}] has unknown keys {sorted(unknown)}")
+        if "agent_timeout_seconds" in limits and int(limits["agent_timeout_seconds"]) < 1:
+            raise ValueError(f"axis_overrides[{axis!r}].agent_timeout_seconds must be positive")
+        if "md_time_limit" in limits and not re.fullmatch(r"[0-9:-]+", str(limits["md_time_limit"])):
+            raise ValueError(f"axis_overrides[{axis!r}].md_time_limit must be a Slurm time value")
     normal_cells = []
     for cell in cells:
         condition = str(cell.get("condition") or "")
@@ -355,6 +368,7 @@ def _normalise_spec(spec: dict, experiment_dir: Path, dataset_dir: Path) -> dict
         "replicates": replicates,
         "agent_timeout_seconds": agent_timeout,
         "md_time_limit": md_time_limit,
+        "axis_overrides": {str(axis): dict(limits) for axis, limits in axis_overrides.items()},
         "pass_rule": PASS_RULE,
         "tasks": [str(task) for task in tasks],
         "cells": normal_cells,
@@ -430,6 +444,236 @@ read-only scoring view.
 """
 
 
+def _attempt_limits(spec: dict, cell: dict, task: dict) -> tuple[int, str]:
+    """Agent wall budget and MD job limit for one attempt.
+
+    Precedence: the task axis's ``axis_overrides`` entry, then the cell, then
+    the spec. Membrane systems carry an embedding step and a larger build and
+    sat at the 20-minute wall with kimi-k3 (37 passes: median 962 s, four at
+    1200 s), so a campaign may give one axis more time while every condition
+    keeps the same budget for that axis.
+    """
+    override = (spec.get("axis_overrides") or {}).get(str(task.get("axis"))) or {}
+    timeout = int(override.get("agent_timeout_seconds")
+                  or cell.get("agent_timeout_seconds")
+                  or spec["agent_timeout_seconds"])
+    limit = str(override.get("md_time_limit") or cell.get("md_time_limit") or spec["md_time_limit"])
+    return timeout, limit
+
+
+def _plan_attempt(root: Path, spec: dict, dataset: Path, task_id: str, cell: dict,
+                  replicate: int, *, images: dict, runtimes: dict, container_binds,
+                  frozen: dict) -> dict:
+    """Create one attempt's manifest and isolated workspace.
+
+    ``init_experiment`` calls this for every attempt; ``reset_attempts`` calls
+    it again for an attempt whose run was retired after an infrastructure
+    failure, so a rerun starts from the planned state and not from whatever
+    the dead run left behind.
+    """
+    task_file, prompt_file, task = _task_paths(dataset, task_id)
+    cell_name = "__".join(_slug(cell[key]) for key in ("condition", "harness", "model"))
+    agent_timeout_seconds, md_time_limit = _attempt_limits(spec, cell, task)
+    attempt_id = f"{task_id}__{cell_name}__r{replicate}"
+    attempt = root / "attempts" / task_id / f"{cell_name}__r{replicate}"
+    workspace = attempt / "workspace"
+    workspace.mkdir(parents=True)
+    shutil.copy2(prompt_file, workspace / "task_prompt.md")
+    instructions = _agent_instructions(cell["condition"], agent_timeout_seconds, md_time_limit)
+    (workspace / "agent_prompt.md").write_text(
+        instructions + "\n\n--- PUBLIC TASK ---\n\n" + prompt_file.read_text())
+    if cell["condition"] == "sif_only":
+        (workspace / "PORTABLE_SUBMISSION.md").write_text(PORTABLE_LAYOUT)
+    image_mode = _image_mode(cell)
+    cell_source = None if image_mode else (
+        cell.get("mdclaw_source") or spec.get("mdclaw_source"))
+    cell_cli = None if image_mode else (
+        cell.get("mdclaw_cli") or spec.get("mdclaw_cli"))
+    image = images.get(cell.get("sif") or spec.get("sif")) if image_mode else None
+    runtime_record = (runtimes.get(cell.get("runtime_sif") or spec.get("runtime_sif"))
+                      if cell["condition"] == "sif_only" else None)
+    source_record = frozen.get(
+        str(Path(cell_source).resolve())) if cell_source else None
+    if source_record:
+        origin = Path(source_record["origin"])
+        cell_source = source_record["frozen"]
+        # bin/mdclaw normally lives in the checkout; follow it in.
+        if cell_cli:
+            cli = Path(cell_cli).resolve()
+            if cli.is_relative_to(origin):
+                cell_cli = str(Path(cell_source) / cli.relative_to(origin))
+    environment_spec = {
+        "sif": cell.get("sif") or spec.get("sif"),
+        "runtime_sif": cell.get("runtime_sif") or spec.get("runtime_sif"),
+        "mdclaw_cli": cell_cli,
+        "mdclaw_source": cell_source,
+        "mddatabench_source": str(Path(__file__).resolve().parents[1]),
+        "source_mode": ("none" if cell["condition"] == "sif_only"
+                        else cell["source_mode"]),
+        "source_overlay_required": (cell["condition"] != "sif_only"
+                                    and not image_mode),
+        "image_mdclaw_module": image["mdclaw_module"] if image else None,
+        "image_mdclaw_version": image["mdclaw_version"] if image else None,
+        "image_python": image.get("python") if image else None,
+        "container_binds": list(container_binds or []) if image_mode else None,
+        "skills_dir": cell.get("skills_dir"),
+        "runtime_inventory": ({k: runtime_record[k] for k in
+                               ("python", "packages", "executables")}
+                              if runtime_record else None),
+        "slurm_notes": list(cell.get("slurm_notes") or []),
+        "agent_timeout_seconds": agent_timeout_seconds,
+        "md_time_limit": md_time_limit,
+    }
+    bin_dir = workspace / ".mddatabench" / "bin"
+    bin_dir.mkdir(parents=True)
+    shim = bin_dir / "sbatch_shim.py"
+    shutil.copy2(Path(__file__).with_name("sbatch_shim.py"), shim)
+    shutil.copy2(Path(__file__).with_name("source_overlay.py"),
+                 bin_dir / "source_overlay.py")
+    # The shim is stdlib-only. In image mode it runs inside the SIF,
+    # which has no /usr/bin/python3, and MDClaw invokes sbatch with
+    # the host PATH there (measured 2026-09-10: `command -v python3`
+    # then finds nothing), so the image's own interpreter, probed at
+    # init, is tried before PATH and the host fallback.
+    candidates = [image.get("python") if image else None, "/usr/bin/python3"]
+    launcher_python = " ".join(shlex.quote(c) for c in candidates if c)
+    (bin_dir / "sbatch").write_text(
+        "#!/bin/sh\n"
+        f"export MDDATABENCH_MANIFEST={shlex.quote(str(attempt / 'manifest.json'))}\n"
+        f'for PY in {launcher_python} "$(command -v python3 2>/dev/null)"; do\n'
+        '    [ -n "$PY" ] && [ -x "$PY" ] && break\n'
+        "done\n"
+        f"exec \"$PY\" {shlex.quote(str(shim))} \"$@\"\n")
+    (bin_dir / "sbatch").chmod(0o755)
+    mdclaw_cli = environment_spec["mdclaw_cli"]
+    if image_mode:
+        # No wrapper: the agent invokes the image directly, and the
+        # compute side runs the image's package as well.
+        _write_json(workspace / ".mdclaw_cluster.json", {
+            "container": {"image": environment_spec["sif"],
+                          "extra_flags": "--nv", "source_mode": "image"},
+        })
+    if cell["condition"] != "sif_only" and mdclaw_cli:
+        _write_json(workspace / ".mdclaw_cluster.json", {
+            "container": {"image": environment_spec["sif"],
+                          "extra_flags": "--nv", "source_mode": "overlay"},
+        })
+        (bin_dir / "mdclaw").write_text(
+            "#!/bin/sh\n"
+            f"export CLAUDE_PLUGIN_ROOT={shlex.quote(str(Path(environment_spec['mdclaw_source']).resolve()))}\n"
+            f"exec {shlex.quote(str(Path(mdclaw_cli).resolve()))} \"$@\"\n")
+        (bin_dir / "mdclaw").chmod(0o755)
+    if cell["condition"] == "cli_skill_sif":
+        if cell["skill_source"] != "user":
+            project_skills = (Path(cell["skills_dir"]) if cell.get("skills_dir")
+                              else Path(environment_spec["mdclaw_source"]) / "skills")
+            agents_dir = workspace / ".agents"
+            agents_dir.mkdir()
+            os.symlink(project_skills.resolve(), agents_dir / "skills",
+                       target_is_directory=True)
+    capabilities = [f"Condition: {cell['condition']}"]
+    capabilities += [
+        f"Agent/preparation wall limit: {environment_spec['agent_timeout_seconds']} s",
+        f"Each MD Slurm job wall limit: {environment_spec['md_time_limit']}",
+    ]
+    # Site scheduler conventions are environment documentation, shown to
+    # every condition alike: on Rikyu a sif_only agent wrote --gres=gpu:1,
+    # which the site rejects, and paid for the discovery (2026-09-10).
+    capabilities += [f"Slurm note: {note}" for note in cell.get("slurm_notes") or []]
+    if image_mode:
+        sif = environment_spec["sif"]
+        capabilities += [
+            f"MDClaw SIF: {sif} (sha256 {image['sha256']})",
+            "MDClaw runtime: the SIF image only. No MDClaw checkout, wrapper, "
+            "host CLI or source overlay is provided; the CLI is the package "
+            f"installed in the image (mdclaw {image['mdclaw_version'] or 'unknown'}).",
+            "Invoke MDClaw as: singularity exec --env PYTHONPATH= --env PYTHONHOME= "
+            f"{sif} mdclaw <tool> [arguments]   (add --nv only inside a GPU allocation)",
+            "Host Slurm clients, configuration, authentication socket and this "
+            "attempt directory are pre-bound through APPTAINER_BIND/SINGULARITY_BIND, "
+            "and MDCLAW_SLURM_PATH is preset inside the image, so mdclaw submit_job "
+            "works from that invocation. Do not bind, clone or import any other "
+            "MDClaw source; PYTHONPATH must stay empty.",
+            "SLURM container is preconfigured in image mode. Submit a direct mdclaw "
+            "command per job/array task using submit_job/submit_array_job; the "
+            "harness verifies that each job runs the image's own package before "
+            "submission."]
+    elif cell["condition"] != "sif_only":
+        capabilities += ["MDClaw CLI command: mdclaw",
+                         f"MDClaw SIF: {environment_spec['sif']}",
+                         f"MDClaw source overlay: {environment_spec['mdclaw_source']}",
+                         "SLURM container is preconfigured in overlay mode. Submit a direct "
+                         "mdclaw command per job/array task using submit_job/submit_array_job; "
+                         "the harness checks the source binding before submission."]
+    if cell["condition"] == "cli_skill_sif":
+        capabilities.append(
+            "MDClaw skills: pi user-wide discovery"
+            if cell["skill_source"] == "user" else
+            f"MDClaw skills: {cell['skills_dir']}" if cell.get("skills_dir") else
+            f"MDClaw project skills: {environment_spec['mdclaw_source']}/skills")
+    if cell["condition"] == "sif_only":
+        capabilities += (_runtime_capabilities(runtime_record) if runtime_record
+                         else [f"Runtime SIF: {environment_spec['runtime_sif']}"])
+        capabilities.append("MDClaw CLI and MDClaw skills are not available.")
+    (workspace / "CAPABILITIES.md").write_text("\n".join(capabilities) + "\n")
+    cli_exposed = ["CAPABILITIES.md"] if image_mode else ["mdclaw_cli"]
+    manifest = {
+        "schema_version": 1,
+        "attempt_id": attempt_id,
+        "experiment_id": spec["experiment_id"],
+        "task_id": task_id,
+        "axis": task.get("axis"),
+        "condition": cell["condition"],
+        "harness": cell["harness"],
+        "harness_version": (cell.get("harness_version") or
+                            _harness_version(cell["harness"])),
+        "model": cell["model"],
+        "thinking": cell.get("thinking"),
+        "skill_source": cell["skill_source"],
+        "replicate": replicate,
+        "pass_rule": PASS_RULE,
+        "created_at": _now(),
+        "paths": {
+            "task_file": str(task_file),
+            "prompt_file": str(prompt_file),
+            "workspace": str(workspace),
+        },
+        "hashes": {
+            "task_json": _sha256(task_file),
+            "prompt_md": _sha256(prompt_file),
+            "sif": (image["sha256"] if image else
+                    cell.get("sif_sha256") or spec.get("sif_sha256")),
+            "runtime_sif": (runtime_record["sha256"] if runtime_record else
+                            cell.get("runtime_sif_sha256") or
+                            spec.get("runtime_sif_sha256")),
+        },
+        "revisions": {
+            "mddatabench": _git_revision(Path(__file__).resolve().parents[1]),
+            "mdclaw": source_record["revision"] if source_record else None,
+            "mdclaw_tree_sha256": (source_record["tree_sha256"]
+                                   if source_record else None),
+            "mdclaw_image_sha256": image["sha256"] if image else None,
+        },
+        "reference": {
+            "node": task["reference"]["node"],
+            "accession": task["reference"]["accession"],
+            "bundle_sha256": task["reference"]["bundle"]["sha256"],
+        },
+        "environment": environment_spec,
+        "exposed": (["task_prompt.md", *cli_exposed,
+                     ("pi_user_skills" if cell["skill_source"] == "user"
+                      else "mdclaw_skill"), "sif"]
+                    if cell["condition"] == "cli_skill_sif" else
+                    ["task_prompt.md", *cli_exposed, "sif"]
+                    if cell["condition"] == "cli_sif" else
+                    ["task_prompt.md", "CAPABILITIES.md",
+                     "PORTABLE_SUBMISSION.md", "runtime_sif"]),
+    }
+    _write_json(attempt / "manifest.json", manifest)
+    _append_event(attempt, "attempt_planned")
+    return {"attempt_id": attempt_id, "attempt_dir": str(attempt)}
+
+
 def init_experiment(experiment_dir: str, spec_file: str,
                     dataset_dir: str = "benchmarks/mddatabench") -> dict:
     """Create immutable manifests and isolated workspaces for a campaign."""
@@ -490,215 +734,11 @@ def init_experiment(experiment_dir: str, spec_file: str,
 
     attempts = []
     for task_id in spec["tasks"]:
-        task_file, prompt_file, task = _task_paths(dataset, task_id)
         for cell in spec["cells"]:
-            cell_name = "__".join(_slug(cell[key]) for key in
-                                  ("condition", "harness", "model"))
             for replicate in range(1, spec["replicates"] + 1):
-                attempt_id = f"{task_id}__{cell_name}__r{replicate}"
-                attempt = root / "attempts" / task_id / f"{cell_name}__r{replicate}"
-                workspace = attempt / "workspace"
-                workspace.mkdir(parents=True)
-                shutil.copy2(prompt_file, workspace / "task_prompt.md")
-                instructions = _agent_instructions(
-                    cell["condition"],
-                    int(cell.get("agent_timeout_seconds") or
-                        spec["agent_timeout_seconds"]),
-                    cell.get("md_time_limit") or spec["md_time_limit"],
-                )
-                (workspace / "agent_prompt.md").write_text(
-                    instructions + "\n\n--- PUBLIC TASK ---\n\n" + prompt_file.read_text())
-                if cell["condition"] == "sif_only":
-                    (workspace / "PORTABLE_SUBMISSION.md").write_text(PORTABLE_LAYOUT)
-                image_mode = _image_mode(cell)
-                cell_source = None if image_mode else (
-                    cell.get("mdclaw_source") or spec.get("mdclaw_source"))
-                cell_cli = None if image_mode else (
-                    cell.get("mdclaw_cli") or spec.get("mdclaw_cli"))
-                image = images.get(cell.get("sif") or spec.get("sif")) if image_mode else None
-                runtime_record = (runtimes.get(cell.get("runtime_sif") or spec.get("runtime_sif"))
-                                  if cell["condition"] == "sif_only" else None)
-                source_record = frozen.get(
-                    str(Path(cell_source).resolve())) if cell_source else None
-                if source_record:
-                    origin = Path(source_record["origin"])
-                    cell_source = source_record["frozen"]
-                    # bin/mdclaw normally lives in the checkout; follow it in.
-                    if cell_cli:
-                        cli = Path(cell_cli).resolve()
-                        if cli.is_relative_to(origin):
-                            cell_cli = str(Path(cell_source) / cli.relative_to(origin))
-                environment_spec = {
-                    "sif": cell.get("sif") or spec.get("sif"),
-                    "runtime_sif": cell.get("runtime_sif") or spec.get("runtime_sif"),
-                    "mdclaw_cli": cell_cli,
-                    "mdclaw_source": cell_source,
-                    "mddatabench_source": str(Path(__file__).resolve().parents[1]),
-                    "source_mode": ("none" if cell["condition"] == "sif_only"
-                                    else cell["source_mode"]),
-                    "source_overlay_required": (cell["condition"] != "sif_only"
-                                                and not image_mode),
-                    "image_mdclaw_module": image["mdclaw_module"] if image else None,
-                    "image_mdclaw_version": image["mdclaw_version"] if image else None,
-                    "image_python": image.get("python") if image else None,
-                    "container_binds": list(container_binds or []) if image_mode else None,
-                    "skills_dir": cell.get("skills_dir"),
-                    "runtime_inventory": ({k: runtime_record[k] for k in
-                                           ("python", "packages", "executables")}
-                                          if runtime_record else None),
-                    "slurm_notes": list(cell.get("slurm_notes") or []),
-                    "agent_timeout_seconds": (int(cell.get("agent_timeout_seconds") or
-                                                  spec["agent_timeout_seconds"])),
-                    "md_time_limit": cell.get("md_time_limit") or spec["md_time_limit"],
-                }
-                bin_dir = workspace / ".mddatabench" / "bin"
-                bin_dir.mkdir(parents=True)
-                shim = bin_dir / "sbatch_shim.py"
-                shutil.copy2(Path(__file__).with_name("sbatch_shim.py"), shim)
-                shutil.copy2(Path(__file__).with_name("source_overlay.py"),
-                             bin_dir / "source_overlay.py")
-                # The shim is stdlib-only. In image mode it runs inside the SIF,
-                # which has no /usr/bin/python3, and MDClaw invokes sbatch with
-                # the host PATH there (measured 2026-09-10: `command -v python3`
-                # then finds nothing), so the image's own interpreter, probed at
-                # init, is tried before PATH and the host fallback.
-                candidates = [image.get("python") if image else None, "/usr/bin/python3"]
-                launcher_python = " ".join(shlex.quote(c) for c in candidates if c)
-                (bin_dir / "sbatch").write_text(
-                    "#!/bin/sh\n"
-                    f"export MDDATABENCH_MANIFEST={shlex.quote(str(attempt / 'manifest.json'))}\n"
-                    f'for PY in {launcher_python} "$(command -v python3 2>/dev/null)"; do\n'
-                    '    [ -n "$PY" ] && [ -x "$PY" ] && break\n'
-                    "done\n"
-                    f"exec \"$PY\" {shlex.quote(str(shim))} \"$@\"\n")
-                (bin_dir / "sbatch").chmod(0o755)
-                mdclaw_cli = environment_spec["mdclaw_cli"]
-                if image_mode:
-                    # No wrapper: the agent invokes the image directly, and the
-                    # compute side runs the image's package as well.
-                    _write_json(workspace / ".mdclaw_cluster.json", {
-                        "container": {"image": environment_spec["sif"],
-                                      "extra_flags": "--nv", "source_mode": "image"},
-                    })
-                if cell["condition"] != "sif_only" and mdclaw_cli:
-                    _write_json(workspace / ".mdclaw_cluster.json", {
-                        "container": {"image": environment_spec["sif"],
-                                      "extra_flags": "--nv", "source_mode": "overlay"},
-                    })
-                    (bin_dir / "mdclaw").write_text(
-                        "#!/bin/sh\n"
-                        f"export CLAUDE_PLUGIN_ROOT={shlex.quote(str(Path(environment_spec['mdclaw_source']).resolve()))}\n"
-                        f"exec {shlex.quote(str(Path(mdclaw_cli).resolve()))} \"$@\"\n")
-                    (bin_dir / "mdclaw").chmod(0o755)
-                if cell["condition"] == "cli_skill_sif":
-                    if cell["skill_source"] != "user":
-                        project_skills = (Path(cell["skills_dir"]) if cell.get("skills_dir")
-                                          else Path(environment_spec["mdclaw_source"]) / "skills")
-                        agents_dir = workspace / ".agents"
-                        agents_dir.mkdir()
-                        os.symlink(project_skills.resolve(), agents_dir / "skills",
-                                   target_is_directory=True)
-                capabilities = [f"Condition: {cell['condition']}"]
-                capabilities += [
-                    f"Agent/preparation wall limit: {environment_spec['agent_timeout_seconds']} s",
-                    f"Each MD Slurm job wall limit: {environment_spec['md_time_limit']}",
-                ]
-                # Site scheduler conventions are environment documentation, shown to
-                # every condition alike: on Rikyu a sif_only agent wrote --gres=gpu:1,
-                # which the site rejects, and paid for the discovery (2026-09-10).
-                capabilities += [f"Slurm note: {note}" for note in cell.get("slurm_notes") or []]
-                if image_mode:
-                    sif = environment_spec["sif"]
-                    capabilities += [
-                        f"MDClaw SIF: {sif} (sha256 {image['sha256']})",
-                        "MDClaw runtime: the SIF image only. No MDClaw checkout, wrapper, "
-                        "host CLI or source overlay is provided; the CLI is the package "
-                        f"installed in the image (mdclaw {image['mdclaw_version'] or 'unknown'}).",
-                        "Invoke MDClaw as: singularity exec --env PYTHONPATH= --env PYTHONHOME= "
-                        f"{sif} mdclaw <tool> [arguments]   (add --nv only inside a GPU allocation)",
-                        "Host Slurm clients, configuration, authentication socket and this "
-                        "attempt directory are pre-bound through APPTAINER_BIND/SINGULARITY_BIND, "
-                        "and MDCLAW_SLURM_PATH is preset inside the image, so mdclaw submit_job "
-                        "works from that invocation. Do not bind, clone or import any other "
-                        "MDClaw source; PYTHONPATH must stay empty.",
-                        "SLURM container is preconfigured in image mode. Submit a direct mdclaw "
-                        "command per job/array task using submit_job/submit_array_job; the "
-                        "harness verifies that each job runs the image's own package before "
-                        "submission."]
-                elif cell["condition"] != "sif_only":
-                    capabilities += ["MDClaw CLI command: mdclaw",
-                                     f"MDClaw SIF: {environment_spec['sif']}",
-                                     f"MDClaw source overlay: {environment_spec['mdclaw_source']}",
-                                     "SLURM container is preconfigured in overlay mode. Submit a direct "
-                                     "mdclaw command per job/array task using submit_job/submit_array_job; "
-                                     "the harness checks the source binding before submission."]
-                if cell["condition"] == "cli_skill_sif":
-                    capabilities.append(
-                        "MDClaw skills: pi user-wide discovery"
-                        if cell["skill_source"] == "user" else
-                        f"MDClaw skills: {cell['skills_dir']}" if cell.get("skills_dir") else
-                        f"MDClaw project skills: {environment_spec['mdclaw_source']}/skills")
-                if cell["condition"] == "sif_only":
-                    capabilities += (_runtime_capabilities(runtime_record) if runtime_record
-                                     else [f"Runtime SIF: {environment_spec['runtime_sif']}"])
-                    capabilities.append("MDClaw CLI and MDClaw skills are not available.")
-                (workspace / "CAPABILITIES.md").write_text("\n".join(capabilities) + "\n")
-                cli_exposed = ["CAPABILITIES.md"] if image_mode else ["mdclaw_cli"]
-                manifest = {
-                    "schema_version": 1,
-                    "attempt_id": attempt_id,
-                    "experiment_id": spec["experiment_id"],
-                    "task_id": task_id,
-                    "axis": task.get("axis"),
-                    "condition": cell["condition"],
-                    "harness": cell["harness"],
-                    "harness_version": (cell.get("harness_version") or
-                                        _harness_version(cell["harness"])),
-                    "model": cell["model"],
-                    "thinking": cell.get("thinking"),
-                    "skill_source": cell["skill_source"],
-                    "replicate": replicate,
-                    "pass_rule": PASS_RULE,
-                    "created_at": _now(),
-                    "paths": {
-                        "task_file": str(task_file),
-                        "prompt_file": str(prompt_file),
-                        "workspace": str(workspace),
-                    },
-                    "hashes": {
-                        "task_json": _sha256(task_file),
-                        "prompt_md": _sha256(prompt_file),
-                        "sif": (image["sha256"] if image else
-                                cell.get("sif_sha256") or spec.get("sif_sha256")),
-                        "runtime_sif": (runtime_record["sha256"] if runtime_record else
-                                        cell.get("runtime_sif_sha256") or
-                                        spec.get("runtime_sif_sha256")),
-                    },
-                    "revisions": {
-                        "mddatabench": _git_revision(Path(__file__).resolve().parents[1]),
-                        "mdclaw": source_record["revision"] if source_record else None,
-                        "mdclaw_tree_sha256": (source_record["tree_sha256"]
-                                               if source_record else None),
-                        "mdclaw_image_sha256": image["sha256"] if image else None,
-                    },
-                    "reference": {
-                        "node": task["reference"]["node"],
-                        "accession": task["reference"]["accession"],
-                        "bundle_sha256": task["reference"]["bundle"]["sha256"],
-                    },
-                    "environment": environment_spec,
-                    "exposed": (["task_prompt.md", *cli_exposed,
-                                 ("pi_user_skills" if cell["skill_source"] == "user"
-                                  else "mdclaw_skill"), "sif"]
-                                if cell["condition"] == "cli_skill_sif" else
-                                ["task_prompt.md", *cli_exposed, "sif"]
-                                if cell["condition"] == "cli_sif" else
-                                ["task_prompt.md", "CAPABILITIES.md",
-                                 "PORTABLE_SUBMISSION.md", "runtime_sif"]),
-                }
-                _write_json(attempt / "manifest.json", manifest)
-                _append_event(attempt, "attempt_planned")
-                attempts.append({"attempt_id": attempt_id, "attempt_dir": str(attempt)})
+                attempts.append(_plan_attempt(
+                    root, spec, dataset, task_id, cell, replicate, images=images,
+                    runtimes=runtimes, container_binds=container_binds, frozen=frozen))
     return {"success": True, "experiment_dir": str(root),
             "attempts": len(attempts), "replicates": spec["replicates"],
             "cells": len(spec["cells"]), "tasks": len(spec["tasks"])}
@@ -851,6 +891,12 @@ def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
             stderr.write(f"{type(exc).__name__}: {exc}\n")
     wall = time.monotonic() - started
     usage = token_usage(_safe_calls(stdout_path, manifest["harness"]))
+    api_failure = _api_failure(stdout_path)
+    if api_failure and exit_reason == "completed":
+        # The harness exited normally, but only because its model calls never
+        # got an answer: this is the gateway's failure, not the agent's.
+        exit_reason = "api_error"
+        _append_event(attempt, "agent_api_error", **api_failure)
     audit = (_image_mode_audit(stdout_path)
              if manifest["environment"].get("source_mode") == "image" else None)
     _append_event(attempt, "agent_end", exit_reason=exit_reason,
@@ -859,7 +905,302 @@ def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
     return {"success": exit_reason == "completed" and returncode == 0,
             "attempt_id": manifest["attempt_id"], "exit_reason": exit_reason,
             "returncode": returncode, "agent_wall_seconds": wall, "usage": usage,
+            "api_error": api_failure,
             "stdout": str(stdout_path), "stderr": str(stderr_path)}
+
+
+def _api_failure(stdout_path: Path) -> dict | None:
+    """The API error that ended a pi run, or None.
+
+    pi retries a failed model call three times over about forty seconds and
+    then ends the run with ``auto_retry_end success:false``; the process exits
+    0. During the 2026-09-10 gateway outage 56 attempts ended this way and
+    were sealed as ``agent_no_submission``.
+    """
+    if not stdout_path.is_file():
+        return None
+    final_retry, stop_error, tool_calls = None, None, 0
+    for line in stdout_path.read_text(errors="replace").splitlines():
+        if not any(marker in line for marker in
+                   ('"auto_retry_end"', '"tool_execution_end"', '"stopReason":"error"')):
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        kind = row.get("type")
+        if kind == "tool_execution_end":
+            tool_calls += 1
+        elif kind == "auto_retry_end":
+            final_retry = row
+        elif kind == "agent_end":
+            for message in row.get("messages") or []:
+                if isinstance(message, dict) and message.get("stopReason") == "error":
+                    stop_error = message.get("errorMessage") or message.get("error") or "stopReason=error"
+    if final_retry is not None and final_retry.get("success") is False:
+        return {"kind": "llm_gateway_error", "error": str(final_retry.get("finalError"))[:500],
+                "retries": final_retry.get("attempt"), "tool_calls": tool_calls}
+    if stop_error:
+        return {"kind": "llm_gateway_error", "error": str(stop_error)[:500],
+                "retries": None, "tool_calls": tool_calls}
+    return None
+
+
+# Records one run leaves in an attempt directory. A retired run keeps all of
+# them under ``retired/<stamp>-<reason>/``; the manifest stays and is rewritten
+# by the replanning step.
+_RUN_RECORDS = ("workspace", "agent-session", "agent.stdout.jsonl", "agent.stderr.log",
+                "timeline.jsonl", "md_sacct.txt", "slurm", "evaluation", "score.json",
+                "result.json", "events.jsonl")
+MAX_INFRA_RETRIES = 3
+
+
+def _retire_attempt_run(attempt: Path, reason: str, detail: dict | None = None) -> Path:
+    """Move one run's records aside so the attempt can run again."""
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    destination = attempt / "retired" / f"{stamp}-{_slug(reason)}"
+    serial = 1
+    while destination.exists():
+        serial += 1
+        destination = attempt / "retired" / f"{stamp}-{serial}-{_slug(reason)}"
+    destination.mkdir(parents=True, exist_ok=False)
+    moved = []
+    for name in _RUN_RECORDS:
+        source = attempt / name
+        if source.exists() or source.is_symlink():
+            shutil.move(str(source), str(destination / name))
+            moved.append(name)
+    shutil.copy2(attempt / "manifest.json", destination / "manifest.json")
+    _write_json(destination / "retired.json", {
+        "reason": reason, "retired_at": _now(), "moved": moved, "detail": detail or {}})
+    return destination
+
+
+def _experiment_context(root: Path) -> dict:
+    record = _json(root / "experiment.json")
+    return {
+        "spec": record,
+        "images": list(record.get("images") or []),
+        "runtimes": list(record.get("runtime_images") or []),
+        "frozen": {row["origin"]: row for row in record.get("frozen_sources") or []},
+        "container_binds": record.get("container_binds"),
+    }
+
+
+def _recorded_image(records: list[dict], path_key: str, spec_path: str | None,
+                    sha256: str | None) -> dict | None:
+    """The image record an attempt was planned with.
+
+    ``experiment.json`` stores the probe's resolved path, while the spec names
+    the shared symlink, and the symlink may have been switched to a newer
+    image since ``init_experiment`` ran; the manifest's sha256 identifies the
+    image the campaign actually used.
+    """
+    if sha256:
+        for row in records:
+            if row.get("sha256") == sha256:
+                return row
+    if spec_path:
+        wanted = str(Path(spec_path).resolve()) if Path(spec_path).exists() else str(spec_path)
+        for row in records:
+            recorded = str(row.get(path_key) or "")
+            if recorded == str(spec_path) or recorded == wanted:
+                return row
+    return None
+
+
+def _replan_attempt(root: Path, attempt: Path) -> dict:
+    """Recreate an attempt's workspace and manifest from the experiment record."""
+    manifest = _json(attempt / "manifest.json")
+    context = _experiment_context(root)
+    spec = context["spec"]
+    key = (manifest["condition"], manifest["harness"], manifest["model"])
+    cell = next((c for c in spec["cells"]
+                 if (c["condition"], c["harness"], c["model"]) == key), None)
+    if cell is None:
+        raise ValueError(f"{manifest['attempt_id']}: no cell {key} in experiment.json")
+    hashes = manifest.get("hashes") or {}
+    images, runtimes = {}, {}
+    sif = cell.get("sif") or spec.get("sif")
+    image = _recorded_image(context["images"], "sif", sif, hashes.get("sif"))
+    if image is not None:
+        images[sif] = image
+    elif _image_mode(cell):
+        raise ValueError(f"{manifest['attempt_id']}: image {sif} (sha256 {hashes.get('sif')}) "
+                         "is not recorded in experiment.json")
+    runtime_sif = cell.get("runtime_sif") or spec.get("runtime_sif")
+    runtime = _recorded_image(context["runtimes"], "runtime_sif", runtime_sif,
+                              hashes.get("runtime_sif"))
+    if runtime is not None:
+        runtimes[runtime_sif] = runtime
+    dataset = Path(manifest["paths"]["task_file"]).resolve().parents[2]
+    return _plan_attempt(root, spec, dataset, manifest["task_id"], cell,
+                         int(manifest["replicate"]), images=images, runtimes=runtimes,
+                         container_binds=context["container_binds"], frozen=context["frozen"])
+
+
+def _infra_reset_count(attempt: Path, reason: str) -> int:
+    retired = attempt / "retired"
+    if not retired.is_dir():
+        return 0
+    return sum(1 for entry in retired.iterdir() if entry.name.endswith("-" + _slug(reason)))
+
+
+def _reset_attempt(root: Path, attempt: Path, reason: str, detail: dict | None = None) -> dict:
+    retired_dir = attempt / "retired"
+    if not (attempt / "events.jsonl").exists() and retired_dir.is_dir() and any(retired_dir.iterdir()):
+        # An earlier reset moved the run aside but did not finish replanning;
+        # discard the partial workspace and plan again.
+        shutil.rmtree(attempt / "workspace", ignore_errors=True)
+        retired = max(retired_dir.iterdir(), key=lambda entry: entry.name)
+    else:
+        retired = _retire_attempt_run(attempt, reason, detail)
+    planned = _replan_attempt(root, attempt)
+    count = _infra_reset_count(attempt, reason)
+    _append_event(attempt, "attempt_reset", reason=reason, retired=str(retired),
+                  reset_count=count, detail=detail or {})
+    return {"attempt_id": planned["attempt_id"], "attempt_dir": str(attempt),
+            "retired": str(retired), "reset_count": count}
+
+
+def _attempt_dirs(root: Path, tokens: list[str]) -> list[Path]:
+    found = []
+    for token in tokens:
+        candidate = Path(token)
+        if candidate.is_dir() and (candidate / "manifest.json").is_file():
+            found.append(candidate.resolve())
+            continue
+        if (root / "attempts" / token / "manifest.json").is_file():
+            found.append((root / "attempts" / token).resolve())
+            continue
+        if "__" in token:
+            task_id, rest = token.split("__", 1)
+            attempt = root / "attempts" / task_id / rest
+            if (attempt / "manifest.json").is_file():
+                found.append(attempt.resolve())
+                continue
+        raise ValueError(f"no attempt matches {token!r}")
+    return found
+
+
+def reset_attempts(experiment_dir: str, attempts: str = "", attempts_file: str = "",
+                   reason: str = "llm_gateway_error", force: bool = False) -> dict:
+    """Return sealed or dead attempts to pending after an infrastructure failure.
+
+    ``attempts`` is a comma-separated list of attempt ids or directories;
+    ``attempts_file`` lists one per line (extra whitespace-separated columns are
+    ignored). Each run's records move to ``retired/``, the workspace is
+    replanned, and the next ``run_experiment`` picks the attempt up again. An
+    attempt that submitted MD jobs is refused unless ``force`` is set; an
+    attempt whose agent is still running is always refused.
+    """
+    root = Path(experiment_dir).resolve()
+    tokens = [item.strip() for item in attempts.split(",") if item.strip()]
+    if attempts_file:
+        for line in Path(attempts_file).read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            columns = line.split()
+            token = next((c for c in columns if "__" in c or Path(c).is_dir()), columns[0])
+            tokens.append(token)
+    done, refused, skipped = [], [], []
+    for attempt in _attempt_dirs(root, tokens):
+        attempt_id = _json(attempt / "manifest.json")["attempt_id"]
+        events = _events(attempt)
+        started = any(row.get("event") == "agent_start" for row in events)
+        ended = any(row.get("event") == "agent_end" for row in events)
+        if started and not ended:
+            refused.append({"attempt_id": attempt_id, "why": "agent still running"})
+            continue
+        if not started and not (attempt / "result.json").exists() and (attempt / "events.jsonl").exists():
+            # Nothing ran since it was planned (or reset): there is no run to retire.
+            skipped.append({"attempt_id": attempt_id, "why": "already pending"})
+            continue
+        jobs = md_job_ids(attempt)
+        if jobs and not force:
+            refused.append({"attempt_id": attempt_id, "why": f"submitted MD jobs {jobs}; pass --force true"})
+            continue
+        done.append(_reset_attempt(root, attempt, reason, {"forced": bool(jobs)}))
+    return {"success": not refused, "reset": done, "refused": refused, "skipped": skipped,
+            "experiment_dir": str(root)}
+
+
+class _GatewayBreaker:
+    """Stop launching agents while the LLM gateway is down.
+
+    pi gives up after three retries in about forty seconds, so an outage of
+    minutes turns every launched attempt into a dead run (56 of them in eight
+    minutes on 2026-09-10). After ``threshold`` consecutive API failures the
+    workers wait here, one of them probing the gateway every ``interval``
+    seconds, until a probe succeeds.
+    """
+
+    def __init__(self, probe, threshold: int = 2, interval_seconds: float = 60.0,
+                 max_wait_seconds: float = 24 * 3600):
+        self._probe = probe
+        self._threshold = threshold
+        self._interval = interval_seconds
+        self._max_wait = max_wait_seconds
+        self._condition = threading.Condition()
+        self._probing = False
+        self.consecutive_errors = 0
+        self.open = False
+        self.opened = 0
+
+    def record(self, success: bool) -> None:
+        with self._condition:
+            if success:
+                self.consecutive_errors = 0
+                return
+            self.consecutive_errors += 1
+            if self.consecutive_errors >= self._threshold and not self.open:
+                self.open = True
+                self.opened += 1
+
+    def wait_until_closed(self) -> None:
+        with self._condition:
+            if not self.open:
+                return
+            if self._probing:
+                while self.open:
+                    self._condition.wait()
+                return
+            self._probing = True
+        deadline = time.monotonic() + self._max_wait
+        try:
+            while not self._probe():
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(
+                        f"LLM gateway stayed unavailable for {self._max_wait:.0f} s")
+                time.sleep(self._interval)
+        finally:
+            with self._condition:
+                self.open = False
+                self.consecutive_errors = 0
+                self._probing = False
+                self._condition.notify_all()
+
+
+def _probe_gateway(harness: str, model: str, timeout_seconds: int = 90) -> bool:
+    """One minimal model call; True when the gateway answered it."""
+    executable = _harness_executable(harness)
+    prompt = "Reply with the single word OK."
+    if harness == "pi":
+        command = [executable, "--print", "--model", model, "--no-skills", "--no-extensions",
+                   "--no-prompt-templates", "--no-context-files", prompt]
+    else:
+        command = [executable, "--print", "--model", model, prompt]
+    try:
+        completed = subprocess.run(command, text=True, capture_output=True,
+                                   stdin=subprocess.DEVNULL, timeout=timeout_seconds,
+                                   check=False)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    stdout = completed.stdout or ""
+    # pi prints the API error text and still exits 0.
+    failed = re.search(r'"type":\s*"api_error"|^\s*\d{3}: \{', stdout, re.M)
+    return completed.returncode == 0 and bool(stdout.strip()) and not failed
 
 
 _AUDIT_PATTERNS = {
@@ -1402,12 +1743,36 @@ def run_experiment(experiment_dir: str, bundle_root: str, scorer_sif: str,
     if limit > 0:
         pending = pending[:limit]
     workers = max(1, int(max_agents))
+    first = next((_json(attempt / "manifest.json") for attempt, _ in pending), None)
+    breaker = _GatewayBreaker(
+        probe=(lambda: _probe_gateway(first["harness"], first["model"])) if first else (lambda: True))
+    queue = deque(pending)
+    lock = threading.Lock()
+    launched: list[dict] = []
 
     def execute(item):
         attempt, needs_agent = item
+        attempt_id = _json(attempt / "manifest.json")["attempt_id"]
         try:
-            agent = (run_attempt_agent(str(attempt), timeout_seconds=timeout_seconds)
-                     if needs_agent else None)
+            agent = None
+            if needs_agent:
+                breaker.wait_until_closed()
+                agent = run_attempt_agent(str(attempt), timeout_seconds=timeout_seconds)
+                if agent.get("exit_reason") == "api_error":
+                    breaker.record(False)
+                    failure = agent.get("api_error") or {}
+                    if _infra_reset_count(attempt, "llm_gateway_error") < MAX_INFRA_RETRIES:
+                        # Not the agent's failure: keep the records, replan the
+                        # workspace, and run the attempt again later.
+                        reset = _reset_attempt(root, attempt, "llm_gateway_error", failure)
+                        return {"attempt_id": attempt_id, "requeued": True,
+                                "agent": agent, "scorer": None, "reset": reset}
+                    scorer = finalize_attempt(
+                        str(attempt), failure_stage="infra", failure_code="llm_gateway_error",
+                        failure_detail=f"the LLM gateway failed {MAX_INFRA_RETRIES} runs: "
+                                       f"{failure.get('error')}")
+                    return {"attempt_id": attempt_id, "agent": agent, "scorer": scorer}
+                breaker.record(True)
             scorer = submit_attempt_scorer(str(attempt), bundle_root, scorer_sif)
         except Exception as exc:
             _append_event(attempt, "harness_error", error=type(exc).__name__, detail=str(exc))
@@ -1416,16 +1781,30 @@ def run_experiment(experiment_dir: str, bundle_root: str, scorer_sif: str,
                 str(attempt), failure_stage="infra", failure_code="harness_error",
                 failure_detail=f"{type(exc).__name__}: {exc}",
             )
-        return {"attempt_id": _json(attempt / "manifest.json")["attempt_id"],
-                "agent": agent, "scorer": scorer}
+        return {"attempt_id": attempt_id, "agent": agent, "scorer": scorer}
 
-    launched = []
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(execute, item) for item in pending]
-        for future in as_completed(futures):
-            launched.append(future.result())
+    def worker():
+        while True:
+            with lock:
+                if not queue:
+                    return
+                item = queue.popleft()
+            row = execute(item)
+            with lock:
+                if row.get("requeued"):
+                    queue.append((item[0], True))
+                else:
+                    launched.append(row)
+
+    threads = [threading.Thread(target=worker, name=f"mddatabench-worker-{index}")
+               for index in range(workers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
     return {"success": all(row["scorer"].get("success") for row in launched),
-            "experiment_dir": str(root), "launched": len(launched), "attempts": launched}
+            "experiment_dir": str(root), "launched": len(launched), "attempts": launched,
+            "gateway_outages": breaker.opened}
 
 
 def _attempt_rows(root: Path) -> tuple[list[dict], list[str]]:
@@ -1469,6 +1848,22 @@ def collect_experiment(experiment_dir: str, out_dir: str = None,
         for manifest_path in sorted((root / "attempts").glob("*/*/manifest.json")):
             _reconcile_scorer(manifest_path.parent)
     rows, incomplete = _attempt_rows(root)
+    reset_rows = []
+    for manifest_path in sorted((root / "attempts").glob("*/*/manifest.json")):
+        manifest = _json(manifest_path)
+        for event in _events(manifest_path.parent):
+            if event.get("event") != "attempt_reset":
+                continue
+            reset_rows.append({
+                "attempt_id": manifest["attempt_id"], "task_id": manifest["task_id"],
+                "condition": manifest["condition"], "harness": manifest["harness"],
+                "model": manifest["model"], "axis": manifest.get("axis"),
+                "at": event.get("at"), "reason": event.get("reason"),
+                "error": str((event.get("detail") or {}).get("error") or "")[:200]})
+    reset_counts: Counter = Counter()
+    for item in reset_rows:
+        reset_counts[(item["condition"], item["harness"], item["model"], item["axis"])] += 1
+        reset_counts[(item["condition"], item["harness"], item["model"], "all")] += 1
     for row in rows:
         metrics = row.setdefault("metrics", {})
         if "gpu_expected_count" not in metrics:
@@ -1609,6 +2004,7 @@ def collect_experiment(experiment_dir: str, out_dir: str = None,
             "recovery_episodes": len(episodes),
             "recovery_rate": (recovered / len(episodes)) if episodes else None,
             "failure_free_rate": _mean([float(item.get("failure_free", True)) for item in recoveries]),
+            "infra_resets": reset_counts.get(key, 0),
         })
     columns = ["condition", "harness", "model", "axis", "tasks", "attempts",
                "successes", "success_rate", "success_rate_ci95_low",
@@ -1621,7 +2017,7 @@ def collect_experiment(experiment_dir: str, out_dir: str = None,
                 "mean_prompt_uncached", "mean_cache_read", "mean_cache_write",
                 "mean_output_tokens_measured", "mean_reasoning_tokens", "cache_hit_ratio",
                 "tokens_per_success", "mean_skill_read_chars", "recovery_episodes",
-                "recovery_rate", "failure_free_rate"]
+                "recovery_rate", "failure_free_rate", "infra_resets"]
     with (out / "summary.csv").open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=columns)
         writer.writeheader()
@@ -1634,6 +2030,11 @@ def collect_experiment(experiment_dir: str, out_dir: str = None,
                      "count": count}
                     for (condition, harness, model, axis, stage, code), count
                     in sorted(failures.items(), key=lambda item: tuple(str(v) for v in item[0]))]
+    with (out / "infra_resets.csv").open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["attempt_id", "task_id", "condition", "harness",
+                                                    "model", "axis", "at", "reason", "error"])
+        writer.writeheader()
+        writer.writerows(reset_rows)
     with (out / "failures.csv").open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=["condition", "harness", "model", "axis",
                                                         "failure_stage", "failure_code", "count"])

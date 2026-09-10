@@ -1127,3 +1127,267 @@ def test_shim_passes_version_probes_through_unguarded(tmp_path, monkeypatch):
         returncode=0, stdout="slurm 25.11.5\n", stderr=""))
     assert sbatch_shim.main(["--version"]) == 0
     assert not event_log.exists()
+
+
+# ---------------------------------------------------------------------------
+# Infrastructure failures: the gateway's outage is not the agent's failure
+# ---------------------------------------------------------------------------
+
+_FATAL_502 = ('502: {"message":"Upstream error at the LLM gateway. Please retry later; '
+              'contact the operators if the problem persists.","type":"api_error",'
+              '"param":null,"code":"502"}')
+
+
+def _write_pi_transcript(handle, fatal: bool):
+    rows = [{"type": "session", "id": "s"}, {"type": "agent_start"}]
+    for attempt in (1, 2, 3):
+        rows.append({"type": "auto_retry_start", "attempt": attempt, "maxAttempts": 3,
+                     "errorMessage": _FATAL_502})
+    if fatal:
+        rows += [{"type": "auto_retry_end", "success": False, "attempt": 3,
+                  "finalError": _FATAL_502},
+                 {"type": "agent_end", "messages": [{"role": "assistant", "content": [],
+                                                     "stopReason": "error"}]},
+                 {"type": "agent_settled"}]
+    else:
+        rows += [{"type": "auto_retry_end", "success": True, "attempt": 1},
+                 {"type": "tool_execution_end", "toolCallId": "bash:1"},
+                 {"type": "agent_end", "messages": [{"role": "assistant", "content": [],
+                                                     "stopReason": "stop"}]}]
+    for row in rows:
+        handle.write(json.dumps(row) + "\n")
+
+
+def test_gateway_error_ends_the_run_as_api_error_not_agent_failure(tmp_path, monkeypatch):
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 1)), str(DATASET))
+    attempt = attempts(root)[0].parent
+
+    def fake_run(argv, **kwargs):
+        _write_pi_transcript(kwargs["stdout"], fatal=True)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(ex.subprocess, "run", fake_run)
+    result = ex.run_attempt_agent(str(attempt), timeout_seconds=1)
+    assert result["exit_reason"] == "api_error"
+    assert result["api_error"]["kind"] == "llm_gateway_error"
+    assert result["api_error"]["retries"] == 3
+    assert result["api_error"]["tool_calls"] == 0
+    events = [row["event"] for row in ex._events(attempt)]
+    assert "agent_api_error" in events
+
+
+def test_survived_retry_is_a_normal_run(tmp_path, monkeypatch):
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 1)), str(DATASET))
+    attempt = attempts(root)[0].parent
+
+    def fake_run(argv, **kwargs):
+        _write_pi_transcript(kwargs["stdout"], fatal=False)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(ex.subprocess, "run", fake_run)
+    result = ex.run_attempt_agent(str(attempt), timeout_seconds=1)
+    assert result["exit_reason"] == "completed"
+    assert result["api_error"] is None
+
+
+def test_reset_retires_the_run_and_replans_the_workspace(tmp_path, monkeypatch):
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 1)), str(DATASET))
+    attempt = attempts(root)[0].parent
+    workspace = attempt / "workspace"
+    (workspace / "study").mkdir()
+    (workspace / "study" / "left_behind.txt").write_text("x")
+    sealed = ex.submit_attempt_scorer(str(attempt), str(tmp_path), "/image.sif")
+    assert sealed["failure_code"] == "agent_no_submission"
+    assert (attempt / "result.json").is_file()
+
+    result = ex.reset_attempts(str(root), attempts=_json_id(attempt))
+    assert result["success"], result
+    assert result["reset"][0]["reset_count"] == 1
+    assert not (attempt / "result.json").exists()
+    assert not (workspace / "study").exists()
+    assert (workspace / "CAPABILITIES.md").is_file()
+    assert (workspace / "agent_prompt.md").is_file()
+    assert (workspace / ".mddatabench" / "bin" / "sbatch").is_file()
+    retired = sorted((attempt / "retired").iterdir())
+    assert len(retired) == 1 and retired[0].name.endswith("-llm_gateway_error")
+    assert (retired[0] / "result.json").is_file()
+    assert (retired[0] / "workspace" / "study" / "left_behind.txt").is_file()
+    assert (retired[0] / "events.jsonl").is_file()
+    events = [row["event"] for row in ex._events(attempt)]
+    assert events == ["attempt_planned", "attempt_reset"]
+    # The dispatcher sees a pending attempt that still needs its agent.
+    assert not any(row.get("event") == "agent_end" for row in ex._events(attempt))
+    manifest = json.loads((attempt / "manifest.json").read_text())
+    assert manifest["attempt_id"] == _json_id(attempt)
+
+
+def _json_id(attempt):
+    return json.loads((attempt / "manifest.json").read_text())["attempt_id"]
+
+
+def test_reset_refuses_running_agents_and_md_submissions_unless_forced(tmp_path):
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 2)), str(DATASET))
+    running, submitted = [m.parent for m in attempts(root)]
+    ex._append_event(running, "agent_start", command=["pi"])
+    events = submitted / "workspace" / ".mddatabench" / "sbatch-events.jsonl"
+    events.parent.mkdir(parents=True, exist_ok=True)
+    events.write_text(json.dumps({"at": "2026-09-10T09:00:00+00:00", "event": "sbatch",
+                                  "job_id": "94535", "returncode": 0}) + "\n")
+    ex._append_event(submitted, "agent_start", command=["pi"])
+    ex._append_event(submitted, "agent_end", exit_reason="completed")
+
+    result = ex.reset_attempts(str(root), attempts=",".join(
+        [_json_id(running), _json_id(submitted)]))
+    assert not result["success"]
+    assert {row["why"].split(";")[0].split(" ")[0] for row in result["refused"]} == {"agent", "submitted"}
+    assert result["reset"] == []
+
+    forced = ex.reset_attempts(str(root), attempts=_json_id(submitted), force=True)
+    assert forced["success"] and len(forced["reset"]) == 1
+    assert not (submitted / "workspace" / ".mddatabench" / "sbatch-events.jsonl").exists()
+    # A second reset of an attempt that has not run since is a no-op, not a
+    # second retirement.
+    again = ex.reset_attempts(str(root), attempts=_json_id(submitted), force=True)
+    assert again["success"] and again["reset"] == []
+    assert again["skipped"][0]["why"] == "already pending"
+    assert len(list((submitted / "retired").iterdir())) == 1
+
+
+def test_reset_reads_attempt_ids_from_a_file_with_extra_columns(tmp_path):
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 1)), str(DATASET))
+    attempt = attempts(root)[0].parent
+    ex.submit_attempt_scorer(str(attempt), str(tmp_path), "/image.sif")  # sealed, no submission
+    listing = tmp_path / "outage.txt"
+    listing.write_text(f"# killed by the outage\n2026-09-10T09:30:00 {attempt} 502: upstream\n")
+    result = ex.reset_attempts(str(root), attempts_file=str(listing))
+    assert result["success"] and result["reset"][0]["attempt_id"] == _json_id(attempt)
+
+
+def test_run_experiment_requeues_a_gateway_killed_attempt(tmp_path, monkeypatch):
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 1)), str(DATASET))
+    attempt = attempts(root)[0].parent
+    calls = []
+
+    def fake_agent(attempt_dir, timeout_seconds=0):
+        calls.append(attempt_dir)
+        ex._append_event(Path(attempt_dir), "agent_start", command=["pi"])
+        ex._append_event(Path(attempt_dir), "agent_end", exit_reason="completed")
+        if len(calls) == 1:
+            return {"success": False, "exit_reason": "api_error",
+                    "api_error": {"kind": "llm_gateway_error", "error": _FATAL_502,
+                                  "retries": 3, "tool_calls": 0}}
+        return {"success": True, "exit_reason": "completed", "api_error": None}
+
+    monkeypatch.setattr(ex, "run_attempt_agent", fake_agent)
+    monkeypatch.setattr(ex, "submit_attempt_scorer",
+                        lambda attempt_dir, bundle_root, sif: {"success": True})
+    monkeypatch.setattr(ex, "_probe_gateway", lambda harness, model: True)
+    result = ex.run_experiment(str(root), str(tmp_path), "/image.sif", max_agents=2)
+    assert len(calls) == 2
+    assert result["launched"] == 1 and result["success"]
+    assert result["gateway_outages"] == 0  # one failure is below the breaker threshold
+    events = [row["event"] for row in ex._events(attempt)]
+    assert "attempt_reset" in events
+    assert sorted((attempt / "retired").iterdir())
+
+
+def test_run_experiment_seals_after_repeated_gateway_failures(tmp_path, monkeypatch):
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 1)), str(DATASET))
+    attempt = attempts(root)[0].parent
+
+    def dead_agent(attempt_dir, timeout_seconds=0):
+        ex._append_event(Path(attempt_dir), "agent_start", command=["pi"])
+        ex._append_event(Path(attempt_dir), "agent_end", exit_reason="completed")
+        return {"success": False, "exit_reason": "api_error",
+                "api_error": {"kind": "llm_gateway_error", "error": _FATAL_502,
+                              "retries": 3, "tool_calls": 0}}
+
+    probes = []
+    monkeypatch.setattr(ex, "run_attempt_agent", dead_agent)
+    monkeypatch.setattr(ex, "_probe_gateway", lambda harness, model: probes.append(1) or True)
+    result = ex.run_experiment(str(root), str(tmp_path), "/image.sif", max_agents=1)
+    sealed = json.loads((attempt / "result.json").read_text())
+    assert sealed["failure_stage"] == "infra"
+    assert sealed["failure_code"] == "llm_gateway_error"
+    assert len(list((attempt / "retired").iterdir())) == ex.MAX_INFRA_RETRIES
+    assert result["gateway_outages"] >= 1 and probes
+
+
+def test_gateway_breaker_opens_and_waits_for_a_successful_probe():
+    answers = iter([False, False, True])
+    breaker = ex._GatewayBreaker(probe=lambda: next(answers), threshold=2, interval_seconds=0)
+    breaker.record(False)
+    assert not breaker.open
+    breaker.record(False)
+    assert breaker.open and breaker.opened == 1
+    breaker.wait_until_closed()
+    assert not breaker.open and breaker.consecutive_errors == 0
+    breaker.record(True)
+    breaker.wait_until_closed()  # closed: returns at once
+
+
+def test_reset_replans_an_image_mode_attempt_from_the_recorded_image(tmp_path, monkeypatch):
+    """experiment.json stores the probe's resolved image path; the spec names a
+    symlink that may since have been switched. The manifest's sha256 decides."""
+    fake_probe(monkeypatch)
+    spec, sif = image_spec(tmp_path, [cell("cli_sif")])
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(spec), str(DATASET))
+    experiment = json.loads((root / "experiment.json").read_text())
+    experiment["images"][0]["sif"] = str(tmp_path / "mdclaw-resolved-target.sif")
+    (root / "experiment.json").write_text(json.dumps(experiment))
+    attempt = attempts(root)[0].parent
+    ex.submit_attempt_scorer(str(attempt), str(tmp_path), "/image.sif")
+
+    result = ex.reset_attempts(str(root), attempts=_json_id(attempt))
+    assert result["success"], result
+    manifest = json.loads((attempt / "manifest.json").read_text())
+    assert manifest["hashes"]["sif"] == "imagedigest"
+    capabilities = (attempt / "workspace" / "CAPABILITIES.md").read_text()
+    assert f"MDClaw SIF: {sif} (sha256 imagedigest)" in capabilities
+    # A reset interrupted after retiring the run is finished by the next call.
+    import shutil as _shutil
+    (attempt / "events.jsonl").unlink()
+    _shutil.rmtree(attempt / "workspace")
+    again = ex.reset_attempts(str(root), attempts=_json_id(attempt))
+    assert again["success"] and again["reset"][0]["reset_count"] == 1
+    assert (attempt / "workspace" / "CAPABILITIES.md").is_file()
+
+
+def test_axis_overrides_give_one_axis_more_time_in_every_condition(tmp_path):
+    root = tmp_path / "experiment"
+    spec_path = write_spec(tmp_path, [cell(), cell("cli_sif")], 1)
+    spec = json.loads(spec_path.read_text())
+    spec["tasks"] = ["001_membrane_5yc8", TASK]
+    spec["axis_overrides"] = {"membrane": {"agent_timeout_seconds": 1800}}
+    spec_path.write_text(json.dumps(spec))
+    ex.init_experiment(str(root), str(spec_path), str(DATASET))
+    seen = {}
+    for manifest_path in attempts(root):
+        manifest = json.loads(manifest_path.read_text())
+        prompt = (manifest_path.parent / "workspace" / "agent_prompt.md").read_text()
+        capabilities = (manifest_path.parent / "workspace" / "CAPABILITIES.md").read_text()
+        budget = manifest["environment"]["agent_timeout_seconds"]
+        seen.setdefault(manifest["axis"], set()).add(budget)
+        assert f"hard {budget} s" in prompt
+        assert f"wall limit: {budget} s" in capabilities
+        assert manifest["environment"]["md_time_limit"] == "00:20:00"
+    assert seen == {"membrane": {1800}, "complex": {1200}}
+    experiment = json.loads((root / "experiment.json").read_text())
+    assert experiment["axis_overrides"] == {"membrane": {"agent_timeout_seconds": 1800}}
+
+
+def test_axis_overrides_reject_unknown_limits(tmp_path):
+    spec_path = write_spec(tmp_path, [cell()], 1)
+    spec = json.loads(spec_path.read_text())
+    spec["axis_overrides"] = {"membrane": {"agent_timeout": 1800}}
+    spec_path.write_text(json.dumps(spec))
+    with pytest.raises(ValueError, match="unknown keys"):
+        ex.init_experiment(str(tmp_path / "experiment"), str(spec_path), str(DATASET))

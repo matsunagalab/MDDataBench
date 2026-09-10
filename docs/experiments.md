@@ -211,7 +211,49 @@ mddatabench run_experiment \
 
 `--limit 1` is useful for a first end-to-end attempt. Re-running the command
 does not rerun a completed agent; it can repair an interrupted agent-to-scorer
-handoff. Three concurrent agents are the Rikyu starting point: they parallelise
+handoff.
+
+Budgets are `agent_timeout_seconds` and `md_time_limit` at the spec level,
+overridable per cell and, through `axis_overrides`, per task axis for every
+cell alike:
+
+```json
+"agent_timeout_seconds": 1200,
+"axis_overrides": {"membrane": {"agent_timeout_seconds": 1800}}
+```
+
+The axis entry wins over the cell, the cell over the spec; each attempt's
+manifest, agent prompt and `CAPABILITIES.md` state the budget it ran under.
+Measured 2026-09-10 with kimi-k3: 37 membrane passes took 683 to 1200 s
+(median 962 s), four of them at the 20-minute wall, so membrane tasks get 30
+minutes in the next campaign while the other axes keep 20.
+
+An LLM gateway outage is not an agent failure. When pi ends a run because its
+model calls never got an answer (`auto_retry_end success:false`, the process
+still exits 0), `run_experiment` records `agent_api_error`, moves that run's
+records to `<attempt>/retired/<stamp>-llm_gateway_error/`, replans the
+workspace and queues the attempt again (up to three times, after which it is
+sealed as `infra/llm_gateway_error`). After two consecutive such runs the
+workers stop launching agents and one of them probes the gateway every
+minute with a minimal model call until it answers. Measured 2026-09-10: the
+Rikyu gateway returned 502 for eight minutes and 56 attempts across all three
+conditions died in about forty seconds each and were sealed as
+`agent_no_submission` before this existed.
+
+Attempts sealed that way, or dead for another infrastructure reason, go back
+to pending with:
+
+```bash
+mddatabench reset_attempts \
+  --experiment-dir <experiment> \
+  --attempts-file outage-attempts.txt   # one attempt id or directory per line
+```
+
+The command keeps every record under `retired/`, replans the workspace, and
+refuses an attempt whose agent is still running or that submitted MD jobs
+(`--force true` overrides the latter). Resets are listed in
+`summary/infra_resets.csv` and counted per cell as `infra_resets` in
+`summary.csv`; they are not part of the pass/fail denominators. Three concurrent agents are the Rikyu starting point: they parallelise
 login-node preparation without opening an excessive number of CPU-heavy prep
 processes. Once Slurm jobs have finished, rebuild all tables from per-attempt
 `result.json` files:

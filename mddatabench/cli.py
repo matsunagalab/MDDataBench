@@ -162,6 +162,14 @@ def calibrate_benchmark_task(accession: str, bundle: str, node: str = "mmb",
     return {"success": True, **block}
 
 
+def reset_attempts(experiment_dir: str, attempts: str = "", attempts_file: str = "",
+                   reason: str = "llm_gateway_error", force: bool = False) -> dict:
+    """Return sealed or dead attempts to pending after an infrastructure failure."""
+    from mddatabench.experiments import reset_attempts as run
+    return run(experiment_dir, attempts=attempts, attempts_file=attempts_file,
+               reason=reason, force=force)
+
+
 TOOLS = {
     "list_benchmark_tasks": list_benchmark_tasks,
     "fetch_benchmark_reference": fetch_benchmark_reference,
@@ -173,6 +181,7 @@ TOOLS = {
     "run_attempt_agent": run_attempt_agent,
     "submit_attempt_scorer": submit_attempt_scorer,
     "run_experiment": run_experiment,
+    "reset_attempts": reset_attempts,
     "finalize_attempt": finalize_attempt,
     "collect_experiment": collect_experiment,
     "model_inventory": model_inventory,
