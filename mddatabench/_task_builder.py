@@ -974,6 +974,43 @@ def _boundary_connectivity_lines(effective_components) -> dict[str, list[str]]:
     return lines
 
 
+def _list_marked(names) -> str:
+    marked = [f"**{name}**" for name in names]
+    return (" and ".join(marked) if len(marked) < 3
+            else ", ".join(marked[:-1]) + " and " + marked[-1])
+
+
+def excluded_components_sentence(names, polymer_subject: str = "protein") -> str:
+    """The prompt line naming deposited components the reference does not carry."""
+    names = list(names)
+    plural = len(names) > 1
+    return (f"The deposit's {_list_marked(names)} {'are' if plural else 'is'} not part of the "
+            f"reference. Simulate the {polymer_subject} without {'them' if plural else 'it'}.")
+
+
+def kept_component_sentence(entry: dict) -> str:
+    """The prompt line for a component the reference keeps one instance of.
+
+    ``entry``: ``{"name": "ZN", "chain": "C", "keep": "402", "bound_by":
+    ["Cys189", "Cys224"], "leave": ["401"], "role": "structural zinc"}``.
+    """
+    name, chain = entry["name"], entry.get("chain")
+    keep, leave = entry["keep"], list(entry.get("leave") or [])
+    count = 1 + len(leave)
+    words = {2: "two", 3: "three", 4: "four"}.get(count, str(count))
+    where = f" on chain {chain}" if chain else ""
+    bound = entry.get("bound_by") or []
+    bound_text = (f", bound by {' and '.join(bound)}" if len(bound) <= 2
+                  else f", bound by {', '.join(bound[:-1])} and {bound[-1]}") if bound else ""
+    role = entry.get("role")
+    role_text = f" as the {role}" if role else ""
+    left = (f"the **{name}** at residue {leave[0]}" if len(leave) == 1
+            else f"the **{name}** at residues {', '.join(leave)}")
+    return (f"The deposit carries {words} **{name}**{where}. Keep the one at residue {keep}"
+            f"{bound_text}{role_text}; {left} {'is' if len(leave) == 1 else 'are'} not part of the "
+            f"reference. Simulate without {'it' if len(leave) == 1 else 'them'}.")
+
+
 def modified_residue_sentence(entry) -> str:
     """The prompt line for one MODRES record the reference reverted.
 
@@ -1000,7 +1037,7 @@ def modified_residue_sentence(entry) -> str:
 def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonation,
                  window_ns, replicas=1, joined_chains=(), disulfides=None,
                  extra_components=(), excluded_components=(),
-                 effective_components=()):
+                 effective_components=(), kept_components=(), polymer_subject="protein"):
     """The text an agent is given.  Derived, not written.
 
     ``joined_chains`` names the deposit chains whose pieces the reference holds
@@ -1010,7 +1047,16 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
 
     ``excluded_components`` names deposited heteroatom components the reference
     does not contain, for a title that advertises one (1FFW: "WITH A BOUND
-    IMIDO", whose reference is protein only).
+    IMIDO", whose reference is protein only). Since dataset v0.4 every
+    non-polymer component of the deposit on the selected chains that the
+    reference lacks is listed here (audit of 2026-09-14: 48 prompts were
+    silent about ligands and ions the reference does not carry, and a
+    qwen3.6-35b agent kept 5YC8's antagonist and mercury atoms).
+    ``kept_components`` describes a component the reference keeps when the
+    deposit carries more than one instance, so the prompt says which
+    (6W9C: two ZN on chain C, the reference keeps the one bound by Cys189
+    and Cys224). ``polymer_subject`` is the noun of the exclusion sentence:
+    "protein" (default), "nucleic acid", or "system" for a mixed complex.
 
     ``extra_components`` fully specifies a reference component that cannot be
     recovered by loading a named CCD ligand directly, including its public
@@ -1134,13 +1180,10 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
         lines += [f"Simulate Cys{first} and Cys{second} of chain {pair['chain']} as "
                   "free (reduced) cysteines; do not form a disulfide bond between "
                   "them.", ""]
+    for entry in kept_components or ():
+        lines += [kept_component_sentence(entry), ""]
     if excluded_components:
-        marked = [f"**{name}**" for name in excluded_components]
-        which = (" and ".join(marked) if len(marked) < 3
-                 else ", ".join(marked[:-1]) + " and " + marked[-1])
-        lines += [f"The deposit's {which} {'are' if len(excluded_components) > 1 else 'is'} "
-                  "not part of the reference. Simulate the protein without "
-                  f"{'them' if len(excluded_components) > 1 else 'it'}.", ""]
+        lines += [excluded_components_sentence(excluded_components, polymer_subject), ""]
     for component in extra_components:
         charge = int(component["expected_formal_net_charge"])
         lines += [

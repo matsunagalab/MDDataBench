@@ -10,6 +10,8 @@ Include one extra component named **LIG** bound to the protein. It is **Ac-Phe-A
 
 Use the deposited coordinates of chain B positions 1–7 (**ACE–PHE–ALA–TYR–M3L–SER–NH2**) as its placement source. Represent the whole capped peptide as one LIG residue, not as separate residues or caps.
 
+The deposit's **EDO**, **MG** and **P33** are not part of the reference. Simulate the protein without them.
+
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 
 Leave the prepared structure, the topology, the minimised state and the production

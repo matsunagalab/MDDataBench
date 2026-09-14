@@ -6,6 +6,8 @@ Simulate X-Ray Structure of the Nucleosome Core Particle, PDB entry **1KX5**, ch
 - **298 K**, **NPT** at **1 bar**
 - at least **1 ns** of production MD
 
+The deposit's **CL** and **MN** are not part of the reference. Simulate the system without them.
+
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 
 Leave the prepared structure, the topology, the minimised state and the production

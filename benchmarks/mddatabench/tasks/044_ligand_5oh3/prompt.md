@@ -7,6 +7,8 @@ Simulate Cereblon isoform 4, PDB entry **5OH3**, chain **A** residues **19–123
 - at least **1 ns** of production MD
 - Include the **9V2** ligand bound to the protein, and treat it as having expected formal net charge **0** at pH 7
 
+The deposit's **ZN** is not part of the reference. Simulate the protein without it.
+
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 
 Leave the prepared structure, the topology, the minimised state and the production

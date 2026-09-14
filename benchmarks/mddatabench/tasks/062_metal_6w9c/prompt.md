@@ -10,6 +10,10 @@ Chain C does not resolve residues 225, 226, 315; the range runs through them, so
 
 The entry carries a structural zinc. Keep it.
 
+The deposit carries two **ZN** on chain C. Keep the one at residue 402, bound by Cys189 and Cys224 as the structural zinc; the **ZN** at residue 401 is not part of the reference. Simulate without it.
+
+The deposit's **CL** is not part of the reference. Simulate the protein without it.
+
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 
 Leave the prepared structure, the topology, the minimised state and the production

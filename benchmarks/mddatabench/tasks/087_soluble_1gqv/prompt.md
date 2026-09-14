@@ -10,6 +10,8 @@ Form exactly these disulfide bonds: Cys23–Cys83 of chain A, Cys55–Cys111 of 
 
 Simulate Cys37 and Cys96 of chain A as free (reduced) cysteines; do not form a disulfide bond between them.
 
+The deposit's **ACT** is not part of the reference. Simulate the protein without it.
+
 Simulate every other ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 
 Leave the prepared structure, the topology, the minimised state and the production

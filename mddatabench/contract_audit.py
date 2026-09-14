@@ -146,9 +146,13 @@ _CHAIN_START = re.compile(
     r"chain\s+\*\*([A-Za-z0-9]+)\*\*\s+residues?\s+", re.I)
 _RANGE = re.compile(
     r"\*\*(-?\d+)[A-Za-z]?\s*[–—-]\s*(-?\d+)[A-Za-z]?\*\*", re.I)
+# Within one sentence: with ``.*?`` the clause reached past the full stop, and
+# "Residue 264 of chain A is a protonated histidine." followed two sentences
+# later by dataset v0.4's "The deposit's **NA** ... are not part of the
+# reference" read as an exclusion of residue 264 (6GT3, 6JZH, 6ZDV).
 _EXCLUDED_RANGE = re.compile(
     r"residues?\s+(?:\*\*)?(-?\d+)(?:\s*[–—-]\s*(-?\d+))?(?:\*\*)?\s+of\s+"
-    r"chain\s+(?:\*\*)?([A-Za-z0-9]+)(?:\*\*)?.*?"
+    r"chain\s+(?:\*\*)?([A-Za-z0-9]+)(?:\*\*)?[^.]*?"
     r"(?:not part|leave it out|exclude|without)",
     re.I)
 _UNSCOPED_EXCLUDED_RANGE = re.compile(

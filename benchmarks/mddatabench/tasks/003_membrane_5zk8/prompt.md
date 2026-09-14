@@ -12,6 +12,8 @@ Join the pieces of chain A into a single continuous chain, bonded where the remo
 
 Embed it in a **DPPC** bilayer.
 
+The deposit's **3C0** is not part of the reference. Simulate the protein without it.
+
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 
 Leave the prepared structure, the topology, the minimised state and the production

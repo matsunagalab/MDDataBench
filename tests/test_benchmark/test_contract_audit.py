@@ -493,3 +493,20 @@ def test_nonstandard_reference_protonation_must_be_stored_and_stated(
     assert ca._protonation_contract_findings(
         prompt, selection, ca._declared(prompt), scheme,
         tmp_path / "reference.pdb") == []
+
+
+def test_an_exclusion_clause_does_not_reach_across_sentences():
+    """6GT3 (dataset v0.4): 'Residue 264 of chain A is a protonated histidine.' two
+    sentences before 'The deposit's **NA** ... are not part of the reference' is
+    not an exclusion of residue 264."""
+    from mddatabench.contract_audit import _declared
+
+    prompt = (
+        "Simulate X, PDB entry **6GT3**, chain **A** residues **1–300**, in explicit solvent.\n\n"
+        "Residues 209–218 of chain A are not part of the reference. Leave them out.\n\n"
+        "Residue 264 of chain A is a protonated histidine.\n\n"
+        "The deposit's **CLR**, **NA** and **OLA** are not part of the reference. Simulate the protein without them.\n"
+    )
+    declared = _declared(prompt)
+    assert declared["excluded"] == {"A": [(209, 218)]}
+    assert 264 in declared["selected"]["A"]
