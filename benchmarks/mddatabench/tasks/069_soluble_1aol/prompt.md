@@ -10,6 +10,8 @@ Residue 168 (ASN) carries an N-linked glycan in the deposit (a glycosylation sit
 
 Residue 12 (ASN) carries an N-linked glycan in the deposit (a glycosylation site). Simulate the unmodified residue without the glycan: leave the sugar residues bonded to it out.
 
+The deposit's **ZN** is not part of the reference. Simulate the protein without it.
+
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 
 Leave the prepared structure, the topology, the minimised state and the production

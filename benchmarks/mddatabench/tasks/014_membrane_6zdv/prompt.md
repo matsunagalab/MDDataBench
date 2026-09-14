@@ -14,6 +14,8 @@ Embed it in a **DPPC** bilayer.
 
 Residue 264 of chain A is a protonated histidine.
 
+The deposit's **CLR**, **NA**, **OLA**, **OLB**, **OLC** and **QGW** are not part of the reference. Simulate the protein without them.
+
 Simulate every other ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 
 Leave the prepared structure, the topology, the minimised state and the production

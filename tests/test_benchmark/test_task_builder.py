@@ -740,3 +740,34 @@ def test_excluded_components_are_named_in_the_prompt():
 
     plain = tb.build_prompt("t", "Complex", "1FFW", metadata, chains, {}, [], 2.5)
     assert "not part of the reference. Simulate the protein without" not in plain
+
+
+def test_excluded_components_sentence_names_the_polymer():
+    assert tb.excluded_components_sentence(["SO4"]) == \
+        "The deposit's **SO4** is not part of the reference. Simulate the protein without it."
+    assert tb.excluded_components_sentence(["CL", "MN"], "system") == \
+        "The deposit's **CL** and **MN** are not part of the reference. Simulate the system without them."
+    assert tb.excluded_components_sentence(["A", "B", "C"], "nucleic acid").startswith(
+        "The deposit's **A**, **B** and **C** are not part of the reference. Simulate the nucleic acid without them.")
+
+
+def test_kept_component_sentence_says_which_instance_stays():
+    """6W9C: two ZN on chain C, the reference keeps the one on Cys189/Cys224."""
+    text = tb.kept_component_sentence({"name": "ZN", "chain": "C", "keep": "402",
+                                       "bound_by": ["Cys189", "Cys224"], "leave": ["401"],
+                                       "role": "structural zinc"})
+    assert text == ("The deposit carries two **ZN** on chain C. Keep the one at residue 402, bound by "
+                    "Cys189 and Cys224 as the structural zinc; the **ZN** at residue 401 is not part of "
+                    "the reference. Simulate without it.")
+
+
+def test_build_prompt_places_kept_and_excluded_components(tmp_path):
+    metadata = {"WAT": "TIP3P", "TEMP": 300, "ENSEMBLE": "NPT"}
+    chain = {"deposit_chain": "C", "ranges": [["4", "315"]]}
+    text = tb.build_prompt("t", "Protein", "6W9C", metadata, [chain], [], [], 1.0,
+                           excluded_components=("CL",), polymer_subject="protein",
+                           kept_components=({"name": "ZN", "chain": "C", "keep": "402",
+                                             "bound_by": ["Cys189", "Cys224"], "leave": ["401"]},))
+    assert "The deposit carries two **ZN** on chain C. Keep the one at residue 402" in text
+    assert "The deposit's **CL** is not part of the reference. Simulate the protein without it." in text
+    assert text.index("Keep the one at residue 402") < text.index("**CL** is not part")

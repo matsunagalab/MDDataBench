@@ -6,6 +6,8 @@ Simulate BPT4 GENE 59 HELICASE ASSEMBLY PROTEIN, PDB entry **1C1K**, chain **A**
 - **300 K**, **NPT** at **1 bar**
 - at least **1 ns** of production MD
 
+The deposit's **CL** and **IR** are not part of the reference. Simulate the protein without them.
+
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 
 Leave the prepared structure, the topology, the minimised state and the production

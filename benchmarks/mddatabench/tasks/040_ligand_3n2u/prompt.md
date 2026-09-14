@@ -7,6 +7,8 @@ Simulate Macrophage metalloelastase, PDB entry **3N2U**, chain **A** residues **
 - at least **1 ns** of production MD
 - Include the **D3X** ligand bound to the protein, and treat it as having expected formal net charge **0** at pH 7
 
+The deposit's **CA** and **ZN** are not part of the reference. Simulate the protein without them.
+
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 
 Leave the prepared structure, the topology, the minimised state and the production

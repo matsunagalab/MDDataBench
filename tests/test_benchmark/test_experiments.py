@@ -116,6 +116,8 @@ def test_init_builds_three_isolated_replicates_per_cell(tmp_path):
             wrapper = workspace / ".mddatabench/bin/mdclaw"
             assert wrapper.is_file()
             assert "CLAUDE_PLUGIN_ROOT=" in wrapper.read_text()
+    record = json.loads((root / "experiment.json").read_text())
+    assert record["dataset_id"] == json.loads((DATASET / "dataset.json").read_text())["dataset_id"]
 
 
 def test_init_refuses_an_experiment_inside_the_mddatabench_checkout():

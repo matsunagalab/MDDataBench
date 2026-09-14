@@ -8,6 +8,8 @@ Simulate MAD structure of OXA10 class D beta-lactamase, PDB entry **1E3U**, chai
 
 Chain C does not resolve residues 94, 95, 96; the range runs through them, so build them.
 
+The deposit's **AUC**, **EDO** and **SO4** are not part of the reference. Simulate the protein without them.
+
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 
 Leave the prepared structure, the topology, the minimised state and the production

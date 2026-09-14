@@ -98,7 +98,13 @@
         }
       ],
       "numbering_certain": true,
-      "derivation": "reference structure aligned to the deposit's SEQRES, then SEQRES positions mapped to author numbering through the observed residues"
+      "derivation": "reference structure aligned to the deposit's SEQRES, then SEQRES positions mapped to author numbering through the observed residues",
+      "excluded_components": [
+        "CLR",
+        "NA",
+        "OLA",
+        "ZMA"
+      ]
     },
     "deposit": {
       "method": "X-ray",

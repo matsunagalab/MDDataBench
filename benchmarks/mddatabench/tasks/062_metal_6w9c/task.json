@@ -66,7 +66,25 @@
       "modified_residues_reverted": [],
       "stated_protonation": [],
       "numbering_certain": false,
-      "derivation": "reference structure aligned to the deposit's SEQRES, then SEQRES positions mapped to author numbering through the observed residues"
+      "derivation": "reference structure aligned to the deposit's SEQRES, then SEQRES positions mapped to author numbering through the observed residues",
+      "excluded_components": [
+        "CL"
+      ],
+      "kept_components": [
+        {
+          "name": "ZN",
+          "chain": "C",
+          "keep": "402",
+          "bound_by": [
+            "Cys189",
+            "Cys224"
+          ],
+          "leave": [
+            "401"
+          ],
+          "role": "structural zinc"
+        }
+      ]
     },
     "deposit": {
       "method": "X-ray",

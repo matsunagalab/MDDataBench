@@ -266,6 +266,23 @@ def _harness_executable(harness: str) -> str:
     return shutil.which(command) or command
 
 
+def _dataset_id(dataset_dir: Path) -> str | None:
+    """The dataset's own version label (``dataset.json``), recorded per experiment.
+
+    Prompts changed between dataset v0.3 (campaign v2) and v0.4; the label
+    says which text a campaign's agents read, next to the per-attempt prompt
+    hashes in ``frozen_sources``.
+    """
+    meta = dataset_dir / "dataset.json"
+    if not meta.is_file():
+        return None
+    try:
+        return json.loads(meta.read_text()).get("dataset_id")
+    except (OSError, ValueError):
+        return None
+
+
+
 def _task_paths(dataset_dir: Path, task_id: str) -> tuple[Path, Path, dict]:
     root = dataset_dir / "tasks" / task_id
     task_file, prompt_file = root / "task.json", root / "prompt.md"
@@ -729,6 +746,7 @@ def init_experiment(experiment_dir: str, spec_file: str,
         **spec, "created_at": _now(), "spec_sha256": _sha256(spec_path),
         "mddatabench_revision": _git_revision(Path(__file__).resolve().parents[1]),
         "frozen_sources": list(frozen.values()),
+        "dataset_id": _dataset_id(dataset),
         "images": list(images.values()),
         "runtime_images": list(runtimes.values()),
         "container_binds": container_binds,

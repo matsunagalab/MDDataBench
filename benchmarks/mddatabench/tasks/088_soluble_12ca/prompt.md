@@ -8,6 +8,8 @@ Simulate CARBONIC ANHYDRASE II, PDB entry **12CA**, chain **A** residues **5–2
 
 Residue 107 of chain A is a protonated histidine.
 
+The deposit's **HG** and **ZN** are not part of the reference. Simulate the protein without them.
+
 Simulate every other ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 
 Leave the prepared structure, the topology, the minimised state and the production

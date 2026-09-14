@@ -85,6 +85,10 @@ def _outcome(row: dict) -> str:
 
 def load_experiment(label: str, directory: Path, skill_loss: str | None) -> list[dict]:
     rows = []
+    try:
+        dataset_id = json.loads((directory / "experiment.json").read_text()).get("dataset_id")
+    except (OSError, ValueError):
+        dataset_id = None
     for result in sorted(directory.glob("attempts/*/*/result.json")):
         attempt = result.parent
         r = json.loads(result.read_text())
@@ -105,7 +109,7 @@ def load_experiment(label: str, directory: Path, skill_loss: str | None) -> list
             "reasoning_tokens": usage.get("reasoning_tokens"), "gpu_seconds": m.get("gpu_seconds"),
             "md_run_seconds": m.get("md_run_seconds"), "total_wall_s": m.get("total_wall_seconds"),
             "checks_passed": r.get("checks_passed"), "checks_total": r.get("checks_total"),
-            "skills_present": skills, "agent_start": start,
+            "skills_present": skills, "agent_start": start, "dataset_id": dataset_id,
         }
         row["outcome"] = _outcome(row)
         rows.append(row)
@@ -220,7 +224,8 @@ def main() -> None:
         axes[1].set_ylim(0, 1.12)
         axes[1].set_ylabel("tasks passed at least once")
         axes[1].set_title("(b) per task, any of 3 replicates", fontsize=9, loc="left")
-        fig.suptitle(f"{label}: pass rate by condition", fontsize=10)
+        dataset_note = next((r["dataset_id"] for r in exp if r.get("dataset_id")), None)
+        fig.suptitle(f"{label}: pass rate by condition" + (f" (dataset {dataset_note})" if dataset_note else ""), fontsize=10)
         fig.tight_layout()
         save(fig, f"fig1_condition_pass_rate_{label}")
 
@@ -232,7 +237,8 @@ def main() -> None:
             ys, ns = [], []
             for a in axes_present:
                 k, n, p = stats["axes"][a][c]
-                ys.append(p); ns.append(n)
+                ys.append(p)
+                ns.append(n)
             xs = np.arange(len(axes_present)) + (j - (len(conds) - 1) / 2) * width
             ax.bar(xs, ys, width=width, color=COLORS[c], label=CONDITION_LABELS[c])
         n_tasks = {a: len({r["task_id"] for r in subset if r["axis"] == a}) for a in axes_present}
@@ -284,7 +290,8 @@ def main() -> None:
                 data.append(vals4)
             box = ax4.boxplot(data, widths=0.55, patch_artist=True, showfliers=False)
             for patch, c in zip(box["boxes"], conds):
-                patch.set_facecolor(COLORS[c]); patch.set_alpha(0.7)
+                patch.set_facecolor(COLORS[c])
+                patch.set_alpha(0.7)
             for median in box["medians"]:
                 median.set_color("black")
             ax4.set_xticks(np.arange(1, len(conds) + 1), [CONDITION_LABELS[c].replace(" ", "\n") for c in conds], fontsize=7)
@@ -305,13 +312,14 @@ def main() -> None:
         after = {t: rate([r for r in rr if r["task_id"] == t]) for t in tasks}
         fig, ax = plt.subplots(figsize=(8.0, 3.0))
         x = np.arange(len(tasks))
-        ax.bar(x - 0.2, [before[t][2] for t in tasks], width=0.4, color="#bbbbbb", label=f"campaign (3 replicates)")
+        ax.bar(x - 0.2, [before[t][2] for t in tasks], width=0.4, color="#bbbbbb", label="campaign (3 replicates)")
         ax.bar(x + 0.2, [after[t][2] for t in tasks], width=0.4, color=COLORS["cli_skill_sif"], label="rerun after fixes (1 replicate)")
         ax.set_xticks(x, [t.split("_", 1)[1] if "_" in t else t for t in tasks], rotation=60, ha="right", fontsize=7)
         ax.set_ylim(0, 1.15)
         ax.set_ylabel("attempts passed")
         ax.legend(frameon=False, fontsize=8, ncol=2, loc="upper left")
-        tot_b = rate([r for r in base if r["task_id"] in set(tasks)]); tot_a = rate(rr)
+        tot_b = rate([r for r in base if r["task_id"] in set(tasks)])
+        tot_a = rate(rr)
         ax.set_title(f"{label}, CLI + skills: the {len(tasks)} tasks that failed at least once; campaign {tot_b[0]}/{tot_b[1]} -> rerun {tot_a[0]}/{tot_a[1]}",
                      fontsize=9, loc="left")
         fig.tight_layout()

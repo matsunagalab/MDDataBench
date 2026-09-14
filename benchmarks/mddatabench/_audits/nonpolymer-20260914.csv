@@ -1,0 +1,99 @@
+task,pdb,chains,deposit_nonpoly,deposit_other_chains,glycan,in_reference,ref_nonstd,prompt_mentions,prompt_exclusion_wording,unaddressed,flag
+001_membrane_5yc8,5YC8,A,3C0x1 HGx3,,,,DPPCx360,,yes,3C0 HG,ok-excl
+002_membrane_5zk3,5ZK3,A,QNBx1,,,,DPPCx360,,yes,QNB,ok-excl
+003_membrane_5zk8,5ZK8,A,3C0x1,,,,DPPCx360,,yes,3C0,ok-excl
+004_membrane_5zkb,5ZKB,A,82Fx1,,,,DPPCx360,,yes,82F,ok-excl
+005_membrane_6a93,6A93,A,1PEx3 8NUx1 CLRx1 ZNx1,PLMx1,,,DPPCx360,,yes,8NU CLR ZN 1PE,ok-excl
+006_membrane_6a94,6A94,A,1PEx1 CLRx1 ZNx1 ZOTx1,A6Lx1 PLMx1,,,DPPCx360,,yes,ZOT CLR 1PE ZN,ok-excl
+007_membrane_6gt3,6GT3,A,CLRx3 F9Qx1 NAx1 OLAx15 OLCx10,,,,DPPCx366,,,NA F9Q CLR OLA OLC,FLAG
+008_membrane_6i53,6I53,ABCDE,PIOx2 POVx3,,,,DPPCx492,,yes,POV PIO,ok-excl
+009_membrane_6jzh,6JZH,A,CLRx3 NAx1 OLAx19 ZMAx1,,,,DPPCx378,,,NA ZMA OLA CLR,FLAG
+010_membrane_6kux,6KUX,A,E3Fx1 FLCx1 OLAx1 PEGx5,,,,DPPCx360,,yes,E3F PEG OLA FLC,ok-excl
+011_membrane_6kuy,6KUY,A,E39x1 PEGx1,,,,DPPCx360,,yes,PEG E39,ok-excl
+012_membrane_6me3,6ME3,A,JEYx1 OLAx1 PEGx1,,,,DPPCx472,,yes,JEY OLA PEG,ok-excl
+013_membrane_6ps2,6PS2,A,CLRx1 JTZx1 OLAx4 OLBx7 OLCx3 SO4x4,,,,DPPCx360,,yes,JTZ CLR OLB OLC SO4 OLA,ok-excl
+014_membrane_6zdv,6ZDV,A,CLRx3 NAx1 OLAx14 OLBx1 OLCx1 QGWx1,,,,DPPCx360,,yes,QGW NA CLR OLB OLA OLC,ok-excl
+015_antibody_1ahw,1AHW,ABC,,,,,,,,,-
+016_antibody_1ay7,1AY7,AB,,,,,,,,,-
+017_antibody_1dqj,1DQJ,ABC,,,,,,,,,-
+018_antibody_1mlc,1MLC,ABE,,,,,,,,,-
+019_antibody_2dd8,2DD8,HLS,NAGx1 PO4x1,,,,,,yes,PO4 NAG,ok-excl
+020_antibody_2vis,2VIS,ABC,NAGx1 ZNx3,,,,,,yes,ZN NAG,ok-excl
+021_antibody_3eoa,3EOA,HIL,,,,,,,,,-
+022_antibody_3rvw,3RVW,ACD,CAx1 EDOx8 NAGx1,,,,,,yes,CA EDO NAG,ok-excl
+023_antibody_3wd5,3WD5,AHL,,,,,,,,,-
+024_antibody_5cba,5CBA,ABE,EDOx3 PEGx1,,,,,,,EDO PEG,FLAG
+025_complex_1akj,1AKJ,ABCDE,,,,,,,,,-
+026_complex_1ava,1AVA,AC,CAx4,,,,,,,CA,FLAG
+027_complex_1b6c,1B6C,AB,SO4x1,,,,,,,SO4,FLAG
+028_complex_1dfj,1DFJ,EI,SO4x1,,,,,,,SO4,FLAG
+029_complex_1e3u,1E3U,AC,AUCx4 EDOx5 SO4x8,,,,,,,AUC SO4 EDO,FLAG
+030_complex_1ffw,1FFW,AB,MNx1 PONx1,,,,,MN PON,yes,,ok
+031_nanobody_1kxv,1KXV,C,,,,,,,,,-
+032_nanobody_1xfp,1XFP,A,FMTx1,,,,,,,FMT,FLAG
+033_nanobody_3tpk,3TPK,A,BENx1 EDOx1,,,,,,,BEN EDO,FLAG
+034_nanobody_4kfz,4KFZ,D,,ZNx8,,,,,,,-
+035_nanobody_6gwn,6GWN,B,,,,,,,,,-
+036_ligand_1ceb,1CEB,A,AMHx1,,,,LIGx1,AMH,,,ok
+037_ligand_1g74,1G74,A,OLAx1 PO4x1,,,,LIGx1,OLA,,PO4,FLAG
+039_ligand_3ikd,3IKD,A,J9Zx1,,,,LIGx1,J9Z,,,ok
+040_ligand_3n2u,3N2U,A,CAx3 D3Xx1 ZNx2,,,,LIGx1,D3X,,ZN CA,FLAG
+041_ligand_4erf,4ERF,A,0R3x1,,,,LIGx1,0R3,,,ok
+042_ligand_4mn3,4MN3,A,EDOx3 MGx1 P33x1,,,,LIGx1,,,EDO MG P33,FLAG
+043_ligand_5od1,5OD1,A,9RQx1 GOLx1 ZNx1,,,,LIGx1,9RQ,,ZN GOL,FLAG
+044_ligand_5oh3,5OH3,A,9V2x1 ZNx1,,,,LIGx1,9V2,,ZN,FLAG
+045_ligand_6j3o,6J3O,A,B4Lx1,,,,LIGx1,B4L,,,ok
+046_nucleic_1a66,1A66,BC,,,,,,,,,-
+047_nucleic_1c7u,1C7U,CD,,,,,,,,,-
+048_nucleic_1h9t,1H9T,XY,,AUx2 CLx3,,,,,,,-
+049_nucleic_1iv6,1IV6,BC,,,,,,,,,-
+050_nucleic_1j46,1J46,BC,,,,,,,,,-
+051_nucleic_1kx5,1KX5,ABCDEFGHIJ,CLx4 MNx14,,,,,,,MN CL,FLAG
+052_nucleic_1naj,1NAJ,AB,,,,,,,,,-
+053_nucleic_1qn5,1QN5,CD,,,,,,,,,-
+054_nucleic_1zgw,1ZGW,BC,,ZNx1,,,,,,,-
+055_nucleic_2hdc,2HDC,BC,,,,,,,,,-
+056_nucleic_2l1g,2L1G,BC,,ZNx1,,,,,,,-
+057_nucleic_2lt7,2LT7,DE,,ZNx3,,,,,,,-
+058_nucleic_2rn1,2RN1,AB,,,,,,,,,-
+059_nucleic_3f27,3F27,AB,,,,,,,,,-
+060_metal_4ow0,4OW0,A,DMSx2 GOLx1 S88x1 ZNx1,,,ZN,ZNx1,,,S88 DMS GOL,FLAG
+062_metal_6w9c,6W9C,C,CLx1 ZNx2,,,ZN,ZNx1,,,CL,FLAG
+063_metal_6wrh,6WRH,A,CLx2 GOLx2 PO4x3 ZNx1,,,ZN,ZNx1,,,PO4 CL GOL,FLAG
+064_soluble_16pk,16PK,A,BISx1 EPEx1,,,,,,,BIS EPE,FLAG
+065_soluble_1a62,1A62,A,,,,,,,,,-
+066_soluble_1ab1,1AB1,A,EOHx1,,,,,,,EOH,FLAG
+067_soluble_1af7,1AF7,A,SAHx1,,,,,,,SAH,FLAG
+068_soluble_1ail,1AIL,A,,,,,,,,,-
+069_soluble_1aol,1AOL,A,NAGx2 ZNx3,,,,,,yes,NAG ZN,ok-excl
+070_soluble_1bgf,1BGF,A,,,,,,,,,-
+071_soluble_1bq8,1BQ8,A,FEx1,,,,,,,FE,FLAG
+072_soluble_1bxy,1BXY,A,,,,,,,,,-
+073_soluble_1c1k,1C1K,A,CLx12 IRx2,,,,,,,IR CL,FLAG
+074_soluble_1c52,1C52,A,HEMx1,,,,,,,HEM,FLAG
+075_soluble_1cpq,1CPQ,A,HEMx1,,,,,,,HEM,FLAG
+076_soluble_1ctf,1CTF,A,SO4x1,,,,,,,SO4,FLAG
+077_soluble_1dow,1DOW,A,,,,,,,,,-
+078_soluble_1dpt,1DPT,A,,,,,,,,,-
+079_soluble_1ewf,1EWF,A,PC1x2,,,,,,,PC1,FLAG
+080_soluble_1ez3,1EZ3,B,,,,,,,,,-
+081_soluble_1fcz,1FCZ,A,156x1 LMUx1,,,,,,,156 LMU,FLAG
+082_soluble_1fd3,1FD3,A,,SO4x1,,,,,,,-
+083_soluble_1fk5,1FK5,A,FMTx3 OLAx1,,,,,,,OLA FMT,FLAG
+084_soluble_1fm4,1FM4,A,DXCx2,,,,,,,DXC,FLAG
+085_soluble_1g38,1G38,A,NEAx1,,,,,,,NEA,FLAG
+086_soluble_1g6g,1G6G,A,,,,,,,,,-
+087_soluble_1gqv,1GQV,A,ACTx1,,,,,,,ACT,FLAG
+088_soluble_12ca,12CA,A,HGx1 ZNx1,,,,,,,ZN HG,FLAG
+089_soluble_1a1w,1A1W,A,,,,,,,,,-
+090_soluble_1aa3,1AA3,A,,,,,,,,,-
+091_soluble_1ag4,1AG4,A,,,,,,,,,-
+092_soluble_1ah9,1AH9,A,,,,,,,,,-
+093_soluble_1anx,1ANX,A,CAx4 SO4x1,,,,,,,CA SO4,FLAG
+094_soluble_1apo,1APO,A,OHx1,,,,,,yes,OH,ok-excl
+095_soluble_1ard,1ARD,A,ZNx1,,,,,,,ZN,FLAG
+096_soluble_1ay7,1AY7,AB,,,,,,,,,-
+097_soluble_1dfw,1DFW,A,,,,,,,,,-
+098_soluble_1tba,1TBA,AB,,,,,,,,,-
+099_soluble_1vyc,1VYC,A,,,,,,,,,-
+100_soluble_2axf,2AXF,ABC,ACYx2,,,,,,,ACY,FLAG
