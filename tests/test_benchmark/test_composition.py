@@ -445,3 +445,10 @@ def test_terminal_nucleotides_pair_with_their_plain_form():
     assert cp.CANONICAL_RESIDUE["DT3"] == "DT"
     assert cp.CANONICAL_RESIDUE["G5"] == "G"
     assert cp.CANONICAL_RESIDUE["C3"] == "C"
+
+
+def test_glycosylation_site_names_collapse_onto_their_parent_residue():
+    """Amber writes an N-linked ASN as NLN and O-linked SER/THR as OLS/OLT."""
+    assert cp.CANONICAL_RESIDUE["NLN"] == "ASN"
+    assert cp.CANONICAL_RESIDUE["OLS"] == "SER"
+    assert cp.CANONICAL_RESIDUE["OLT"] == "THR"

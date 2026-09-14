@@ -43,12 +43,28 @@ def kabsch(mobile: np.ndarray, target: np.ndarray) -> np.ndarray:
 
 
 def energy_series(path):
-    """Columns of an OpenMM StateDataReporter log, by their header names."""
+    """Columns of an OpenMM StateDataReporter log, by their header names.
+
+    Agent-written logs are not always a clean StateDataReporter file: campaign
+    v2, 037_ligand_1g74 sif_only r3 prefixed the file with its own
+    space-separated ``# Step Time(ps) ...`` comment line, so DictReader took
+    that line as a one-column header and every data field landed under the
+    key ``None``. Comment lines before the quoted header are skipped, and
+    fields without a header name are ignored instead of crashing the scorer.
+    """
     with open(path) as handle:
-        rows = list(csv.DictReader(handle))
+        lines = [line for line in handle if line.strip()]
+    start = 0
+    for index, line in enumerate(lines):
+        if line.startswith('#"') or not line.startswith("#"):
+            start = index
+            break
+    else:
+        return {}
+    rows = list(csv.DictReader(lines[start:], restkey=None))
     if not rows:
         return {}
-    lookup = {key.strip('"#'): key for key in rows[0]}
+    lookup = {key.strip('"#'): key for key in rows[0] if isinstance(key, str)}
     out = {}
     for name, key in lookup.items():
         try:

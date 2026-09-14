@@ -477,7 +477,8 @@ def test_standalone_sbatch_shim_overrides_agent_time_limit(tmp_path, monkeypatch
 
     monkeypatch.setattr(sbatch_shim.subprocess, "run", fake_run)
     assert sbatch_shim.main(["--time=99:00:00", "job.sbatch"]) == 0
-    assert captured["argv"] == ["/usr/bin/sbatch", "--time=01:00:00", "job.sbatch"]
+    assert captured["argv"] == ["/usr/bin/sbatch", "--time=01:00:00",
+                                "--kill-on-invalid-dep=yes", "job.sbatch"]
     assert json.loads(event_log.read_text())["job_id"] == "12345"
     assert "Submitted batch job 12345" in capsys.readouterr().out
 
@@ -498,8 +499,8 @@ def test_standalone_sbatch_shim_pins_operator_partition_and_node(monkeypatch):
     arguments = ["--partition", "gpu", "--nodelist=other", "--gpus", "1", "job.sbatch"]
     assert sbatch_shim.main(arguments) == 0
     assert captured["argv"] == [
-        "/usr/bin/sbatch", "--time=00:20:00", "--partition=all", "--nodelist=n4",
-        "--gpus", "1", "job.sbatch",
+        "/usr/bin/sbatch", "--time=00:20:00", "--kill-on-invalid-dep=yes",
+        "--partition=all", "--nodelist=n4", "--gpus", "1", "job.sbatch",
     ]
 
 
@@ -1391,3 +1392,142 @@ def test_axis_overrides_reject_unknown_limits(tmp_path):
     spec_path.write_text(json.dumps(spec))
     with pytest.raises(ValueError, match="unknown keys"):
         ex.init_experiment(str(tmp_path / "experiment"), str(spec_path), str(DATASET))
+
+
+
+def test_scorer_submission_cancels_a_chain_that_can_never_run(tmp_path, monkeypatch):
+    """kimi-k3-3cond-full-v2: 95214 failed, so 95215 (topo) was held as
+    DependencyNeverSatisfied with 95216-95218 behind it, and the scorer on
+    afterany:95218 never started; 77 attempts sat unsealed until cancelled."""
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 1)), str(DATASET))
+    attempt = attempts(root)[0].parent
+    for job_id in ("95214", "95215", "95216", "95218"):
+        ex.record_sbatch(str(attempt), [f"{job_id}.sbatch"], f"Submitted batch job {job_id}\n", 0)
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        if argv[0] == "squeue":
+            return SimpleNamespace(returncode=0, stderr="", stdout=(
+                "95215|(DependencyNeverSatisfied)|afterok:95214(failed)\n"
+                "95216|(Dependency)|afterok:95215(unfulfilled)\n"
+                "95218|(Dependency)|afterok:95216(unfulfilled)\n"
+                "70000|(DependencyNeverSatisfied)|afterok:69999(failed)\n"))
+        if argv[0] == "scancel":
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+        return SimpleNamespace(returncode=0, stdout="444\n", stderr="")
+
+    monkeypatch.setattr(ex.subprocess, "run", fake_run)
+    submitted = ex.submit_attempt_scorer(str(attempt), str(tmp_path), "/image.sif")
+    assert ["scancel", "95215", "95216", "95218"] in calls      # another attempt's 70000 untouched
+    assert submitted["scorer_job_id"] == "444"
+    events = [json.loads(line) for line in (attempt / "events.jsonl").read_text().splitlines()]
+    assert any(e.get("event") == "unrunnable_jobs_cancelled" and e["job_ids"] == ["95215", "95216", "95218"]
+               for e in events)
+
+
+def test_scorer_submission_survives_a_failing_queue_listing(tmp_path, monkeypatch):
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 1)), str(DATASET))
+    attempt = attempts(root)[0].parent
+    ex.record_sbatch(str(attempt), ["run.sbatch"], "Submitted batch job 12345\n", 0)
+
+    def fake_run(argv, **kwargs):
+        if argv[0] == "squeue":
+            raise OSError("squeue unavailable")
+        return SimpleNamespace(returncode=0, stdout="67890\n", stderr="")
+
+    monkeypatch.setattr(ex.subprocess, "run", fake_run)
+    assert ex.submit_attempt_scorer(str(attempt), str(tmp_path), "/image.sif")["scorer_job_id"] == "67890"
+
+
+# --- seconds per model call, and the opt-in latency governor ---------------
+
+
+def test_llm_call_metrics_sum_the_phases_and_give_the_pace():
+    from mddatabench.experiments import _llm_call_metrics
+
+    phases = {"prep": {"calls": 10, "seconds": 150.0}, "md": {"calls": 30, "seconds": 600.0}}
+    assert _llm_call_metrics(phases) == {"llm_calls": 40, "llm_seconds": 750.0, "seconds_per_call": 18.75}
+    assert _llm_call_metrics({}) == {"llm_calls": 0, "llm_seconds": 0.0, "seconds_per_call": None}
+
+
+def test_seconds_per_call_comes_from_the_agent_end_record():
+    from mddatabench.experiments import _seconds_per_call
+
+    assert _seconds_per_call({"agent_wall_seconds": 760.0, "usage": {"calls": 38}}) == 20.0
+    assert _seconds_per_call({"agent_wall_seconds": 760.0, "usage": {"calls": 0}}) is None
+    assert _seconds_per_call(None) is None
+
+
+def test_latency_governor_halves_the_agents_while_calls_are_slow_and_restores_them():
+    from mddatabench.experiments import _LatencyGovernor
+
+    changes = []
+    governor = _LatencyGovernor(6, ceiling_seconds_per_call=30.0, window=3, on_change=changes.append)
+    for pace in (35.0, 40.0, 33.0):
+        governor.acquire()
+        governor.release(pace)
+    assert governor.permits == 3
+    assert changes[-1]["permits_before"] == 6 and changes[-1]["median_seconds_per_call"] == 35.0
+    # a second slow window halves again, never below one agent
+    for pace in (50.0, 50.0, 50.0):
+        governor.acquire()
+        governor.release(pace)
+    assert governor.permits == 1
+    for pace in (60.0, 60.0, 60.0):
+        governor.acquire()
+        governor.release(pace)
+    assert governor.permits == 1
+    # calls back under 70 % of the ceiling let one more agent run per window
+    for pace in (15.0, 16.0, 14.0):
+        governor.acquire()
+        governor.release(pace)
+    assert governor.permits == 2
+    assert [row["permits"] for row in governor.adjustments] == [3, 1, 2]
+
+
+def test_latency_governor_without_a_ceiling_changes_nothing():
+    from mddatabench.experiments import _LatencyGovernor
+
+    governor = _LatencyGovernor(6)
+    for _ in range(12):
+        governor.acquire()
+        governor.release(90.0)
+    assert governor.permits == 6 and governor.adjustments == []
+
+
+def test_latency_governor_blocks_the_seventh_agent_until_one_finishes():
+    import threading
+
+    from mddatabench.experiments import _LatencyGovernor
+
+    governor = _LatencyGovernor(2)
+    governor.acquire()
+    governor.acquire()
+    entered = threading.Event()
+
+    def third():
+        governor.acquire()
+        entered.set()
+
+    thread = threading.Thread(target=third)
+    thread.start()
+    assert not entered.wait(0.2)
+    governor.release(None)
+    assert entered.wait(2.0)
+    thread.join(2.0)
+
+
+def test_run_experiment_accepts_the_pace_ceiling_and_reports_no_adjustment_when_idle(tmp_path):
+    """The dispatcher's return value carries the governor's adjustments."""
+    from mddatabench.experiments import run_experiment
+
+    root = tmp_path / "exp"
+    (root / "attempts").mkdir(parents=True)
+    (root / "experiment.json").write_text(json.dumps({"tasks": []}))
+    result = run_experiment(str(root), str(tmp_path / "bundles"), "scorer.sif",
+                            max_agents=3, max_seconds_per_call=30.0)
+    assert result["launched"] == 0
+    assert result["concurrency_adjustments"] == []

@@ -36,6 +36,35 @@ import openmm as mm
 MAX_ABS_ENERGY_PER_PARTICLE_KJ_MOL = 1.0e6
 
 
+def _load_state_leniently(context, state) -> None:
+    """Positions, box and velocities from ``state``; parameters only where defined.
+
+    A state saved from an NPT context carries ``MonteCarloPressure`` and
+    ``MonteCarloTemperature``; a submitted System without a barostat defines
+    neither, and ``Context.setState`` then refuses the whole state
+    (040_ligand_3n2u sif_only r3: "invalid parameter name: MonteCarloPressure").
+    The potential energy does not depend on those parameters, so they are
+    applied only when the System defines them.
+    """
+    if context.getSystem().usesPeriodicBoundaryConditions():
+        try:
+            context.setPeriodicBoxVectors(*state.getPeriodicBoxVectors())
+        except Exception:                                           # noqa: BLE001
+            pass
+    context.setPositions(state.getPositions())
+    try:
+        velocities = state.getVelocities()
+    except Exception:                                               # noqa: BLE001
+        velocities = None
+    if velocities is not None and len(velocities) == context.getSystem().getNumParticles():
+        context.setVelocities(velocities)
+    defined = set(dict(context.getParameters()).keys())
+    for name, value in dict(state.getParameters()).items():
+        if name in defined:
+            context.setParameter(name, value)
+
+
+
 def single_point(system, state_xml_text: str) -> dict:
     """Potential energy and maximum force of ``system`` at a serialised state."""
     try:
@@ -49,7 +78,7 @@ def single_point(system, state_xml_text: str) -> dict:
         platform = mm.Platform.getPlatformByName("Reference")
     try:
         context = mm.Context(system, mm.VerletIntegrator(1.0 * mm.unit.femtosecond), platform)
-        context.setState(state)
+        _load_state_leniently(context, state)
         snapshot = context.getState(getEnergy=True, getForces=True, getPositions=True)
         energy = snapshot.getPotentialEnergy().value_in_unit(mm.unit.kilojoule_per_mole)
         forces = snapshot.getForces(asNumpy=True).value_in_unit(

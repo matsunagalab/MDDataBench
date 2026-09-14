@@ -706,6 +706,27 @@ def test_an_omitted_modified_residue_is_not_restored():
     assert "modified CYS" not in text
 
 
+def test_a_glycosylation_site_is_named_as_a_glycan_to_leave_out():
+    """1AOL: ASN 168 is its own parent; the sugar bonded to it is what goes."""
+    metadata = {"WAT": "TIP3P", "TEMP": 300, "ENSEMBLE": "NPT"}
+    chain = {"deposit_chain": "A", "ranges": [["9", "236"]]}
+    text = tb.build_prompt(
+        "t", "GP70", "1AOL", metadata, [chain],
+        [{"name": "ASN", "parent": "ASN", "chain": "A", "residue": "168", "note": "GLYCOSYLATION SITE"},
+         {"name": "OCS", "parent": "CYS", "chain": "A", "residue": "112", "note": ""}],
+        [], 1.0,
+    )
+    assert ("Residue 168 (ASN) carries an N-linked glycan in the deposit (a glycosylation "
+            "site). Simulate the unmodified residue without the glycan: leave the sugar "
+            "residues bonded to it out.") in text
+    assert "deposited as **ASN**, a modified ASN" not in text
+    # an ordinary modified residue keeps the sentence it had
+    assert "Residue 112 is deposited as **OCS**, a modified CYS. Simulate the unmodified residue." in text
+    assert tb.modified_residue_sentence(
+        {"name": "THR", "parent": "THR", "residue": "7", "note": "GLYCOSYLATION SITE"}
+    ).startswith("Residue 7 (THR) carries an O-linked glycan")
+
+
 def test_excluded_components_are_named_in_the_prompt():
     metadata = {"WAT": "TIP3P", "TEMP": 310, "ENSEMBLE": "NPT"}
     chains = [{"deposit_chain": "A", "ranges": [["2", "129"]]}]

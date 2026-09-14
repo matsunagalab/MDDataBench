@@ -48,6 +48,12 @@ CANONICAL_RESIDUE = {
     "CYX": "CYS", "CYM": "CYS", "CYS2": "CYS",
     "ASH": "ASP", "ASPP": "ASP", "GLH": "GLU", "GLUP": "GLU",
     "LYN": "LYS", "ARN": "ARG", "TYM": "TYR",
+    # Amber's glycosylation-site names: ff14SB/GLYCAM write an N-linked ASN as
+    # NLN and O-linked SER / THR as OLS / OLT. Without these a glycosylated
+    # submission pairs no monomer with a reference written in plain names and
+    # its glycan links, which hang off NLN, are dropped with it (1AOL, 2VIS,
+    # campaign v2).
+    "NLN": "ASN", "OLS": "SER", "OLT": "THR",
 }
 
 # Terminal nucleotides, collapsed onto the same parent for the same reason.

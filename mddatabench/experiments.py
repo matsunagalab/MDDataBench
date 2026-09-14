@@ -12,6 +12,7 @@ import csv
 import hashlib
 import json
 import math
+import getpass
 import os
 import re
 import shlex
@@ -20,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import statistics
 import threading
 from collections import Counter, defaultdict, deque
 from datetime import datetime, timezone
@@ -1126,6 +1128,84 @@ def reset_attempts(experiment_dir: str, attempts: str = "", attempts_file: str =
             "experiment_dir": str(root)}
 
 
+def _append_dispatcher_event(root: Path, event: str, **fields) -> dict:
+    row = {"at": _now(), "event": event, **fields}
+    with (root / "dispatcher_events.jsonl").open("a") as handle:
+        handle.write(json.dumps(row, sort_keys=True) + "\n")
+    return row
+
+
+def _seconds_per_call(agent: dict | None) -> float | None:
+    """Wall seconds per model call of one finished agent run, tool time included."""
+    if not agent:
+        return None
+    calls = int((agent.get("usage") or {}).get("calls") or 0)
+    wall = agent.get("agent_wall_seconds")
+    return float(wall) / calls if calls and wall else None
+
+
+class _LatencyGovernor:
+    """Fewer agents at once while model calls are slow. Opt-in.
+
+    Campaign v2 (six agents throughout): passes ran at 18.7 s per model call
+    (median) and the attempts that ended without a submission at 31.4 s; at
+    the 38 calls a pass needs, 31 s per call is the 1200 s wall. The logs do
+    not say whether that latency came from our own concurrency or from other
+    users of the gateway (hour-by-hour medians moved between 16 and 35 s at a
+    constant six agents), so a ceiling of 0 leaves the dispatcher as it was.
+    With a ceiling, the median pace of the last ``window`` finished agent
+    runs above it halves the number of agents allowed to run (never below
+    one); a median under 70 % of it lets one more run again, up to
+    ``max_workers``. Adjustments wait for ``window`` fresh runs.
+    """
+
+    def __init__(self, max_workers: int, ceiling_seconds_per_call: float = 0.0,
+                 window: int = 6, on_change=None):
+        self.max_workers = max(1, int(max_workers))
+        self.ceiling = float(ceiling_seconds_per_call or 0.0)
+        self.window = max(1, int(window))
+        self.permits = self.max_workers
+        self.active = 0
+        self.recent: deque = deque(maxlen=self.window)
+        self.adjustments: list[dict] = []
+        self._since_change = 0
+        self._on_change = on_change
+        self._condition = threading.Condition()
+
+    def acquire(self) -> None:
+        with self._condition:
+            while self.active >= self.permits:
+                self._condition.wait()
+            self.active += 1
+
+    def release(self, seconds_per_call: float | None = None) -> None:
+        with self._condition:
+            self.active = max(0, self.active - 1)
+            if self.ceiling > 0 and seconds_per_call is not None:
+                self.recent.append(float(seconds_per_call))
+                self._since_change += 1
+                self._adjust()
+            self._condition.notify_all()
+
+    def _adjust(self) -> None:
+        if self._since_change < self.window:
+            return
+        median = statistics.median(self.recent)
+        before = self.permits
+        if median > self.ceiling and self.permits > 1:
+            self.permits = max(1, self.permits // 2)
+        elif median < 0.7 * self.ceiling and self.permits < self.max_workers:
+            self.permits += 1
+        if self.permits == before:
+            return
+        self._since_change = 0
+        row = {"median_seconds_per_call": round(median, 1), "ceiling_seconds_per_call": self.ceiling,
+               "permits_before": before, "permits": self.permits}
+        self.adjustments.append(row)
+        if self._on_change is not None:
+            self._on_change(row)
+
+
 class _GatewayBreaker:
     """Stop launching agents while the LLM gateway is down.
 
@@ -1407,6 +1487,22 @@ def transcript_metrics(attempt: Path, manifest: dict, md_jobs: list[dict],
             "phases": _phase_summary(rows)}
 
 
+def _llm_call_metrics(phases: dict) -> dict:
+    """Model calls, the wall seconds between them, and seconds per call.
+
+    ``seconds_per_call`` is the wall time from one model call to the next,
+    so the tool run in between (an MDClaw command, a Slurm poll) is part of
+    it; it is the pace the agent actually got, not the gateway's latency
+    alone. Campaign v2: passes ran at 18.7 s per call (median, 38 calls per
+    pass), attempts that ended without a submission at 31.4 s -- at 38 calls,
+    31 s per call is the 1200 s wall.
+    """
+    calls = sum(int(phase.get("calls") or 0) for phase in (phases or {}).values())
+    seconds = sum(float(phase.get("seconds") or 0.0) for phase in (phases or {}).values())
+    return {"llm_calls": calls, "llm_seconds": round(seconds, 1),
+            "seconds_per_call": round(seconds / calls, 2) if calls else None}
+
+
 def _phase_summary(rows: list[dict]) -> dict:
     """Calls, seconds and prompt tokens per timeline stage."""
     phases: dict[str, dict] = {}
@@ -1486,6 +1582,7 @@ def finalize_attempt(attempt_dir: str, score_file: str = None,
             "token_usage": enrichment["token_usage"],
             "skill_reads": enrichment["skill_reads"],
             "phases": enrichment["phases"],
+            **_llm_call_metrics(enrichment["phases"]),
         },
         "recovery": enrichment["recovery"],
         "artifacts": {
@@ -1618,6 +1715,50 @@ def _submission_dir(workspace: Path, condition: str) -> Path:
     return workspace / "study" / "jobs" / "main"
 
 
+def _cancel_unrunnable_jobs(job_ids: list[str]) -> list[str]:
+    """Cancel an attempt's jobs that can never run, so its afterany scorer fires.
+
+    A job behind a failed afterok parent is held as DependencyNeverSatisfied
+    for ever where the scheduler does not kill invalid dependencies, and so is
+    everything queued behind it; the scorer, attached with afterany to the last
+    job, then never starts and the attempt is never sealed
+    (kimi-k3-3cond-full-v2: 178 such jobs held 77 attempts, the oldest for
+    21 h). Best effort: any failure to list or cancel leaves the jobs alone.
+    """
+    wanted = {str(job) for job in job_ids or []}
+    if not wanted:
+        return []
+    try:
+        listed = subprocess.run(
+            ["squeue", "-h", "-t", "PD", "-o", "%i|%R|%E",
+             "-u", os.environ.get("USER") or getpass.getuser()],
+            text=True, capture_output=True, check=False)
+    except Exception:  # noqa: BLE001 - never block scoring on housekeeping
+        return []
+    if getattr(listed, "returncode", 1) or not isinstance(getattr(listed, "stdout", None), str):
+        return []
+    pending = {}
+    for line in listed.stdout.splitlines():
+        parts = line.split("|", 2)
+        if len(parts) == 3 and parts[0].strip() in wanted:
+            pending[parts[0].strip()] = (parts[1], re.findall(r"after\w*:(\d+)", parts[2]))
+    dead = {job for job, (reason, _) in pending.items() if "NeverSatisfied" in reason}
+    grew = True
+    while grew:
+        grew = False
+        for job, (_, parents) in pending.items():
+            if job not in dead and any(parent in dead for parent in parents):
+                dead.add(job)
+                grew = True
+    cancel = sorted(dead, key=lambda value: int(value.split("_")[0]))
+    if cancel:
+        try:
+            subprocess.run(["scancel", *cancel], text=True, capture_output=True, check=False)
+        except Exception:  # noqa: BLE001
+            return []
+    return cancel
+
+
 def submit_attempt_scorer(attempt_dir: str, bundle_root: str, sif: str,
                           partition: str = None, time_limit: str = "00:15:00",
                           memory: str = "32G", cpus_per_task: int = 4,
@@ -1643,6 +1784,9 @@ def submit_attempt_scorer(attempt_dir: str, bundle_root: str, sif: str,
            for value in accounting_job_ids):
         raise ValueError(f"unsafe Slurm job ids {accounting_job_ids!r}")
     accounting_jobs = ",".join(accounting_job_ids)
+    cancelled = _cancel_unrunnable_jobs(accounting_job_ids)
+    if cancelled:
+        _append_event(attempt, "unrunnable_jobs_cancelled", job_ids=cancelled)
     task_file = Path(manifest["paths"]["task_file"])
     reference = manifest["reference"]
     bundle = Path(bundle_root).resolve() / f"{reference['node']}_{reference['accession']}"
@@ -1712,13 +1856,15 @@ fi
 
 def run_experiment(experiment_dir: str, bundle_root: str, scorer_sif: str,
                    max_agents: int = 1, timeout_seconds: int = 0,
-                   limit: int = 0) -> dict:
+                   limit: int = 0, max_seconds_per_call: float = 0.0) -> dict:
     """Run pending agents and attach evaluator-owned scorers to their final jobs.
 
     The command submits work and returns; scorer jobs finish asynchronously.
     Re-running is safe: completed agents are not rerun, while an interrupted
     handoff can still attach its missing scorer.
     ``limit`` bounds newly launched attempts (zero means all pending).
+    ``max_seconds_per_call`` (zero: off) lets fewer agents run at once while
+    the finished runs' pace is slower than that; see ``_LatencyGovernor``.
     """
     root = Path(experiment_dir).resolve()
     # Dispatch in the spec's task order, not alphabetically: a campaign that
@@ -1749,6 +1895,9 @@ def run_experiment(experiment_dir: str, bundle_root: str, scorer_sif: str,
     queue = deque(pending)
     lock = threading.Lock()
     launched: list[dict] = []
+    governor = _LatencyGovernor(
+        workers, max_seconds_per_call,
+        on_change=lambda row: _append_dispatcher_event(root, "concurrency_adjusted", **row))
 
     def execute(item):
         attempt, needs_agent = item
@@ -1757,7 +1906,11 @@ def run_experiment(experiment_dir: str, bundle_root: str, scorer_sif: str,
             agent = None
             if needs_agent:
                 breaker.wait_until_closed()
-                agent = run_attempt_agent(str(attempt), timeout_seconds=timeout_seconds)
+                governor.acquire()
+                try:
+                    agent = run_attempt_agent(str(attempt), timeout_seconds=timeout_seconds)
+                finally:
+                    governor.release(_seconds_per_call(agent) if agent and not agent.get("api_error") else None)
                 if agent.get("exit_reason") == "api_error":
                     breaker.record(False)
                     failure = agent.get("api_error") or {}
@@ -1804,7 +1957,8 @@ def run_experiment(experiment_dir: str, bundle_root: str, scorer_sif: str,
         thread.join()
     return {"success": all(row["scorer"].get("success") for row in launched),
             "experiment_dir": str(root), "launched": len(launched), "attempts": launched,
-            "gateway_outages": breaker.opened}
+            "gateway_outages": breaker.opened,
+            "concurrency_adjustments": governor.adjustments}
 
 
 def _attempt_rows(root: Path) -> tuple[list[dict], list[str]]:
