@@ -121,13 +121,17 @@ chmod +x $E/launch.sh; cd $E && nohup ./launch.sh > run_experiment.log 2>&1 &
 sleep 3; pgrep -f "run_experiment --experiment-dir $E" | head -1 > $E/dispatcher.pid
 ```
 
-`--max-agents`: 6 when nothing else runs on the login node; 3 while another
-campaign runs (v3 uses six agents; the node had a load of 135 on 144 cores on
-9/14 evening from other users). `--max-seconds-per-call 30` is the pace
-governor: it halves the agents allowed to run while the last six finished runs
-paced slower than 30 s per model call and restores them under 21 s; in v2 the
-pass rate was 92 % under 20 s/call, 64 % at 30-40 s, 0 of 11 above 40 s.
-`launch.sh` is restart-safe: running it again skips finished attempts.
+`--max-agents`: the models are served by separate servers (kimi-k3 on its
+own), so a campaign on another model does not compete with v3 for the model.
+What is shared is the login node (every agent does its preparation and
+solvation there) and the GPU queue. Look at `uptime` before launching: with
+the 1-minute load under about 60 on the 144 cores, 6 agents; above 100 (as on
+9/14 evening, from other users), 3 or 4. `--max-seconds-per-call 30` is the
+pace governor: it halves the agents allowed to run while the last six finished
+runs paced slower than 30 s per model call (tool time on the loaded node
+counts) and restores them under 21 s; in v2 the pass rate was 92 % under
+20 s/call, 64 % at 30-40 s, 0 of 11 above 40 s. `launch.sh` is restart-safe:
+running it again skips finished attempts.
 
 ## Monitor
 
