@@ -1626,3 +1626,67 @@ def test_rescore_attempt_refuses_a_seal_from_another_stage_unless_forced(tmp_pat
         ex.rescore_attempt(str(attempt), str(tmp_path), "/image.sif", runner=fake_scorer)
     result = ex.rescore_attempt(str(attempt), str(tmp_path), "/image.sif", runner=fake_scorer, force=True)
     assert result["previous"] == "agent_no_submission" and result["passed"] is True
+
+
+# --- a run that stops without acting, far from the wall, is a cut response; skills are waited for ---
+
+
+def test_a_text_only_ending_with_no_md_job_far_from_the_wall_is_an_api_error(tmp_path, monkeypatch):
+    """089_soluble_1a1w: text arrived, the planned tool call did not, 426 s of 1200."""
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 1)), str(DATASET))
+    attempt = attempts(root)[0].parent
+
+    def fake_run(argv, **kwargs):
+        _write_truncated_transcript(kwargs["stdout"], output_tokens=78)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(ex.subprocess, "run", fake_run)
+    result = ex.run_attempt_agent(str(attempt), timeout_seconds=1200)
+    assert result["exit_reason"] == "api_error"
+    assert result["api_error"]["kind"] == "llm_truncated_response"
+    assert "without a tool call" in result["api_error"]["error"]
+
+
+def test_a_tool_call_ending_is_a_completed_run(tmp_path, monkeypatch):
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 1)), str(DATASET))
+    attempt = attempts(root)[0].parent
+
+    def fake_run(argv, **kwargs):
+        _write_truncated_transcript(kwargs["stdout"], output_tokens=120, with_tool_call=True)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(ex.subprocess, "run", fake_run)
+    result = ex.run_attempt_agent(str(attempt), timeout_seconds=1200)
+    assert result["exit_reason"] == "completed"
+    assert result["api_error"] is None
+
+
+def test_a_skill_condition_agent_waits_until_the_pi_checkout_has_skills(tmp_path, monkeypatch):
+    home = tmp_path / "pi-agent"
+    skill = home / "git/github.com/matsunagalab/mdclaw/skills/md-prepare/SKILL.md"
+    (home / "git/github.com/matsunagalab/mdclaw").mkdir(parents=True)     # a checkout without skills
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(home))
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(write_spec(tmp_path, [{**cell(), "skill_source": "user"}], 1)), str(DATASET))
+    attempt = attempts(root)[0].parent
+    manifest = json.loads((attempt / "manifest.json").read_text())
+    assert manifest["skill_source"] == "user"
+    polls = []
+
+    def fake_sleep(seconds):
+        polls.append(seconds)
+        skill.parent.mkdir(parents=True, exist_ok=True)
+        skill.write_text("# skill\n")
+
+    monkeypatch.setattr(ex.time, "sleep", fake_sleep)
+    found = ex._wait_for_user_skills(attempt, manifest, interval_seconds=1.0)
+    assert found == skill and polls == [1.0]
+    events = [json.loads(line)["event"] for line in (attempt / "events.jsonl").read_text().splitlines()]
+    assert "skills_missing_wait" in events and "skills_restored" in events
+    # present from the start: no wait, no event
+    other = json.loads((attempt / "manifest.json").read_text())
+    assert ex._wait_for_user_skills(attempt, other) == skill
+    # not a skill condition: nothing to wait for
+    assert ex._wait_for_user_skills(attempt, {"harness": "pi", "condition": "cli_sif", "skill_source": "user"}) is None

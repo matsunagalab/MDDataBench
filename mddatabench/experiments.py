@@ -786,6 +786,53 @@ def _harness_command(manifest: dict, workspace: Path) -> list[str]:
     raise ValueError(f"unsupported harness {harness!r}; choose pi, claude-code, or codex")
 
 
+SKILLS_WAIT_SECONDS = 24 * 3600
+
+
+def _user_skills_file() -> Path | None:
+    """The mdclaw prepare skill in pi's user-wide package checkout, if present."""
+    home = Path(os.environ.get("PI_CODING_AGENT_DIR", Path.home() / ".pi" / "agent"))
+    for path in sorted(home.glob("git/*/*/*/skills/md-prepare/SKILL.md")):
+        return path
+    return None
+
+
+def _wait_for_user_skills(attempt: Path, manifest: dict, interval_seconds: float = 60.0,
+                          max_wait_seconds: float = SKILLS_WAIT_SECONDS) -> Path | None:
+    """Hold a CLI + skills agent until pi's skill checkout actually holds skills.
+
+    On 2026-09-11 23:43 JST the checkout lost its skills/ directory while
+    campaign v2 ran, and 103 skill-condition attempts went out without
+    skills, indistinguishable from CLI-only runs until the transcripts were
+    read. Better to wait (the monitor prints SKILLS_MISSING) than to seal a
+    condition that was not run.
+    """
+    if manifest.get("harness") != "pi" or manifest.get("condition") != "cli_skill_sif" \
+            or manifest.get("skill_source") != "user":
+        return None
+    found = _user_skills_file()
+    if found is not None:
+        return found
+    home = Path(os.environ.get("PI_CODING_AGENT_DIR", Path.home() / ".pi" / "agent"))
+    if not any((home / "git").glob("*/*/*")):
+        # No package checkout at all (a test home, or pi not installed):
+        # nothing can come back by waiting; pi itself will say so.
+        return None
+    _append_event(attempt, "skills_missing_wait", searched=str(
+        Path(os.environ.get("PI_CODING_AGENT_DIR", Path.home() / ".pi" / "agent")) / "git/*/*/*/skills/md-prepare/SKILL.md"))
+    sys.stderr.write("warning: pi's mdclaw skill checkout has no skills; waiting before launching "
+                     f"{manifest.get('attempt_id')}\n")
+    deadline = time.monotonic() + max_wait_seconds
+    while found is None:
+        if time.monotonic() >= deadline:
+            raise RuntimeError("pi's mdclaw skill checkout had no skills for "
+                               f"{max_wait_seconds:.0f} s; cli_skill_sif cannot run")
+        time.sleep(interval_seconds)
+        found = _user_skills_file()
+    _append_event(attempt, "skills_restored", skills_file=str(found))
+    return found
+
+
 def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
                       dry_run: bool = False) -> dict:
     """Run one pi/Claude Code/Codex attempt and capture its transcript and usage."""
@@ -869,7 +916,9 @@ def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
                 "timeout_seconds": effective_timeout,
                 "md_time_limit": manifest["environment"]["md_time_limit"],
                 "environment": exposed}
-    _append_event(attempt, "agent_start", command=command)
+    skills_file = _wait_for_user_skills(attempt, manifest)
+    _append_event(attempt, "agent_start", command=command,
+                  skills_file=str(skills_file) if skills_file else None)
     started = time.monotonic()
     exit_reason, returncode = "completed", None
     with stdout_path.open("w") as stdout, stderr_path.open("w") as stderr:
@@ -894,6 +943,9 @@ def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
     wall = time.monotonic() - started
     usage = token_usage(_safe_calls(stdout_path, manifest["harness"]))
     api_failure = _api_failure(stdout_path)
+    if (api_failure is None and exit_reason == "completed"
+            and wall < NO_ACTION_WALL_FRACTION * effective_timeout and not last_md_job_id(attempt)):
+        api_failure = _ended_without_action(stdout_path, wall, effective_timeout)
     if api_failure and exit_reason == "completed":
         # The harness exited normally, but only because its model calls never
         # got an answer: this is the gateway's failure, not the agent's.
@@ -955,6 +1007,44 @@ def _api_failure(stdout_path: Path) -> dict | None:
         return {"kind": "llm_truncated_response", "error": truncated,
                 "retries": None, "tool_calls": tool_calls}
     return None
+
+
+# A run that ends with no tool call and no MD submission before this share of
+# its budget is a cut response, not a decision: 089_soluble_1a1w (2026-09-14)
+# ended at 426 of 1200 s on "prep_001 completed ... Now the solv node with
+# TIP3P" inside a six-minute gateway incident, the tool call the model had
+# planned never arriving.
+NO_ACTION_WALL_FRACTION = 0.5
+
+
+def _ended_without_action(stdout_path: Path, wall: float, budget: float) -> dict | None:
+    """The gateway failure behind a run that stopped without a tool call, or None."""
+    if not stdout_path.is_file():
+        return None
+    last, tool_calls = None, 0
+    for line in stdout_path.read_text(errors="replace").splitlines():
+        if '"tool_execution_end"' in line:
+            tool_calls += 1
+        if '"message_end"' not in line:
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        message = row.get("message") or {}
+        if isinstance(message, dict) and message.get("role") == "assistant":
+            last = message
+    if not isinstance(last, dict):
+        return None
+    content = last.get("content") or []
+    if any(isinstance(part, dict) and part.get("type") in ("toolCall", "tool_use") for part in content):
+        return None
+    text = " ".join(str(part.get("text") or "") for part in content
+                    if isinstance(part, dict) and part.get("type") == "text").strip()
+    return {"kind": "llm_truncated_response",
+            "error": (f"the run ended without a tool call and without an MD submission at {wall:.0f} s "
+                      f"of {budget:.0f} s (stopReason {last.get('stopReason')!r}); last text: {text[:160]!r}"),
+            "retries": None, "tool_calls": tool_calls}
 
 
 def _truncated_response(message: dict | None) -> str | None:
