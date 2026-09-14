@@ -193,6 +193,7 @@ TOOLS = {
     "submit_attempt_scorer": submit_attempt_scorer,
     "run_experiment": run_experiment,
     "reset_attempts": reset_attempts,
+    "rescore_attempt": rescore_attempt,
     "finalize_attempt": finalize_attempt,
     "collect_experiment": collect_experiment,
     "model_inventory": model_inventory,
