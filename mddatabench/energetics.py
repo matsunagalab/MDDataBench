@@ -58,8 +58,16 @@ def _load_state_leniently(context, state) -> None:
         velocities = None
     if velocities is not None and len(velocities) == context.getSystem().getNumParticles():
         context.setVelocities(velocities)
+    # A State deserialised from XML carries parameters only when it was saved
+    # with them; asking otherwise raises ("Invoked getParameters() on a State
+    # which does not contain parameters"), which failed both energy checks of
+    # every attempt scored on 2026-09-14 until this guard.
+    try:
+        saved = dict(state.getParameters())
+    except Exception:                                               # noqa: BLE001
+        saved = {}
     defined = set(dict(context.getParameters()).keys())
-    for name, value in dict(state.getParameters()).items():
+    for name, value in saved.items():
         if name in defined:
             context.setParameter(name, value)
 
