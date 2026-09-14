@@ -5,6 +5,10 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-09-14 — Campaign v3 stopped at 21:38 JST on the user's instruction; v4 will carry the final task-prompt specification
+
+After 1 h 32 min the user stopped v3 to build v4 on a finalised prompt specification (every non-polymer component of the deposit named as kept or left out; dataset v0.4). Stopped in this order: the dispatcher (PID 2232740), the six agent wrappers (SIGTERM, forwarded by `timeout`), the six MD jobs and the one scorer job of v3 by job id; the cron tick was deleted. Sealed before the stop: 29 of 882 (cli_skill_sif 9/11, cli_sif 11/12, sif_only 0/6), 36 agents had started; the directory `runs/kimi-k3-3cond-full-v3` stays as a record and is not to be resumed. Nothing else was touched (the qwen3.6-35b pilot of the other session had finished its agents; its two scorer jobs were left running).
+
 ## 2026-09-14 — Campaign kimi-k3-3cond-full-v3 launched at 20:06 JST on the v2fix image, 1800 s for every task, with the pace governor
 
 `init_experiment` created `runs/kimi-k3-3cond-full-v3` from `runs/prep/experiment-kimi-k3-3cond-full-v3.json`: 98 tasks x 3 conditions x 3 replicates = 882 attempts, pi + rikyu/kimi-k3 (thinking high), hardest first, agent budget 1800 s for every axis (the user's decision of 9/14; v2 had 1200 s except membrane), image mode on the v2fix image (`6ecc1ad9…`, baked mdclaw main `b648068`, recorded by the init probe), pi package at main `17283b6` with skills present, corrected glycosylation prompts, harness at `5fe5709`. Launched with `launch.sh`: `--max-agents 6 --max-seconds-per-call 30`, the first campaign with the latency governor on (halves the agents allowed to run while the last six finished runs paced slower than 30 s per model call; v2: 92 % pass under 20 s/call, 64 % at 30-40 s, 0/11 above 40 s). Six agents running within a minute; PID in `dispatcher.pid`; 30-minute status ticks with the dead-job sweep, the governor's adjustments and the reset counts.
