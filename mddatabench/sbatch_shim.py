@@ -127,7 +127,12 @@ def main(argv=None) -> int:
     limit = os.environ.get("MDDATABENCH_MD_TIME_LIMIT", "00:20:00")
     partition = os.environ.get("MDDATABENCH_MD_PARTITION")
     nodelist = os.environ.get("MDDATABENCH_MD_NODELIST")
-    scheduler_args = [f"--time={limit}"]
+    # A job behind a failed afterok parent can never run, and without this the
+    # scheduler holds it (and everything behind it) as DependencyNeverSatisfied
+    # for ever; the scorer attached with afterany to the attempt's last job then
+    # never starts (kimi-k3-3cond-full-v2: 178 such jobs held 77 attempts
+    # unsealed, the oldest for 21 h). An agent's own later value still wins.
+    scheduler_args = [f"--time={limit}", "--kill-on-invalid-dep=yes"]
     if partition:
         scheduler_args.append(f"--partition={partition}")
     if nodelist:

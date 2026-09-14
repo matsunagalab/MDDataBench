@@ -6,7 +6,7 @@ Simulate Crystal Structure of SARS-CoV Spike Receptor-Binding Domain Complexed, 
 - **300 K**, **NPT** at **1 bar**
 - at least **2.5 ns** of production MD
 
-Residue 330 is deposited as **ASN**, a modified ASN. Simulate the unmodified residue.
+Residue 330 (ASN) carries an N-linked glycan in the deposit (a glycosylation site). Simulate the unmodified residue without the glycan: leave the sugar residues bonded to it out.
 
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 

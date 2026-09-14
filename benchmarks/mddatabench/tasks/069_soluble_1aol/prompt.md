@@ -6,9 +6,9 @@ Simulate GP70, PDB entry **1AOL**, chain **A** residues **9–236**, in explicit
 - **300 K**, **NPT** at **1 bar**
 - at least **1 ns** of production MD
 
-Residue 168 is deposited as **ASN**, a modified ASN. Simulate the unmodified residue.
+Residue 168 (ASN) carries an N-linked glycan in the deposit (a glycosylation site). Simulate the unmodified residue without the glycan: leave the sugar residues bonded to it out.
 
-Residue 12 is deposited as **ASN**, a modified ASN. Simulate the unmodified residue.
+Residue 12 (ASN) carries an N-linked glycan in the deposit (a glycosylation site). Simulate the unmodified residue without the glycan: leave the sugar residues bonded to it out.
 
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 

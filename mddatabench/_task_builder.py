@@ -974,6 +974,29 @@ def _boundary_connectivity_lines(effective_components) -> dict[str, list[str]]:
     return lines
 
 
+def modified_residue_sentence(entry) -> str:
+    """The prompt line for one MODRES record the reference reverted.
+
+    A glycosylation site is a MODRES record whose residue is its own parent
+    (1AOL: ``ASN A 168 ASN GLYCOSYLATION SITE``): the residue is plain, what
+    the reference dropped is the sugar bonded to it. Read through the
+    generic sentence that gave "deposited as ASN, a modified ASN. Simulate
+    the unmodified residue", so an agent kept the two NAG of 1AOL and failed
+    the composition checks (069_soluble_1aol cli_skill_sif r2, campaign v2).
+    Named here as what it is; the audit's "simulate the unmodified" reading
+    still holds.
+    """
+    note = str(entry.get("note") or "").upper()
+    parent = entry.get("parent")
+    if "GLYCOSYLATION" in note and entry.get("name") == parent:
+        linkage = {"ASN": "an N-linked", "SER": "an O-linked", "THR": "an O-linked"}.get(parent, "a")
+        return (f"Residue {entry['residue']} ({parent}) carries {linkage} glycan in the "
+                "deposit (a glycosylation site). Simulate the unmodified residue without "
+                "the glycan: leave the sugar residues bonded to it out.")
+    return (f"Residue {entry['residue']} is deposited as **{entry['name']}**, a "
+            f"modified {parent}. Simulate the unmodified residue.")
+
+
 def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonation,
                  window_ns, replicas=1, joined_chains=(), disulfides=None,
                  extra_components=(), excluded_components=(),
@@ -1085,8 +1108,7 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
             # A modified residue absent from the reference is an omission, not
             # a request to restore its unmodified parent (6ME3 YCM1004).
             continue
-        lines += [f"Residue {entry['residue']} is deposited as **{entry['name']}**, a "
-                  f"modified {entry['parent']}. Simulate the unmodified residue.", ""]
+        lines += [modified_residue_sentence(entry), ""]
     membrane = bilayer(metadata)
     if membrane:
         lipid = membrane["lipid"]

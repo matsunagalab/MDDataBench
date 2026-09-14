@@ -95,11 +95,15 @@ def submit_attempt_scorer(attempt_dir: str, bundle_root: str, sif: str,
 
 def run_experiment(experiment_dir: str, bundle_root: str, scorer_sif: str,
                    max_agents: int = 1, timeout_seconds: int = 0,
-                   limit: int = 0) -> dict:
-    """Run pending agents and submit afterany scorer jobs for a campaign."""
+                   limit: int = 0, max_seconds_per_call: float = 0.0) -> dict:
+    """Run pending agents and submit afterany scorer jobs for a campaign.
+
+    ``max_seconds_per_call`` (zero: off) lets fewer agents run at once while
+    the finished runs paced slower than that many wall seconds per model call.
+    """
     from mddatabench.experiments import run_experiment as run
     return run(experiment_dir, bundle_root, scorer_sif, max_agents,
-               timeout_seconds, limit)
+               timeout_seconds, limit, max_seconds_per_call)
 
 
 def finalize_attempt(attempt_dir: str, score_file: str = None,

@@ -8,7 +8,7 @@ Simulate the deposited system, PDB entry **3RVW**, chain **A** residues **1–22
 
 Chain D does not resolve residues 135, 136, 137, 138; the range runs through them, so build them.
 
-Residue 52 is deposited as **ASN**, a modified ASN. Simulate the unmodified residue.
+Residue 52 (ASN) carries an N-linked glycan in the deposit (a glycosylation site). Simulate the unmodified residue without the glycan: leave the sugar residues bonded to it out.
 
 Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 
