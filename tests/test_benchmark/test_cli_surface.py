@@ -19,6 +19,7 @@ def test_tools_are_registered():
         "submit_attempt_scorer",
         "run_experiment",
         "reset_attempts",
+        "rescore_attempt",
         "finalize_attempt",
         "collect_experiment",
         "model_inventory",
