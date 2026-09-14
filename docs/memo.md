@@ -5,6 +5,10 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-09-14 — Provisional paper figures and analysis from v2 and the rerun
+
+`scripts/paper_figures.py` builds one attempt table from sealed experiments and draws six figures (pass rate per condition with Wilson intervals and per task; per axis; outcome breakdown; cost of a passing attempt; the failed tasks campaign vs rerun; models under CLI + skills). Output and a Japanese analysis note: `runs/figures-20260914/` (`analysis.md`, `summary.json`, `attempts.csv`). The condition comparison uses the 63 tasks whose skill attempts all ran with skills (`--skill-loss kimi-k3=2026-09-11T14:43:46`): CLI + skills 170/189 (89.9 %), CLI only 148/189 (78.3 %), SIF only 12/189 (6.3 %); per task any-of-3: 60, 59, 11 of 63. Skills gain where the CLI alone loses (antibody, membrane, metal, nucleic) and cut model calls from 46 to 36 per passing attempt. Adding a model is one more `--experiment LABEL=DIR` (cli_skill_sif only is enough for fig6).
+
 ## 2026-09-14 — The cli_skill_sif rerun: a scorer defect and a gateway failure mode found and fixed while it ran; 20 of 22 pass
 
 `runs/kimi-k3-skill-failed-rerun` (22 tasks that failed in cli_skill_sif of v2, cli_skill_sif x 1, v2fix image, six agents, 09:52-11:32 JST): 20/22 passed at 20/20 checks on the first pass; 079_soluble_1ewf timed out at 1200 s (581k atoms, no 1800 s override for soluble) and 089_soluble_1a1w ended on a response cut inside the gateway incident. Both were reset and rerun on the user's instruction (089 at 12:41 JST: 20/20 in 491 s; 079 at 13:03 JST with `agent_timeout_seconds` raised to 1800 in the experiment record: 20/20, agent 1503 s), so the rerun ends at 22 of 22. Per-task table in the mdclaw memo of the same day.
