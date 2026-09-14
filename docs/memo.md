@@ -5,6 +5,10 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-09-14 — Campaign kimi-k3-3cond-full-v4 launched at 22:28 JST on dataset v0.4
+
+`runs/kimi-k3-3cond-full-v4`, initialised from `runs/prep/experiment-kimi-k3-3cond-full-v4.json`: 98 tasks x 3 conditions x 3 replicates = 882 attempts, pi + rikyu/kimi-k3 (thinking high), hardest first, 1800 s for every task, v2fix image (`6ecc1ad9…`, mdclaw main `b648068`), pi package at main `17283b6` with skills present, dataset `MDDataBench-v0.4` (recorded in `experiment.json`; the 001 and 062 prompts checked in their workspaces), harness at `40df7e5` (skills guard, zero-output and no-action reruns, governor). `launch.sh`: `--max-agents 6 --max-seconds-per-call 30`; six agents within a minute; login-node load 208 from other users at launch. The same design as v3, which was stopped at 21:38 JST after 29 sealed attempts so that every model runs on the same prompt text. 30-minute ticks with the dead-job sweep, the governor's adjustments and the reset counts.
+
 ## 2026-09-14 — Dataset v0.4: every prompt names the deposit's non-polymer components the reference does not carry
 
 The other session's audit of 9/14 (`benchmarks/mddatabench/_audits/nonpolymer-20260914.csv`, kept in the repository) found 53 tasks whose prompts said nothing about ligands, ions or additives on the selected chains that the reference does not contain (the glycan sites had been fixed that morning; only 030_complex_1ffw named its excluded PON and MN). kimi-k3 never fell into the gap in 588 CLI attempts of v2 because it prepares protein-only by habit; a qwen3.6-35b pilot kept 5YC8's antagonist and three mercury atoms and lost the composition checks. The user's decision: make the prompt say it, for every task, before any model other than kimi-k3 is run, and rerun kimi-k3 on the same text (v3 was stopped for this).
