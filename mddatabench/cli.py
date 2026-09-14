@@ -106,6 +106,13 @@ def run_experiment(experiment_dir: str, bundle_root: str, scorer_sif: str,
                timeout_seconds, limit, max_seconds_per_call)
 
 
+def rescore_attempt(attempt_dir: str, bundle_root: str, sif: str,
+                    reason: str = "rescore", force: bool = False) -> dict:
+    """Score a sealed attempt again with the current scorer and seal it afresh."""
+    from mddatabench.experiments import rescore_attempt as run
+    return run(attempt_dir, bundle_root, sif, reason, force)
+
+
 def finalize_attempt(attempt_dir: str, score_file: str = None,
                      failure_stage: str = None, failure_code: str = None,
                      failure_detail: str = None) -> dict:

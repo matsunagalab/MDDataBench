@@ -921,10 +921,11 @@ def _api_failure(stdout_path: Path) -> dict | None:
     """
     if not stdout_path.is_file():
         return None
-    final_retry, stop_error, tool_calls = None, None, 0
+    final_retry, stop_error, tool_calls, last_assistant = None, None, 0, None
     for line in stdout_path.read_text(errors="replace").splitlines():
         if not any(marker in line for marker in
-                   ('"auto_retry_end"', '"tool_execution_end"', '"stopReason":"error"')):
+                   ('"auto_retry_end"', '"tool_execution_end"', '"stopReason":"error"',
+                    '"message_end"')):
             continue
         try:
             row = json.loads(line)
@@ -935,6 +936,10 @@ def _api_failure(stdout_path: Path) -> dict | None:
             tool_calls += 1
         elif kind == "auto_retry_end":
             final_retry = row
+        elif kind == "message_end":
+            message = row.get("message") or {}
+            if isinstance(message, dict) and message.get("role") == "assistant":
+                last_assistant = message
         elif kind == "agent_end":
             for message in row.get("messages") or []:
                 if isinstance(message, dict) and message.get("stopReason") == "error":
@@ -945,7 +950,40 @@ def _api_failure(stdout_path: Path) -> dict | None:
     if stop_error:
         return {"kind": "llm_gateway_error", "error": str(stop_error)[:500],
                 "retries": None, "tool_calls": tool_calls}
+    truncated = _truncated_response(last_assistant)
+    if truncated:
+        return {"kind": "llm_truncated_response", "error": truncated,
+                "retries": None, "tool_calls": tool_calls}
     return None
+
+
+def _truncated_response(message: dict | None) -> str | None:
+    """Why the run's last model response was no answer at all, or None.
+
+    On 2026-09-14 seven of the first sixteen cli_skill_sif reruns ended
+    within 74-464 s with a final assistant message of zero output tokens:
+    reasoning only (one of them the single token "Let"), no text, no tool
+    call, stopReason "stop". pi ends the run on such a turn and the harness
+    sealed it as agent_no_submission, though no agent decides anything with
+    zero output; campaign v2 (882 attempts) had no such ending. It is the
+    gateway's failure, handled like a gateway error: reset and run again.
+    """
+    if not isinstance(message, dict):
+        return None
+    content = message.get("content") or []
+    if any(isinstance(part, dict) and part.get("type") in ("toolCall", "tool_use") for part in content):
+        return None
+    usage = message.get("usage") or {}
+    output = usage.get("output")
+    if output is None or int(output) > 0:
+        return None
+    text = " ".join(str(part.get("text") or "") for part in content
+                    if isinstance(part, dict) and part.get("type") == "text").strip()
+    if text:
+        return None
+    reasoning = usage.get("reasoning")
+    return (f"the model's final response carried no output tokens (reasoning tokens: {reasoning}, "
+            f"stopReason {message.get('stopReason')!r}); no text and no tool call")
 
 
 # Records one run leaves in an attempt directory. A retired run keeps all of
@@ -1759,6 +1797,73 @@ def _cancel_unrunnable_jobs(job_ids: list[str]) -> list[str]:
     return cancel
 
 
+def rescore_attempt(attempt_dir: str, bundle_root: str, sif: str,
+                    reason: str = "rescore", force: bool = False, runner=None) -> dict:
+    """Score a sealed attempt again with the current scorer and seal it afresh.
+
+    For a scorer defect found after attempts were sealed (2026-09-14: every
+    energy check failed on a state saved without parameters). The old
+    ``result.json``, ``score.json`` and ``evaluation/`` move to
+    ``retired/<stamp>-rescore-<reason>/``, an ``attempt_rescore`` event says
+    why, the scorer runs in the image in this process and ``finalize_attempt``
+    seals the new result. Only attempts sealed at the evaluation or scorer
+    stage are rescored unless ``force``; a running scorer is never touched.
+    ``runner`` (tests) replaces ``subprocess.run`` for the scorer command.
+    """
+    attempt = Path(attempt_dir).resolve()
+    result_file = attempt / "result.json"
+    if not result_file.is_file():
+        raise ValueError(f"{attempt} is not sealed; nothing to rescore")
+    previous = _json(result_file)
+    if not force and previous.get("failure_stage") not in ("evaluation", "scorer"):
+        raise ValueError(f"{attempt} was sealed at stage {previous.get('failure_stage')!r}; "
+                         "rescore only evaluation or scorer seals, or pass force")
+    manifest = _json(attempt / "manifest.json")
+    if manifest["condition"] == "sif_only":
+        score_tool, score_flag = "score_portable_submission", "--submission-dir"
+    else:
+        score_tool, score_flag = "score_benchmark_submission", "--job-dir"
+    task_file = Path(manifest["paths"]["task_file"])
+    reference = manifest["reference"]
+    bundle = Path(bundle_root).resolve() / f"{reference['node']}_{reference['accession']}"
+    source = Path(__file__).resolve().parents[1]
+    submission = _submission_dir(Path(manifest["paths"]["workspace"]), manifest["condition"])
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    retired = attempt / "retired" / f"{stamp}-rescore-{_slug(reason)}"
+    retired.mkdir(parents=True, exist_ok=False)
+    moved = []
+    for name in ("result.json", "score.json", "evaluation"):
+        path = attempt / name
+        if path.exists():
+            shutil.move(str(path), str(retired / name))
+            moved.append(name)
+    _write_json(retired / "retired.json", {
+        "reason": reason, "retired_at": _now(), "moved": moved,
+        "previous": {key: previous.get(key) for key in
+                     ("passed", "failure_stage", "failure_code", "checks_passed", "checks_total")}})
+    _append_event(attempt, "attempt_rescore", reason=reason, retired=str(retired))
+    raw_score = attempt / "score.json"
+    bind_arg = ",".join(sorted({str(attempt), str(bundle), str(source), str(task_file.parent)}))
+    command = ["singularity", "exec", "--bind", bind_arg, "--env", f"PYTHONPATH={source}",
+               "--env", "OPENBLAS_NUM_THREADS=1", "--env", "OMP_NUM_THREADS=1",
+               str(Path(sif).resolve()), "python", "-m", "mddatabench", score_tool, score_flag,
+               str(submission), "--bundle", str(bundle), "--task-file", str(task_file),
+               "--out", str(raw_score)]
+    completed = (runner or subprocess.run)(command, capture_output=True, text=True, check=False)
+    returncode = int(getattr(completed, "returncode", 1))
+    if returncode == 0 and raw_score.is_file():
+        result = finalize_attempt(str(attempt), score_file=str(raw_score))
+    else:
+        result = finalize_attempt(
+            str(attempt), failure_stage="scorer", failure_code="scorer_error",
+            failure_detail=f"scorer exited {returncode} on rescore: "
+                           f"{str(getattr(completed, 'stderr', ''))[-300:]}")
+    return {"success": bool(result.get("success", True)), "attempt_id": manifest["attempt_id"],
+            "retired": str(retired), "previous": previous.get("failure_code") or "passed",
+            "passed": result.get("passed"), "failure_code": result.get("failure_code"),
+            "checks_passed": result.get("checks_passed"), "checks_total": result.get("checks_total")}
+
+
 def submit_attempt_scorer(attempt_dir: str, bundle_root: str, sif: str,
                           partition: str = None, time_limit: str = "00:15:00",
                           memory: str = "32G", cpus_per_task: int = 4,
@@ -1914,14 +2019,15 @@ def run_experiment(experiment_dir: str, bundle_root: str, scorer_sif: str,
                 if agent.get("exit_reason") == "api_error":
                     breaker.record(False)
                     failure = agent.get("api_error") or {}
-                    if _infra_reset_count(attempt, "llm_gateway_error") < MAX_INFRA_RETRIES:
+                    reason = str(failure.get("kind") or "llm_gateway_error")
+                    if _infra_reset_count(attempt, reason) < MAX_INFRA_RETRIES:
                         # Not the agent's failure: keep the records, replan the
                         # workspace, and run the attempt again later.
-                        reset = _reset_attempt(root, attempt, "llm_gateway_error", failure)
+                        reset = _reset_attempt(root, attempt, reason, failure)
                         return {"attempt_id": attempt_id, "requeued": True,
                                 "agent": agent, "scorer": None, "reset": reset}
                     scorer = finalize_attempt(
-                        str(attempt), failure_stage="infra", failure_code="llm_gateway_error",
+                        str(attempt), failure_stage="infra", failure_code=reason,
                         failure_detail=f"the LLM gateway failed {MAX_INFRA_RETRIES} runs: "
                                        f"{failure.get('error')}")
                     return {"attempt_id": attempt_id, "agent": agent, "scorer": scorer}

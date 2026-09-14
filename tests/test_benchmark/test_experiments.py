@@ -1531,3 +1531,98 @@ def test_run_experiment_accepts_the_pace_ceiling_and_reports_no_adjustment_when_
                             max_agents=3, max_seconds_per_call=30.0)
     assert result["launched"] == 0
     assert result["concurrency_adjustments"] == []
+
+
+# --- a zero-output model response is the gateway's failure, and a sealed attempt can be rescored ---
+
+
+def _write_truncated_transcript(handle, output_tokens: int, with_tool_call: bool = False):
+    content = [{"type": "thinking", "thinking": "Let", "thinkingSignature": "reasoning_content"}]
+    if with_tool_call:
+        content.append({"type": "toolCall", "id": "bash:1", "name": "bash", "arguments": {"command": "ls"}})
+    rows = [{"type": "session", "id": "s"}, {"type": "agent_start"},
+            {"type": "message_end", "message": {"role": "user", "content": [{"type": "text", "text": "task"}]}},
+            {"type": "message_end", "message": {"role": "assistant", "content": content, "stopReason": "stop",
+                                                "usage": {"input": 2481, "output": output_tokens, "reasoning": 1}}},
+            {"type": "agent_end", "messages": [{"role": "assistant", "content": content, "stopReason": "stop"}]},
+            {"type": "agent_settled"}]
+    for row in rows:
+        handle.write(json.dumps(row) + "\n")
+
+
+def test_a_reasoning_only_final_response_is_an_api_error_not_an_agent_failure(tmp_path, monkeypatch):
+    """2026-09-14: seven reruns ended in 74-464 s on a final message of zero output tokens."""
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 1)), str(DATASET))
+    attempt = attempts(root)[0].parent
+
+    def fake_run(argv, **kwargs):
+        _write_truncated_transcript(kwargs["stdout"], output_tokens=0)
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(ex.subprocess, "run", fake_run)
+    result = ex.run_attempt_agent(str(attempt), timeout_seconds=1)
+    assert result["exit_reason"] == "api_error"
+    assert result["api_error"]["kind"] == "llm_truncated_response"
+    assert "no output tokens" in result["api_error"]["error"]
+
+
+def test_a_final_response_with_a_tool_call_or_output_is_not_truncated(tmp_path):
+    transcript = tmp_path / "t.jsonl"
+    with transcript.open("w") as handle:
+        _write_truncated_transcript(handle, output_tokens=0, with_tool_call=True)
+    assert ex._api_failure(transcript) is None
+    with transcript.open("w") as handle:
+        _write_truncated_transcript(handle, output_tokens=120)
+    assert ex._api_failure(transcript) is None
+
+
+def test_rescore_attempt_retires_the_old_seal_and_seals_the_new_score(tmp_path):
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 1)), str(DATASET))
+    attempt = attempts(root)[0].parent
+    old_score = attempt / "score.json"
+    old_score.write_text(json.dumps({"passed": 18, "total": 20, "checks": [
+        {"name": "energy", "passed": False, "detail": "energy evaluation failed: getParameters()"}]}))
+    sealed = ex.finalize_attempt(str(attempt), str(old_score))
+    assert sealed["passed"] is False
+    # the diagnosis of an empty fixture workspace names no stage; the real
+    # seals of 2026-09-14 say "evaluation". Pin the stage the way they carry it.
+    record = json.loads((attempt / "result.json").read_text())
+    record["failure_stage"], record["failure_code"] = "evaluation", "checks_failed"
+    (attempt / "result.json").write_text(json.dumps(record))
+
+    commands = []
+
+    def fake_scorer(command, **kwargs):
+        commands.append(command)
+        Path(command[command.index("--out") + 1]).write_text(json.dumps({"passed": 20, "total": 20, "checks": []}))
+        return SimpleNamespace(returncode=0, stderr="")
+
+    result = ex.rescore_attempt(str(attempt), str(tmp_path), "/image.sif",
+                                reason="energy_state_parameters", runner=fake_scorer)
+    assert result["passed"] is True and result["previous"] == "checks_failed"
+    assert "score_benchmark_submission" in commands[0] and "/image.sif" in commands[0]
+    fresh = json.loads((attempt / "result.json").read_text())
+    assert fresh["passed"] is True and fresh["checks_passed"] == 20
+    retired = Path(result["retired"])
+    assert (retired / "result.json").is_file() and (retired / "score.json").is_file()
+    assert json.loads((retired / "retired.json").read_text())["previous"]["failure_code"] == "checks_failed"
+    events = [json.loads(line)["event"] for line in (attempt / "events.jsonl").read_text().splitlines()]
+    assert "attempt_rescore" in events
+
+
+def test_rescore_attempt_refuses_a_seal_from_another_stage_unless_forced(tmp_path):
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 1)), str(DATASET))
+    attempt = attempts(root)[0].parent
+    ex.finalize_attempt(str(attempt), failure_stage="agent", failure_code="agent_no_submission")
+
+    def fake_scorer(command, **kwargs):
+        Path(command[command.index("--out") + 1]).write_text(json.dumps({"passed": 1, "total": 1, "checks": []}))
+        return SimpleNamespace(returncode=0, stderr="")
+
+    with pytest.raises(ValueError):
+        ex.rescore_attempt(str(attempt), str(tmp_path), "/image.sif", runner=fake_scorer)
+    result = ex.rescore_attempt(str(attempt), str(tmp_path), "/image.sif", runner=fake_scorer, force=True)
+    assert result["previous"] == "agent_no_submission" and result["passed"] is True
