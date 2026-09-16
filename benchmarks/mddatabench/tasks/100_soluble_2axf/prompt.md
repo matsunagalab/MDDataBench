@@ -6,21 +6,11 @@ Simulate 10-mer peptide from BZLF1 trans-activator protein in complex with Beta-
 - **300 K**, **NPT** at **1 bar**
 - at least **1 ns** of production MD
 
-Residue 3 of chain A is a protonated histidine.
+Residues 3, 93, 191, 197, 260 and 263 of chain A are doubly protonated histidines (HIP); keep them that way.
 
-Residue 93 of chain A is a protonated histidine.
-
-Residue 191 of chain A is a protonated histidine.
-
-Residue 197 of chain A is a protonated histidine.
-
-Residue 260 of chain A is a protonated histidine.
-
-Residue 263 of chain A is a protonated histidine.
+Ionisation states of the other side chains are your choice.
 
 The deposit's **ACY** is not part of the reference. Simulate the protein without it.
-
-Simulate every other ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 
 Leave the prepared structure, the topology, the minimised state and the production
 trajectory as artifacts. The evaluator recomputes everything it needs from them.

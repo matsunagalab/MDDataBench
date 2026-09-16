@@ -1,5 +1,5 @@
 {
-  "dataset_id": "MDDataBench-v0.4",
+  "dataset_id": "MDDataBench-v0.5",
   "description": "Short-MD tasks whose reference simulations come from MDDB. Each task is scored on two separate axes: prep (system building, checkable without running MD) and md (the run happened, at the conditions asked for, and its equilibrium statistics are indistinguishable from the reference own windows). Split 69 train / 29 evaluation by homology cluster, so the same system never appears on both sides.",
   "reference_database": {
     "name": "MDDB",
@@ -702,6 +702,7 @@
     "eval": 29
   },
   "changelog": [
-    "v0.4 (2026-09-14): every prompt names the deposit's non-polymer components the reference does not carry (48 tasks) and, for 6W9C, which of two zincs is kept; glycosylation sites are named as glycans to leave out (four tasks, 9/14 morning)."
+    "v0.4 (2026-09-14): every prompt names the deposit's non-polymer components the reference does not carry (48 tasks) and, for 6W9C, which of two zincs is kept; glycosylation sites are named as glycans to leave out (four tasks, 9/14 morning).",
+    "v0.5 (2026-09-16): the standard-protonation sentence is gone from every prompt. MDDB records no pH or protonation state, so the sentence encoded the references' build convention; the scorer now tolerates one proton on any ionisable side chain the task does not name, and the six tasks whose reference carries a variant name it with its residue name (HIP) and keep it strict."
   ]
 }
