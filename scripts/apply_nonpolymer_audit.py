@@ -39,7 +39,10 @@ KEPT = {
     "062_metal_6w9c": [{"name": "ZN", "chain": "C", "keep": "402", "bound_by": ["Cys189", "Cys224"],
                         "leave": ["401"], "role": "structural zinc"}],
 }
-ANCHOR = re.compile(r"^Simulate every (?:other )?ionisable side chain", re.M)
+# v0.4 anchored on the standard-protonation sentence; dataset v0.5 removed it
+# (scripts/apply_dataset_v05.py), so the exclusion sentences now go before the
+# closing "Leave the prepared structure" paragraph, which every prompt keeps.
+ANCHOR = re.compile(r"^(?:Simulate every (?:other )?ionisable side chain|Leave the prepared structure)", re.M)
 DATASET_ID = "MDDataBench-v0.4"
 CHANGELOG = ("v0.4 (2026-09-14): every prompt names the deposit's non-polymer components the reference "
              "does not carry (48 tasks) and, for 6W9C, which of two zincs is kept; glycosylation sites "

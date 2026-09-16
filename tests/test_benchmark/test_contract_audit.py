@@ -495,6 +495,38 @@ def test_nonstandard_reference_protonation_must_be_stored_and_stated(
         tmp_path / "reference.pdb") == []
 
 
+def test_the_v05_wording_states_the_protonation_too(tmp_path, monkeypatch):
+    """Dataset v0.5: 'Residue 264 of chain A is a doubly protonated histidine
+    (HIP); keep it that way.' and the grouped form both count as stated."""
+    from mddatabench import _task_builder as builder
+
+    monkeypatch.setattr(builder, "_reference_protonation_variants", lambda path: [{
+        "reference_position": 1,
+        "meaning": "protonated histidine",
+    }])
+    selection = {
+        "ranges": {"A": [["264", "264"]]},
+        "stated_protonation": [{
+            "chain": "A", "residue": "264", "meaning": "protonated histidine",
+        }],
+    }
+    scheme = {"A": [(264, "", True)]}
+    for prompt in (
+        "Simulate chain **A** residues **264–264**. Residue 264 of chain A is a "
+        "doubly protonated histidine (HIP); keep it that way.",
+        "Simulate chain **A** residues **264–264**. Residues 3, 264 and 300 of "
+        "chain A are doubly protonated histidines (HIP); keep them that way.",
+    ):
+        assert ca._protonation_contract_findings(
+            prompt, selection, ca._declared(prompt), scheme,
+            tmp_path / "reference.pdb") == []
+    other = ("Simulate chain **A** residues **264–264**. Residue 263 of chain A "
+             "is a doubly protonated histidine (HIP); keep it that way.")
+    assert [f["kind"] for f in ca._protonation_contract_findings(
+        other, selection, ca._declared(other), scheme,
+        tmp_path / "reference.pdb")] == ["reference_protonation_undisclosed"]
+
+
 def test_an_exclusion_clause_does_not_reach_across_sentences():
     """6GT3 (dataset v0.4): 'Residue 264 of chain A is a protonated histidine.' two
     sentences before 'The deposit's **NA** ... are not part of the reference' is

@@ -182,6 +182,25 @@ def _read_nodes(job_dir: pathlib.Path) -> dict:
     return nodes
 
 
+def _declared_metal_sites(prep: pathlib.Path):
+    """(metal_sites, deposit-chain -> built-chain map) from a prep node's result."""
+    result = prep / "result.json"
+    if not result.is_file():
+        return [], {}
+    try:
+        data = json.loads(result.read_text())
+    except (OSError, ValueError):
+        return [], {}
+    sites = data.get("metal_sites") or []
+    chain_map = {}
+    for component in ((data.get("chain_identity_map") or {}).get("components") or []):
+        source = component.get("source_chain_id")
+        built = component.get("pdb_chain_id") or component.get("md_chain_id")
+        if source and built and source not in chain_map:
+            chain_map[str(source)] = str(built)
+    return sites, chain_map
+
+
 def _production_lineage(nodes: dict) -> list:
     """Node ids the latest completed production node descends from, it first."""
     def _order(name):
@@ -735,16 +754,32 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     # reference finds the same pair at 2.98-3.11 A, the range 3.5 A was set on.
     reference_dyads = cp.catalytic_dyad_positions(
         comparison_reference_monomers, reference_metals)
+    # The prep node's own declaration of the site, which does not move when
+    # minimisation does (dataset v0.5; 062_metal_6w9c r3 lost two thiolates at
+    # minimisation and the 3.5 A scan above then exempted one ligand of three).
+    declared_ligands = cp.declared_metal_ligand_positions(
+        comparison_submitted_monomers, *_declared_metal_sites(prep))
+    # Ionisation states the task names stay strict; every other ionisable side
+    # chain may differ from the reference by one proton (dataset v0.5).
+    strict_positions = cp.stated_positions(
+        comparison_reference_monomers,
+        (task["reference"].get("selection") or {}).get("stated_protonation"))
 
-    findings = {"sequence": [], "atom_counts": [], "elements": []}
+    findings = {"sequence": [], "atom_counts": [], "elements": [], "tolerated": []}
     exempt_total = 0
+    declared_total = 0
     for reference_monomer, submitted_monomer in comparison_pairs:
+        declared = declared_ligands.get(id(submitted_monomer), set())
         exempt = (submitted_ligands.get(id(submitted_monomer), set())
                   | reference_ligands.get(id(reference_monomer), set())
-                  | reference_dyads.get(id(reference_monomer), set()))
+                  | reference_dyads.get(id(reference_monomer), set())
+                  | declared)
         exempt_total += len(exempt)
-        comparison = cp.compare_monomer(reference_monomer, submitted_monomer,
-                                        exempt=exempt)
+        declared_total += len(declared - submitted_ligands.get(id(submitted_monomer), set()))
+        comparison = cp.compare_monomer(
+            reference_monomer, submitted_monomer, exempt=exempt,
+            strict=strict_positions.get(id(reference_monomer), set()),
+            tolerate_ionisation=True)
         for key, value in comparison.items():
             findings[key].extend(value)
 
@@ -770,11 +805,16 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
           complete_residue_correspondence and not findings["atom_counts"],
           f"{residue_total} residues compared per monomer"
           + (f", {exempt_total} exempt as metal ligands or a catalytic dyad"
+             + (f" ({declared_total} from the prep's declared site)"
+                if declared_total else "")
              if exempt_total else "")
           + ("; not compared: no exact residue correspondence"
              if not complete_residue_correspondence else
              f"; {len(findings['atom_counts'])} differ: {findings['atom_counts'][:4]}"
-             if findings["atom_counts"] else "; every residue matches, tautomers tolerated"))
+             if findings["atom_counts"] else "; every residue matches, tautomers tolerated")
+          + (f"; tolerated: {len(findings['tolerated'])} unnamed ionisation "
+             f"difference(s) {findings['tolerated'][:4]}"
+             if findings["tolerated"] else ""))
 
     reference_elements = cp.element_totals(reference_monomers)
     submitted_elements = cp.element_totals(submitted_monomers)

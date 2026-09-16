@@ -133,7 +133,7 @@ def test_histidine_tautomer_is_invisible_to_atom_counts(tmp_path, name):
     sub = cp.split_monomers(cp.read_residues(write(tmp_path, f"s{name}.pdb", submitted)))
     pairs, problems = cp.match_monomers(ref, sub)
     assert not problems
-    assert cp.compare_monomer(*pairs[0]) == {"sequence": [], "atom_counts": [], "elements": []}
+    assert cp.compare_monomer(*pairs[0]) == {"sequence": [], "atom_counts": [], "elements": [], "tolerated": []}
 
 
 def test_one_extra_hydrogen_is_detected(tmp_path):
@@ -167,7 +167,7 @@ def test_generic_reference_ligand_pairs_by_complete_formula(tmp_path):
     sub = cp.split_monomers(cp.read_residues(write(tmp_path, "named_lig.pdb", submitted)))
     pairs, problems = cp.match_monomers(ref, sub)
     assert not problems
-    assert cp.compare_monomer(*pairs[0]) == {"sequence": [], "atom_counts": [], "elements": []}
+    assert cp.compare_monomer(*pairs[0]) == {"sequence": [], "atom_counts": [], "elements": [], "tolerated": []}
 
 
 def test_generic_reference_ligand_does_not_pair_when_hydrogen_count_differs(tmp_path):
@@ -452,3 +452,87 @@ def test_glycosylation_site_names_collapse_onto_their_parent_residue():
     assert cp.CANONICAL_RESIDUE["NLN"] == "ASN"
     assert cp.CANONICAL_RESIDUE["OLS"] == "SER"
     assert cp.CANONICAL_RESIDUE["OLT"] == "THR"
+
+
+# --- dataset v0.5: unnamed ionisation states are the agent's choice ----------
+
+def _his_pair(tmp_path, tag):
+    reference = glycine(1, 57, (0.0, 0.0, 0.0), "HID", extra=[("HD1", "H")])
+    submitted = glycine(1, 57, (0.0, 0.0, 0.0), "HIP", extra=[("HD1", "H"), ("HE2", "H")])
+    ref = cp.split_monomers(cp.read_residues(write(tmp_path, f"r{tag}.pdb", reference)))
+    sub = cp.split_monomers(cp.read_residues(write(tmp_path, f"s{tag}.pdb", submitted)))
+    pairs, _ = cp.match_monomers(ref, sub)
+    return ref, pairs[0]
+
+
+def test_an_unnamed_extra_proton_is_tolerated_and_reported(tmp_path):
+    """023 (qwen), 025 r2 (glm), 008/013/069 (kimi-k3 v4): propka's HIP, ASH or
+    GLH on a residue the task never named is not a composition error."""
+    _, pair = _his_pair(tmp_path, "t")
+    findings = cp.compare_monomer(*pair, tolerate_ionisation=True)
+    assert findings["atom_counts"] == []
+    assert findings["tolerated"] == ["#1 HID57 5 vs HIP57 6 atoms"]
+
+
+def test_a_named_variant_stays_strict(tmp_path):
+    ref, pair = _his_pair(tmp_path, "s")
+    strict = cp.stated_positions(ref, [{"reference_residue": "57", "name": "HIP"}])
+    assert strict == {id(ref[0]): {1}}
+    findings = cp.compare_monomer(*pair, strict=strict[id(ref[0])], tolerate_ionisation=True)
+    assert findings["atom_counts"] == ["#1 HID57 5 vs HIP57 6 atoms"]
+    assert findings["tolerated"] == []
+
+
+def test_the_tolerance_is_off_by_default(tmp_path):
+    _, pair = _his_pair(tmp_path, "d")
+    assert cp.compare_monomer(*pair)["atom_counts"]
+
+
+def test_only_ionisable_side_chains_and_only_one_proton_are_tolerated(tmp_path):
+    reference = glycine(1, 5, (0.0, 0.0, 0.0), "GLY")
+    submitted = glycine(1, 5, (0.0, 0.0, 0.0), "GLY", extra=[("HX", "H")])
+    ref = cp.split_monomers(cp.read_residues(write(tmp_path, "rg.pdb", reference)))
+    sub = cp.split_monomers(cp.read_residues(write(tmp_path, "sg.pdb", submitted)))
+    pairs, _ = cp.match_monomers(ref, sub)
+    assert cp.compare_monomer(*pairs[0], tolerate_ionisation=True)["atom_counts"]
+    reference = glycine(1, 5, (0.0, 0.0, 0.0), "HID", extra=[("HD1", "H")])
+    submitted = glycine(1, 5, (0.0, 0.0, 0.0), "HIP",
+                        extra=[("HD1", "H"), ("HE2", "H"), ("HX", "H")])
+    ref = cp.split_monomers(cp.read_residues(write(tmp_path, "rh2.pdb", reference)))
+    sub = cp.split_monomers(cp.read_residues(write(tmp_path, "sh2.pdb", submitted)))
+    pairs, _ = cp.match_monomers(ref, sub)
+    assert cp.compare_monomer(*pairs[0], tolerate_ionisation=True)["atom_counts"]
+
+
+def test_a_heavy_atom_difference_is_never_an_ionisation_difference(tmp_path):
+    reference = glycine(1, 5, (0.0, 0.0, 0.0), "ASP", extra=[("OD1", "O")])
+    submitted = glycine(1, 5, (0.0, 0.0, 0.0), "ASP", extra=[("OD1", "O"), ("OD2", "O")])
+    ref = cp.split_monomers(cp.read_residues(write(tmp_path, "ra.pdb", reference)))
+    sub = cp.split_monomers(cp.read_residues(write(tmp_path, "sa.pdb", submitted)))
+    pairs, _ = cp.match_monomers(ref, sub)
+    findings = cp.compare_monomer(*pairs[0], tolerate_ionisation=True)
+    assert findings["atom_counts"] and findings["tolerated"] == []
+
+
+# --- the metal site as the prep declared it -----------------------------------
+
+def test_declared_ligands_are_exempt_even_when_the_frame_moved(tmp_path):
+    """062_metal_6w9c r3: the zinc left two thiolates at minimisation, the
+    distance scan found one ligand, and CYM224 was graded. The prep's
+    declaration names all three, in the deposit's chain letter."""
+    rows = []
+    for index, (resseq, name) in enumerate(((189, "CYM"), (192, "CYM"), (224, "CYM"), (300, "GLY"))):
+        rows += glycine(1 + index * 10, resseq, (index * 3.8, 0.0, 0.0), name,
+                        extra=[("SG", "S")] if name == "CYM" else [])
+    monomers = cp.split_monomers(cp.read_residues(write(tmp_path, "m.pdb", rows)))
+    sites = [{"established": True, "element": "ZN", "chain": "C", "resnum": 402,
+              "ligands": [{"chain": "C", "resnum": 189, "resname": "CYS", "atom": "SG"},
+                          {"chain": "C", "resnum": 224, "resname": "CYS", "atom": "SG"},
+                          {"chain": "C", "resnum": 192, "resname": "CYS", "atom": "SG"}]}]
+    positions = cp.declared_metal_ligand_positions(monomers, sites, {"C": "A"})
+    assert positions == {id(monomers[0]): {1, 2, 3}}
+    # an unmapped chain letter does not match the built structure's chain
+    assert cp.declared_metal_ligand_positions(monomers, sites, {"C": "B"}) == {}
+    # without a chain map the residue number alone places a cysteine
+    assert cp.declared_metal_ligand_positions(monomers, sites, None) == {id(monomers[0]): {1, 2, 3}}
+    assert cp.declared_metal_ligand_positions(monomers, [], {"C": "A"}) == {}
