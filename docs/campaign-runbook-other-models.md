@@ -32,7 +32,12 @@ as one more bar next to kimi-k3 in `scripts/paper_figures.py` (fig6). Written
   source.commit` says which mdclaw is baked in (b648068 since 9/14 09:26 JST).
   The spec's `sif_sha256` must equal the image's digest; the launcher trusts
   the spec, it does not hash the file. Current digest:
-  `6ecc1ad9a4c6376448fa43fd1228f997939c15597f2d63478c62f016001a62bc`.
+  `fdcda5ab414860b6bf5eecfaa6c600b0541e8388c3849c5c65126ecc4fcf9d79`
+  (`protonation-7c66c59d41fe`, main `dd7a672`, switched 2026-09-17; the v3/v4/glm
+  campaigns ran on `6ecc1ad9…`, the v2fix image). Since 2026-09-17 the dataset is
+  v0.5: the standard-state sentence is gone from the prompts and the scorer tolerates
+  ionisation states the task does not name; specs copied from the v4 spec must
+  re-pin `sif_sha256`.
   The older specs under `runs/prep` still carry `ffe1bd9c…`; re-pin them.
 - **Skills**: pi's package checkout
   `~/.pi/agent/git/github.com/matsunagalab/mdclaw` (`git -C ... log -1`; must
