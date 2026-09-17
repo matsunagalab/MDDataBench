@@ -5,10 +5,9 @@ Simulate CYTOCHROME C', PDB entry **1CPQ**, chain **A** residues **1–129**, in
 - **TIP3P** water, neutralised
 - **300 K**, **NPT** at **1 bar**
 - at least **1 ns** of production MD
+- neutral pH; ionisation states of the side chains are your choice
 
 The deposit's **HEM** is not part of the reference. Simulate the protein without it.
-
-Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 
 Leave the prepared structure, the topology, the minimised state and the production
 trajectory as artifacts. The evaluator recomputes everything it needs from them.

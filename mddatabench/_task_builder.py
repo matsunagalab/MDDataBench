@@ -1034,6 +1034,50 @@ def modified_residue_sentence(entry) -> str:
             f"modified {parent}. Simulate the unmodified residue.")
 
 
+# Dataset v0.5 (2026-09-16): the prompt no longer asks for standard ionisation
+# states. MDDB's project metadata has no pH and no protonation field, and 92 of
+# the 98 references are all-standard because that is how their builders' tools
+# work, not because anyone chose pH 7; the scorer now tolerates one proton on
+# an unnamed ionisable side chain. What the reference topology itself carries
+# (HIP on six tasks) is still named, with the residue name so it maps onto
+# ``--protonation-states``, and stays strict.
+IONISATION_NAMES = {"protonated histidine": ("doubly protonated histidine", "HIP"),
+                    "deprotonated cysteine": ("deprotonated cysteine", "CYM"),
+                    "protonated aspartate": ("protonated aspartate", "ASH"),
+                    "protonated glutamate": ("protonated glutamate", "GLH"),
+                    "neutral lysine": ("neutral lysine", "LYN")}
+FREE_IONISATION_BULLET = "neutral pH; ionisation states of the side chains are your choice"
+OTHER_IONISATION_SENTENCE = "Ionisation states of the other side chains are your choice."
+
+
+def protonation_statements(protonation):
+    """One sentence per (chain, meaning): the residues to keep in a named state.
+
+    ``Residue 107 of chain A is a doubly protonated histidine (HIP); keep it
+    that way.`` and, for several on one chain, ``Residues 3, 93 and 191 of chain
+    A are doubly protonated histidines (HIP); keep them that way.``
+    """
+    groups = {}
+    for entry in protonation:
+        key = (entry.get("chain"), entry["meaning"])
+        groups.setdefault(key, []).append(str(entry["residue"]))
+    sentences = []
+    for (chain, meaning), residues in groups.items():
+        phrase, name = IONISATION_NAMES.get(meaning, (meaning, entry.get("name", "")))
+        where = "of chain " + str(chain) if chain else ""
+        if len(residues) == 1:
+            sentences.append(
+                f"Residue {residues[0]} {where} is a {phrase} ({name}); keep it that way."
+                .replace("  ", " "))
+        else:
+            listed = ", ".join(residues[:-1]) + " and " + residues[-1]
+            plural = phrase + ("s" if not phrase.endswith("s") else "")
+            sentences.append(
+                f"Residues {listed} {where} are {plural} ({name}); keep them that way."
+                .replace("  ", " "))
+    return sentences
+
+
 def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonation,
                  window_ns, replicas=1, joined_chains=(), disulfides=None,
                  extra_components=(), excluded_components=(),
@@ -1095,6 +1139,8 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
         pressure = metadata.get("_pressure_bar") or 1
         lines.append(f"- **{temperature} K**, **{ensemble}** at **{pressure:g} bar**")
     lines.append(f"- at least **{window_ns:g} ns** of production MD")
+    if not protonation:
+        lines.append(f"- {FREE_IONISATION_BULLET}")
     lines.append("")
     modified_names = {
         (str(item.get("chain")), str(item.get("residue"))): item.get("name")
@@ -1163,10 +1209,10 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
     if metadata.get("_structural_metals"):
         names = ", ".join(sorted(metadata["_structural_metals"]))
         lines += [f"The entry carries a structural {names}. Keep it.", ""]
-    for entry in protonation:
-        where = (f"Residue {entry['residue']} of chain {entry['chain']}"
-                 if entry.get("chain") else f"Residue {entry['residue']}")
-        lines += [f"{where} is a {entry['meaning']}.", ""]
+    for sentence in protonation_statements(protonation):
+        lines += [sentence, ""]
+    if protonation:
+        lines += [OTHER_IONISATION_SENTENCE, ""]
     disulfides = disulfides or {}
     formed = disulfides.get("formed") or []
     reduced = disulfides.get("reduced") or []
@@ -1202,18 +1248,12 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
             "residue, not as separate residues or caps.",
             "",
         ]
-    # Everything the previous line did not name is standard, and saying so is
-    # the point: a pKa predictor will disagree with the reference somewhere.
-    # MDClaw runs pdb2pqr+propka at pH 7.4 and it neutralised two aspartates of
-    # 5ZK8 that the reference kept charged, which the atom-count check sees as a
-    # composition difference the prompt never asked for. Every reference in the
-    # cast carries hydrogens, so "standard except where stated" is measured
-    # rather than assumed.
-    lines += [("Simulate every other ionisable side chain"
-               if protonation or formed or reduced
-               else "Simulate every ionisable side chain")
-              + " in its standard state at pH 7: charged aspartate, glutamate, "
-                "lysine and arginine, and neutral histidine and cysteine.", ""]
+    # Until dataset v0.4 the prompt closed with "Simulate every (other)
+    # ionisable side chain in its standard state at pH 7: ...". v0.5 dropped
+    # it: the sentence encoded the references' build convention (MDDB records
+    # no pH), and four campaign attempts lost the prep axis for a propka
+    # choice on residues nobody had named. The scorer now tolerates one proton
+    # on unnamed ionisable side chains; the named ones above stay strict.
     if replicas > 1:
         lines += ["", ]
     lines += ["Leave the prepared structure, the topology, the minimised state and the "

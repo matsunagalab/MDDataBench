@@ -656,7 +656,37 @@ def catalytic_dyad_positions(monomers, metals, cutoff=CATALYTIC_DYAD_ANGSTROM):
     return positions
 
 
-def compare_monomer(reference, submission, exempt=()):
+# Side chains whose ionisation state a pKa predictor may legitimately move away
+# from the force field's default: one proton on or off the side chain, which
+# the atom count sees as exactly one hydrogen (ASP<->ASH, GLU<->GLH, LYS<->LYN,
+# HIS<->HIP, CYS<->CYM).
+IONISABLE_PARENTS = frozenset({"ASP", "GLU", "LYS", "HIS", "CYS"})
+
+
+def ionisation_difference(reference, submission):
+    """True when the two residues differ only by one side-chain proton.
+
+    Dataset v0.5 (2026-09-16): MDDB's project metadata carries no pH and no
+    protonation field, and 92 of the 98 references are all-standard because
+    that is how pdb2gmx and tleap build a system, not because anyone chose
+    pH 7. A submission whose pKa predictor made one aspartate ASH or one
+    histidine HIP is therefore not wrong against anything the reference
+    recorded, and the prompt no longer asks for standard states. The only
+    ionisation states that stay strict are the ones the task names
+    (``reference.selection.stated_protonation``), where the reference topology
+    itself carries the variant.
+    """
+    if reference.canonical != submission.canonical:
+        return False
+    if reference.canonical not in IONISABLE_PARENTS:
+        return False
+    if abs(reference.n_atoms - submission.n_atoms) != 1:
+        return False
+    return reference.element_counts() == submission.element_counts()
+
+
+def compare_monomer(reference, submission, exempt=(), strict=(),
+                    tolerate_ionisation=False):
     """Per-residue comparison inside one matched monomer.
 
     ``exempt`` holds 1-based positions whose protonation is a metal-site
@@ -668,9 +698,15 @@ def compare_monomer(reference, submission, exempt=()):
     zinc with a bare 12-6 ion and deprotonate two of the four ligands, so a
     submission that deprotonates all four is further from the reference and
     closer to right.
+
+    ``tolerate_ionisation`` lets an unnamed ionisable side chain differ from the
+    reference by one proton (see ``ionisation_difference``); such positions are
+    reported under ``tolerated`` rather than ``atom_counts``.  ``strict`` holds
+    the 1-based positions the task names, which are never tolerated.
     """
-    findings = {"sequence": [], "atom_counts": [], "elements": []}
+    findings = {"sequence": [], "atom_counts": [], "elements": [], "tolerated": []}
     exempt = set(exempt)
+    strict = set(strict)
     for index, (r, s) in enumerate(zip(reference, submission), start=1):
         generic_ligand_match = (
             (r.canonical == "LIG" or s.canonical == "LIG")
@@ -681,6 +717,11 @@ def compare_monomer(reference, submission, exempt=()):
             continue
         if index in exempt:
             continue
+        if (tolerate_ionisation and index not in strict
+                and ionisation_difference(r, s)):
+            findings["tolerated"].append(
+                f"#{index} {r.label()} {r.n_atoms} vs {s.label()} {s.n_atoms} atoms")
+            continue
         if r.n_atoms != s.n_atoms:
             findings["atom_counts"].append(
                 f"#{index} {r.label()} {r.n_atoms} vs {s.label()} {s.n_atoms} atoms")
@@ -689,6 +730,71 @@ def compare_monomer(reference, submission, exempt=()):
                 f"#{index} {r.label()} {dict(sorted(r.element_counts().items()))} vs "
                 f"{dict(sorted(s.element_counts().items()))}")
     return findings
+
+
+def stated_positions(monomers, stated):
+    """{id(monomer): {1-based position, ...}} the task names in ``stated``.
+
+    ``stated`` is ``reference.selection.stated_protonation``: each entry names
+    the reference residue (``reference_residue``, the reference.pdb number) and
+    the variant (``name``, e.g. HIP).  Matched on the reference side by residue
+    number and canonical parent; a homomer repeats the number in every copy and
+    every copy is then strict, which is what a named variant means.
+    """
+    wanted = {(str(entry.get("reference_residue")),
+               CANONICAL_RESIDUE.get(str(entry.get("name", "")).upper(),
+                                     str(entry.get("name", "")).upper()))
+              for entry in (stated or []) if entry.get("reference_residue") is not None}
+    positions = {}
+    if not wanted:
+        return positions
+    for monomer in monomers:
+        found = {position for position, residue in enumerate(monomer, start=1)
+                 if (str(residue.resseq), residue.canonical) in wanted}
+        if found:
+            positions[id(monomer)] = found
+    return positions
+
+
+def declared_metal_ligand_positions(monomers, metal_sites, chain_map=None):
+    """{id(monomer): {1-based position, ...}} for the ligands a prep declared.
+
+    ``metal_sites`` is MDClaw's ``prep`` record (``result.json``): every
+    established site lists its ligands by deposit chain and residue number.
+    ``chain_map`` translates the deposit chain to the chain the built structure
+    writes (``chain_identity_map.components``: ``source_chain_id`` ->
+    ``pdb_chain_id``); without it the residue number alone is matched.
+
+    Read from the declaration rather than from a frame because the frame
+    moves: kimi-k3 v4 062_metal_6w9c r3 minimised its zinc away from two of
+    three thiolates, the 3.5 A scan then found one ligand where the prep had
+    declared three, and CYM224 was graded as a composition difference while
+    two flag-identical replicates passed.
+    """
+    wanted = set()
+    for site in metal_sites or []:
+        if site.get("established") is False:
+            continue
+        for ligand in site.get("ligands") or []:
+            chain = str(ligand.get("chain", ""))
+            if chain_map and chain in chain_map:
+                chain = chain_map[chain]
+            wanted.add((chain, str(ligand.get("resnum"))))
+    positions = {}
+    if not wanted:
+        return positions
+    numbers_only = {number for _, number in wanted}
+    for monomer in monomers:
+        found = set()
+        for position, residue in enumerate(monomer, start=1):
+            if (str(residue.chain), str(residue.resseq)) in wanted:
+                found.add(position)
+            elif not chain_map and str(residue.resseq) in numbers_only \
+                    and residue.canonical in ("CYS", "HIS", "ASP", "GLU"):
+                found.add(position)
+        if found:
+            positions[id(monomer)] = found
+    return positions
 
 
 def element_totals(monomers):

@@ -606,6 +606,29 @@ def _boundary_contract_findings(prompt: str, selection: dict, declared: dict,
     return findings
 
 
+def _prompt_states_protonation(prompt: str, chain, residue, meaning: str) -> bool:
+    """The prompt names the residue in that state, in the v0.4 or v0.5 wording.
+
+    v0.4: ``Residue 264 of chain A is a protonated histidine.``  v0.5:
+    ``Residue 264 of chain A is a doubly protonated histidine (HIP); keep it
+    that way.`` or, grouped, ``Residues 3, 93 and 191 of chain A are doubly
+    protonated histidines (HIP); keep them that way.``
+    """
+    from mddatabench import _task_builder as builder
+
+    if f"Residue {residue} of chain {chain} is a {meaning}." in prompt:
+        return True
+    phrase, _ = builder.IONISATION_NAMES.get(meaning, (meaning, ""))
+    pattern = re.compile(
+        r"Residues?\s+([0-9A-Za-z, ]+?(?:\s+and\s+[0-9A-Za-z]+)?)\s+of\s+chain\s+"
+        + re.escape(str(chain)) + r"\s+(?:is|are)\s+(?:an?\s+)?" + re.escape(phrase) + r"s?\s*\(")
+    for match in pattern.finditer(prompt):
+        listed = re.split(r",\s*|\s+and\s+", match.group(1))
+        if str(residue) in [item.strip() for item in listed]:
+            return True
+    return False
+
+
 def _protonation_contract_findings(prompt: str, selection: dict, declared: dict,
                                    scheme: dict, reference_pdb) -> list[dict]:
     """Non-standard reference protonation must be stored and stated."""
@@ -632,9 +655,7 @@ def _protonation_contract_findings(prompt: str, selection: dict, declared: dict,
         absent = []
         if (chain, residue, variant["meaning"]) not in stored:
             absent.append("selection.stated_protonation")
-        statement = (
-            f"Residue {residue} of chain {chain} is a {variant['meaning']}.")
-        if statement not in prompt:
+        if not _prompt_states_protonation(prompt, chain, residue, variant["meaning"]):
             absent.append("prompt")
         if absent:
             missing.append(

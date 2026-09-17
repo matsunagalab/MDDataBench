@@ -5,6 +5,29 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-09-17 — Scorer v0.5 and dataset v0.5: unnamed ionisation states are the agent's choice; metal ligands come from the prep's declaration
+
+Branch `scorer-v05` (worktree `MDDataBench-scorer-v05`), commits `6db8dfc` (scorer, builder, audit, script, tests) and `b00756e` (98 regenerated prompts, `dataset.json` = MDDataBench-v0.5).
+
+Why: MDDB's project metadata (80 fields, checked live on A01M3, A0001, A002J on 2026-09-16) has no pH and no protonation field. The only record is the reference topology's residue names, from which `stated_protonation` names six tasks' protonated histidines (007, 009, 014, 088, 096, 100); the other 92 references are all-standard because pdb2gmx and tleap build them that way. The sentence "Simulate every ionisable side chain in its standard state at pH 7" therefore asked agents to reproduce a build convention, and four campaign attempts lost the prep axis for one or two propka choices on residues nobody had named (kimi-k3 v4 008 r2 GLH303+HIP56, 013 r1 ASH79, 069 r2 HIP112; glm-5.3-flash 025 r2 HIP3+HIP151); the same happened to the qwen pilot's 023 r1 (HIP57). Both campaigns also showed the exemption for metal ligands failing when the frame moved: 062_metal_6w9c r3's zinc left two of three thiolates at minimisation, the 3.5 A scan on `minimized_structure.pdb` exempted one ligand, and CYM224 was graded against the reference's CYS224 while two flag-identical replicates passed.
+
+What changed. `composition.compare_monomer(..., strict=, tolerate_ionisation=)`: an ASP/GLU/LYS/HIS/CYS position the task does not name may differ from the reference by exactly one hydrogen with equal heavy-atom counts (`ionisation_difference`); such positions are reported as `tolerated: [...]` in the check detail and never counted as a failure; positions in `stated_protonation` (`stated_positions`, matched by reference residue number and canonical parent) stay strict; the tolerance is off by default and turned on by the scorer. `declared_metal_ligand_positions` maps the prep node's `metal_sites[].ligands` (deposit chain and number, translated through `chain_identity_map`) onto the submitted monomers and is unioned with the distance-based sets; the detail says how many exemptions came from the declaration. The prompt builder emits the conditions bullet "neutral pH; ionisation states of the side chains are your choice" when nothing is named, and otherwise "Residue 107 of chain A is a doubly protonated histidine (HIP); keep it that way." (grouped: "Residues 3, 93, 191, 197, 260 and 263 of chain A are doubly protonated histidines (HIP); keep them that way.") followed by "Ionisation states of the other side chains are your choice."; `contract_audit` accepts the v0.4 and v0.5 wordings; `scripts/apply_dataset_v05.py` rewrites a dataset in place, idempotently, and `apply_nonpolymer_audit.py` now anchors on the closing paragraph. The md-axis bands are untouched: over the two campaigns' 588 skill attempts only 2 of about 1,150 Rg/fluctuation checks fell outside their band, both by 1-1.5 % of the width on the shortest-equilibration replicate (memo 2026-09-16), which is the calibration working as designed.
+
+Tests: `ruff check` clean; `pytest tests -m "not slow"` 1402 passed, 67 skipped (11 new: tolerance on/off, named residue strict, one-proton-only, heavy atoms never tolerated, declared ligands with and without a chain map, the v0.5 sentence forms in the contract audit, the v0.5 script's rewrite and idempotence, and that the shipped dataset is already v0.5); the slow set also passes.
+
+Rescoring with the v0.5 scorer (`rescore_attempt`, old seals under `retired/20260916T15*-rescore-scorer-v0.5-*`), no agent rerun:
+
+| attempt | before | after |
+|---|---|---|
+| kimi-k3 v4 008_membrane_6i53 r2 | 19/20 fail (GLH303, HIP56) | 20/20 pass, 2 tolerated |
+| kimi-k3 v4 013_membrane_6ps2 r1 | 19/20 fail (ASH79) | 20/20 pass, 1 tolerated |
+| kimi-k3 v4 069_soluble_1aol r2 | 19/20 fail (HIP112) | 20/20 pass, 1 tolerated |
+| kimi-k3 v4 062_metal_6w9c r3 | 19/20 fail (CYM224 not exempt) | 20/20 pass, 6 exempt (2 from the declared site) |
+| glm-5.3-flash 025_complex_1akj r2 | 19/20 fail (HIP3, HIP151) | 20/20 pass, 2 tolerated |
+| qwen3.6-35b pilot 023_antibody_3wd5 r1 | 19/20 fail (HIP57) | 20/20 pass, 1 tolerated |
+
+Campaign totals for the skill condition after rescoring: kimi-k3 v4 293/294 (the one left is 048 r2, Rg 1.5 % over the band), glm-5.3-flash 291/294 (002 r1, 010 r3, 040 r3 as before). Both ran on v0.4 prompts, so the rescoring compares the same runs under the looser check; the next model runs on v0.5 prompts, and the figures should say so.
+
 ## 2026-09-14 — Campaign kimi-k3-3cond-full-v4 launched at 22:28 JST on dataset v0.4
 
 `runs/kimi-k3-3cond-full-v4`, initialised from `runs/prep/experiment-kimi-k3-3cond-full-v4.json`: 98 tasks x 3 conditions x 3 replicates = 882 attempts, pi + rikyu/kimi-k3 (thinking high), hardest first, 1800 s for every task, v2fix image (`6ecc1ad9…`, mdclaw main `b648068`), pi package at main `17283b6` with skills present, dataset `MDDataBench-v0.4` (recorded in `experiment.json`; the 001 and 062 prompts checked in their workspaces), harness at `40df7e5` (skills guard, zero-output and no-action reruns, governor). `launch.sh`: `--max-agents 6 --max-seconds-per-call 30`; six agents within a minute; login-node load 208 from other users at launch. The same design as v3, which was stopped at 21:38 JST after 29 sealed attempts so that every model runs on the same prompt text. 30-minute ticks with the dead-job sweep, the governor's adjustments and the reset counts.

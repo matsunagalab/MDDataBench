@@ -402,21 +402,33 @@ def _prompt(protonation):
                            protonation, 1.0)
 
 
-def test_the_standard_state_is_stated():
-    assert "standard state at pH 7" in _prompt([])
-
-
-def test_it_says_every_when_nothing_else_was_named():
+def test_the_standard_state_is_no_longer_asked_for():
+    """Dataset v0.5: MDDB records no pH, so the prompt does not ask for one."""
     text = _prompt([])
-    assert "Simulate every ionisable side chain" in text
-    assert "every other" not in text
+    assert "standard state at pH 7" not in text
+    assert "ionisable side chain" not in text
 
 
-def test_it_says_every_other_when_something_was_named():
+def test_an_unnamed_prompt_leaves_ionisation_to_the_agent_as_a_condition():
+    text = _prompt([])
+    assert "- neutral pH; ionisation states of the side chains are your choice" in text
+    assert "Ionisation states of the other side chains" not in text
+
+
+def test_a_named_variant_is_stated_with_its_residue_name_and_kept_strict():
     text = _prompt([{"chain": "A", "residue": 107,
                      "meaning": "protonated histidine"}])
-    assert "Residue 107 of chain A is a protonated histidine." in text
-    assert "Simulate every other ionisable side chain" in text
+    assert ("Residue 107 of chain A is a doubly protonated histidine (HIP); "
+            "keep it that way.") in text
+    assert "Ionisation states of the other side chains are your choice." in text
+    assert "neutral pH; ionisation states" not in text
+
+
+def test_several_named_residues_on_one_chain_are_one_sentence():
+    text = _prompt([{"chain": "A", "residue": n, "meaning": "protonated histidine"}
+                    for n in (3, 93, 191)])
+    assert ("Residues 3, 93 and 191 of chain A are doubly protonated histidines "
+            "(HIP); keep them that way.") in text
 
 
 def test_a_reduced_disulfide_is_an_instruction_not_a_hint():
@@ -431,7 +443,7 @@ def test_a_reduced_disulfide_is_an_instruction_not_a_hint():
 
     assert ("Simulate Cys7 and Cys96 of chain A as free (reduced) cysteines; "
             "do not form a disulfide bond between them.") in text
-    assert "Simulate every other ionisable side chain" in text
+    assert "ionisable side chain" not in text
 
 
 def test_a_flattened_peptide_component_is_fully_buildable_from_the_prompt():

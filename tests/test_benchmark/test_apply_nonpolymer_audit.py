@@ -52,7 +52,7 @@ def test_the_audit_writes_exclusions_once_and_bumps_the_dataset_version(tmp_path
     prompt_069 = (dataset / "tasks/069_soluble_1aol/prompt.md").read_text()
     assert "The deposit's **ZN** is not part of the reference. Simulate the protein without it." in prompt_069
     assert "**NAG**" not in prompt_069                      # the glycan sentence already covers the sugar
-    assert prompt_069.index("**ZN** is not part") < prompt_069.index("Simulate every ionisable side chain")
+    assert prompt_069.index("**ZN** is not part") < prompt_069.index("Leave the prepared structure")
     spec_069 = json.loads((dataset / "tasks/069_soluble_1aol/task.json").read_text())
     assert spec_069["reference"]["selection"]["excluded_components"] == ["ZN"]
     prompt_062 = (dataset / "tasks/062_metal_6w9c/prompt.md").read_text()

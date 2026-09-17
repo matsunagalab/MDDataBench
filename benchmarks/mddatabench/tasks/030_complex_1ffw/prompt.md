@@ -5,10 +5,9 @@ Simulate CHEY-BINDING DOMAIN OF CHEA IN COMPLEX WITH CHEY WITH A BOUND IMIDO, PD
 - **TIP3P** water, neutralised
 - **310 K**, **NPT** at **1 bar**
 - at least **2.5 ns** of production MD
+- neutral pH; ionisation states of the side chains are your choice
 
 The deposit's **PON** and **MN** are not part of the reference. Simulate the protein without them.
-
-Simulate every ionisable side chain in its standard state at pH 7: charged aspartate, glutamate, lysine and arginine, and neutral histidine and cysteine.
 
 Leave the prepared structure, the topology, the minimised state and the production
 trajectory as artifacts. The evaluator recomputes everything it needs from them.
