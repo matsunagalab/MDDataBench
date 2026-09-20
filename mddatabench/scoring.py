@@ -90,13 +90,23 @@ RANK_CORRELATION_FLOOR_CAP = 0.30
 #:     047_nucleic_1c7u  21.2004 against a ceiling of 21.1945  (+0.0059 A)
 #:     049_nucleic_1iv6  15.4450 against a ceiling of 15.4329  (+0.0121 A)
 #:
-#: 0.25 A covers those by twenty to forty times over and still leaves the gate
+#: 0.25 A covered those by twenty to forty times over and still left the gate
 #: decisive. The baseline this gate exists to catch, a compressed structure,
 #: sat 1.6 to 2.7 A *below* the band on the same four tasks - two orders of
 #: magnitude further out than a legitimate run overshoots, and on the opposite
 #: side. Excessive motion also has an RMSF magnitude upper limit; low
 #: fluctuation magnitude alone is no longer rejected under @2.
-RADIUS_OF_GYRATION_TOLERANCE_ANGSTROM = 0.25
+#:
+#: Raised to 0.5 A on 2026-09-21 (scorer v0.6). Over the kimi-k3 v2 and v4
+#: campaigns (1,615 Rg checks) the correct runs sat at the band's centre
+#: (+-11 % of its width, one sigma), but 59 of the 98 references are a single
+#: replica whose 1 ns windows spread 0.05 A while independent runs of the same
+#: task spread about 0.2 A between replicates; six attempts missed a 0.9-1.1 A
+#: band by 0.02-0.17 A (048_nucleic_1h9t r2 by 0.017 A) with nothing else
+#: wrong. Two between-run sigmas is 0.4-0.5 A. Every failure that the gate is
+#: for still sits 1 to 33 A outside, and the compressed control keeps its
+#: 1.6-2.7 A margin below.
+RADIUS_OF_GYRATION_TOLERANCE_ANGSTROM = 0.5
 
 
 def widened_calibration_band(band, key, slack, spread):
