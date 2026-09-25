@@ -2123,7 +2123,15 @@ def run_experiment(experiment_dir: str, bundle_root: str, scorer_sif: str,
                 try:
                     agent = run_attempt_agent(str(attempt), timeout_seconds=timeout_seconds)
                 finally:
-                    governor.release(_seconds_per_call(agent) if agent and not agent.get("api_error") else None)
+                    # Only the CLI conditions tell the governor about the gateway:
+                    # a sif_only agent paces at 38 s per call by construction (its
+                    # own scripts and long Slurm polls; v4: 38.5 s median against
+                    # 17.5-20.5 for the CLI conditions), and six such runs in a
+                    # window halved the campaign twice on 2026-09-15 with the
+                    # gateway healthy.
+                    counted = (agent and not agent.get("api_error")
+                               and _json(attempt / "manifest.json").get("condition") != "sif_only")
+                    governor.release(_seconds_per_call(agent) if counted else None)
                 if agent.get("exit_reason") == "api_error":
                     breaker.record(False)
                     failure = agent.get("api_error") or {}

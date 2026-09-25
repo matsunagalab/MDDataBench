@@ -1692,3 +1692,13 @@ def test_a_skill_condition_agent_waits_until_the_pi_checkout_has_skills(tmp_path
     assert ex._wait_for_user_skills(attempt, other) == skill
     # not a skill condition: nothing to wait for
     assert ex._wait_for_user_skills(attempt, {"harness": "pi", "condition": "cli_sif", "skill_source": "user"}) is None
+
+
+def test_latency_governor_ignores_runs_released_without_a_pace():
+    from mddatabench.experiments import _LatencyGovernor
+
+    governor = _LatencyGovernor(6, ceiling_seconds_per_call=30.0, window=3)
+    for _ in range(6):
+        governor.acquire()
+        governor.release(None)            # sif_only runs report no pace
+    assert governor.permits == 6 and governor.adjustments == []
