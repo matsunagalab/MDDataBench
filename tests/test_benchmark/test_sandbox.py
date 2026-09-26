@@ -92,7 +92,19 @@ def test_job_plan_lists_the_attempt_its_image_and_the_system_only(tmp_path):
     sources = [op.get("src", "") for op in plan["ops"]]
     assert not any(src == str(attempt) or src == str(attempt.parents[2]) for src in sources)
     assert not any(src.startswith(str(attempt / "sandbox")) and not src.endswith(
-        ("home", "manifest.agent.json")) for src in sources)
+        ("home", "manifest.agent.json")) and not src.startswith(str(attempt / "sandbox" / "slurm"))
+        for src in sources)
+    # The Slurm guard and its code are shown read-only; the real clients only
+    # under SLURM_REAL_DIR, and /usr/bin/<tool> is the guard where the host has it.
+    guard = shown[f"{sandbox.SLURM_REAL_DIR}/slurm_guard.py"]
+    assert guard["ro"] and guard["src"] == str(attempt / "sandbox" / "slurm" / "slurm_guard.py")
+    for tool in sandbox.SLURM_GUARDED:
+        real = shutil.which(tool, path="/usr/bin:/usr/local/bin:/bin")
+        if real:
+            assert shown[real]["src"] == str(attempt / "sandbox" / "slurm" / tool)
+            assert shown[f"{sandbox.SLURM_REAL_DIR}/{tool}"]["src"] == os.path.realpath(real)
+    launcher = (attempt / "sandbox" / "slurm" / "scancel").read_text()
+    assert f"{sandbox.SLURM_REAL_DIR}/slurm_guard.py scancel" in launcher
     assert manifest["environment"]["runtime_sif"] not in shown
 
 

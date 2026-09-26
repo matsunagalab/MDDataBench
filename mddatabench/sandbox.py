@@ -63,6 +63,11 @@ TOP_LEVEL_LINKS = ("/bin", "/sbin", "/lib", "/lib64", "/lib32", "/libx32")
 _LOCKED_FLAGS = {"nosuid", "nodev", "noexec", "noatime", "nodiratime", "relatime",
                  "strictatime", "lazytime"}
 _PIVOT_ROOT_SYSCALL = {"aarch64": 41, "arm64": 41, "x86_64": 155}
+# The real Slurm clients, shown inside the sandbox only here; /usr/bin/<tool>
+# becomes the guard (mddatabench/slurm_guard.py) and /usr/bin/sbatch the shim.
+SLURM_REAL_DIR = "/.mddatabench-slurm"
+SLURM_GUARDED = ("scancel", "scontrol", "squeue", "sacct", "srun", "salloc", "sattach",
+                 "scrontab", "strigger")
 _GRACE_SECONDS = 8
 
 
@@ -181,6 +186,31 @@ def _pi_ops(home: str, pi: dict, skills: bool) -> list[dict]:
     return ops
 
 
+def _slurm_ops(sandbox_dir: Path, workspace: Path) -> list[dict]:
+    """The real clients under SLURM_REAL_DIR, the guard over /usr/bin/<tool>, the shim over sbatch.
+
+    Only clients that exist on this host are replaced; the guard's launchers
+    and code live in the attempt's sandbox directory, which the agent cannot
+    see, and are shown read-only.
+    """
+    ops = []
+    guard = sandbox_dir / "slurm"
+    for tool in SLURM_GUARDED + ("sbatch",):
+        real = shutil.which(tool, path="/usr/bin:/usr/local/bin:/bin")
+        if real is None:
+            continue
+        ops.append(_op("bind", f"{SLURM_REAL_DIR}/{tool}", src=os.path.realpath(real), ro=True))
+        if tool == "sbatch":
+            launcher = workspace / ".mddatabench" / "bin" / "sbatch"
+        else:
+            launcher = guard / tool
+        if launcher.exists() or tool != "sbatch":
+            ops.append(_op("bind", real, src=str(launcher), ro=True))
+    ops.append(_op("bind", f"{SLURM_REAL_DIR}/slurm_guard.py", src=str(guard / "slurm_guard.py"),
+                   ro=True))
+    return ops
+
+
 def build_plan(attempt: Path, manifest: dict, *, role: str, pi: dict | None = None) -> dict:
     """The view one attempt's agent (``role='agent'``) or job (``'job'``) gets.
 
@@ -203,6 +233,7 @@ def build_plan(attempt: Path, manifest: dict, *, role: str, pi: dict | None = No
         ops.append(_op("bind", attempt / "agent-session", src=str(attempt / "agent-session"),
                        ro=False))
     ops += _file_bind(sandbox_dir / "manifest.agent.json", attempt / "manifest.json")
+    ops += _slurm_ops(sandbox_dir, workspace)
     # Experiment-level files the container binds name (passwd/group copies).
     experiment = attempt.parents[2]
     for entry in environment.get("container_binds") or []:
@@ -236,6 +267,19 @@ def prepare_attempt(attempt: Path, manifest: dict) -> Path:
     (Path(attempt) / "slurm").mkdir(exist_ok=True)
     (Path(attempt) / "agent-session").mkdir(exist_ok=True)
     shutil.copy2(__file__, sandbox_dir / "sandbox.py")
+    guard = sandbox_dir / "slurm"
+    guard.mkdir(exist_ok=True)
+    shutil.copy2(Path(__file__).with_name("slurm_guard.py"), guard / "slurm_guard.py")
+    for tool in SLURM_GUARDED:
+        # Runs on the host inside the sandbox and inside the MDClaw image
+        # (APPTAINER_BIND carries /usr/bin/<tool> and SLURM_REAL_DIR in).
+        (guard / tool).write_text(
+            "#!/bin/sh\n"
+            'for PY in /opt/mdclaw/bin/python /usr/bin/python3 "$(command -v python3 2>/dev/null)"; do\n'
+            '    [ -n "$PY" ] && [ -x "$PY" ] && break\n'
+            "done\n"
+            f'exec "$PY" {SLURM_REAL_DIR}/slurm_guard.py {tool} "$@"\n')
+        (guard / tool).chmod(0o755)
     (sandbox_dir / "manifest.agent.json").write_text(
         json.dumps(redacted_manifest(manifest), indent=2, sort_keys=True) + "\n")
     job_plan = sandbox_dir / "plan-job.json"

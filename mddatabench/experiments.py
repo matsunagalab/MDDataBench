@@ -1127,6 +1127,13 @@ def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
     sandbox_plan = None
     if manifest["environment"].get("agent_sandbox"):
         environment = _sandbox_environment(environment)
+        # Inside the sandbox /usr/bin/sbatch is the shim and the Slurm clients
+        # are guarded (slurm_guard.py); the real ones sit in SLURM_REAL_DIR,
+        # which the MDClaw image must see too for its guarded clients to work.
+        environment["MDDATABENCH_REAL_SBATCH"] = f"{agent_sandbox.SLURM_REAL_DIR}/sbatch"
+        for key in ("APPTAINER_BIND", "SINGULARITY_BIND"):
+            if environment.get(key):
+                environment[key] += "," + agent_sandbox.SLURM_REAL_DIR
         sandbox_plan = agent_sandbox.build_plan(
             attempt, manifest, role="agent", pi=_pi_sandbox_inputs(manifest, command[0]))
         plan_path = attempt / "sandbox" / "plan-agent.json"
