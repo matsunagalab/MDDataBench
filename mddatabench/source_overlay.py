@@ -53,8 +53,50 @@ main(sys.argv[2:])
 """
 
 
+def _same_image(token: str, image: Path, aliases: tuple[Path, ...] = ()) -> bool:
+    """Whether an exec line names the attempt's image.
+
+    The shim runs inside the SIF in image mode, where the shared image path
+    (a symlink replaced in place) and its target are usually not visible, so
+    ``resolve()`` there cannot tell that the configured path and its resolved
+    target are the same file. The manifest records both, taken on the host at
+    init; either spelling is the attempt's image. MDClaw's own sif-slurm skill
+    tells agents to pin the resolved path (kimi-k3 v4: 4 refusals, glm-5.3-flash
+    3cond: 9, each followed by a hand-written script).
+    """
+    candidates = {image, *aliases}
+    named = Path(token)
+    return named in candidates or named.resolve() in {c.resolve() for c in candidates}
+
+
+def _check_runtime(runtime: str, attempt_root: Path | None) -> None:
+    """Refuse a container runtime the agent wrote into its own attempt directory.
+
+    MDClaw resolves the runtime on the submitting PATH, which begins with the
+    attempt's ``.mddatabench/bin``; an executable named ``singularity`` placed
+    there (or anywhere in the attempt tree) would become the job's runtime and
+    decide what actually runs. Three glm-5.3-flash attempts wrote such wrappers
+    on 2026-09-26 (benign ones, forwarding to the host binary). MDClaw itself
+    writes either a bare name or an absolute path, so nothing else is accepted.
+    """
+    named = Path(runtime)
+    if named.name not in _CONTAINER_RUNTIMES:
+        raise ValueError("expected a Singularity/Apptainer exec command")
+    if not named.is_absolute() and runtime != named.name:
+        raise ValueError(f"the container runtime {runtime!r} must be a bare name or an absolute path")
+    if attempt_root is None or not named.is_absolute():
+        return
+    root = attempt_root.resolve()
+    if named.is_relative_to(attempt_root) or named.resolve().is_relative_to(root):
+        raise ValueError(
+            f"the container runtime {runtime} is a file inside the attempt directory; delete it "
+            f"and resubmit: without it submit_job writes a bare '{named.name}', which the job's "
+            "generated preamble finds on the node")
+
+
 def _guard_command(line: str, source: Path | None, image: Path, *, mode: str = "overlay",
-                   module: Path | None = None) -> str:
+                   module: Path | None = None, images: tuple[Path, ...] = (),
+                   attempt_root: Path | None = None) -> str:
     # Reject expansion and shell control flow; re-emit validated literal argv.
     if any(token in line for token in ("$", "`", "\n")):
         raise ValueError("container command must use literal arguments")
@@ -63,8 +105,9 @@ def _guard_command(line: str, source: Path | None, image: Path, *, mode: str = "
     tokens = list(lexer)
     if any(token and set(token) <= set(";&|<>()") for token in tokens):
         raise ValueError("use one MDClaw command per job or array task")
-    if len(tokens) < 4 or Path(tokens[0]).name not in {"singularity", "apptainer"} or tokens[1] != "exec":
+    if len(tokens) < 4 or Path(tokens[0]).name not in _CONTAINER_RUNTIMES or tokens[1] != "exec":
         raise ValueError("expected a Singularity/Apptainer exec command")
+    _check_runtime(tokens[0], attempt_root)
     binds, env, i = [], {}, 2
     while i < len(tokens) and tokens[i].startswith("-"):
         option, sep, value = tokens[i].partition("=")
@@ -87,7 +130,7 @@ def _guard_command(line: str, source: Path | None, image: Path, *, mode: str = "
                     raise ValueError("ambiguous container environment")
                 env[key] = val
         i += 1
-    if i >= len(tokens) or Path(tokens[i]).resolve() != image:
+    if i >= len(tokens) or not _same_image(tokens[i], image, images):
         raise ValueError("container image differs from the attempt manifest")
     if mode == "image":
         if module is None:
@@ -131,22 +174,102 @@ def _guard_command(line: str, source: Path | None, image: Path, *, mode: str = "
     return shlex.join(tokens[:i + 1] + ["python", "-c", checked, check_source, *payload[1:]])
 
 
+# MDClaw 87f6862 (2026-09-16) and later writes this block before the payload
+# of every container-wrapped submit_job / submit_array_job script (mdclaw.slurm.
+# config._container_runtime_preamble): when the runtime named on the exec lines
+# is not on the node's PATH it sources the login profile and the module init,
+# and does nothing else. It is accepted only verbatim, once, at top level
+# before the first payload (never inside an array arm), naming the same
+# runtime as every exec line, so no other shell can ride along with it. Until
+# it was recognised the shim refused every script the image's own submit_job
+# wrote (glm-5.3-flash 3cond, 2026-09-26: the first submission refused in 149
+# of 153 CLI attempts that reached sbatch, agents then hand-writing scripts).
+_RUNTIME_PREAMBLE_HEAD = re.compile(r"if ! command -v (\S+) >/dev/null 2>&1; then")
+_RUNTIME_PREAMBLE_BODY = (
+    "[ -r /etc/profile ] && . /etc/profile >/dev/null 2>&1 || true",
+    '[ -r "${MDCLAW_MODULE_INIT:-/etc/profile.d/modules.sh}" ] && '
+    '. "${MDCLAW_MODULE_INIT:-/etc/profile.d/modules.sh}" >/dev/null 2>&1 || true',
+    "fi",
+)
+_CONTAINER_RUNTIMES = {"singularity", "apptainer"}
+_CASE_OPEN = 'case "$SLURM_ARRAY_TASK_ID" in'
+
+
+def _runtime_preamble(lines: list[str], index: int) -> str | None:
+    """The runtime named by a verbatim runtime preamble starting at ``index``."""
+    match = _RUNTIME_PREAMBLE_HEAD.fullmatch(lines[index].strip())
+    if not match:
+        return None
+    body = [line.strip() for line in lines[index + 1:index + 1 + len(_RUNTIME_PREAMBLE_BODY)]]
+    if tuple(body) != _RUNTIME_PREAMBLE_BODY:
+        raise ValueError("the container runtime preamble differs from the one MDClaw generates")
+    try:
+        (runtime,) = shlex.split(match.group(1))
+    except ValueError:
+        raise ValueError("the container runtime preamble must name one runtime") from None
+    if Path(runtime).name not in _CONTAINER_RUNTIMES:
+        raise ValueError("the container runtime preamble must name singularity or apptainer")
+    return runtime
+
+
 def guard_script(script: str, source: Path | None, image: Path, *, mode: str = "overlay",
-                 module: Path | None = None) -> tuple[str, int]:
-    """Accept the generated single-command or array grammar, guarding each arm."""
+                 module: Path | None = None, images: tuple[Path, ...] = (),
+                 attempt_root: Path | None = None) -> tuple[str, int]:
+    """Accept the generated single-command or array grammar, guarding each arm.
+
+    Besides the payload lines and the array ``case`` scaffold, the only shell
+    accepted is MDClaw's container-runtime preamble, verbatim. ``images`` are
+    other spellings of the attempt's image (its host-resolved path);
+    ``attempt_root`` is the attempt directory, where no container runtime may
+    live.
+    """
     lines = script.splitlines()
-    scaffold = {'case "$SLURM_ARRAY_TASK_ID" in', '*)', ';;', 'esac', 'exit 1',
+    if any(line.startswith("# NVIDIA MPS:") for line in lines):
+        raise ValueError("an MPS-packed job (submit_mps_job) cannot be audited in a benchmark "
+                         "attempt; submit each node with submit_job or submit_array_job")
+    scaffold = {_CASE_OPEN, '*)', ';;', 'esac', 'exit 1',
                 'echo "Unknown SLURM_ARRAY_TASK_ID: $SLURM_ARRAY_TASK_ID" >&2'}
     count = 0
+    preamble_runtime = None
+    in_case = False
+    skip = 0
     for index, line in enumerate(lines):
+        if skip:
+            skip -= 1
+            continue
         line = line.strip()
+        if line == _CASE_OPEN:
+            in_case = True
         if not line or line.startswith("#") or line in scaffold or re.fullmatch(r"\d+\)", line):
+            continue
+        try:
+            runtime = _runtime_preamble(lines, index)
+        except ValueError as exc:
+            raise ValueError(f"{exc} (refused line: {line[:160]!r})") from None
+        if runtime is not None:
+            if preamble_runtime is not None or count or in_case:
+                raise ValueError("the container runtime preamble must come once, "
+                                 "before the payload and outside the array dispatch")
+            _check_runtime(runtime, attempt_root)
+            preamble_runtime = runtime
+            skip = len(_RUNTIME_PREAMBLE_BODY)
             continue
         if line.startswith('printf \'%s %s %s\\n\' "[array_task=${SLURM_ARRAY_TASK_ID}]" '):
             # Replace the generated banner with the runtime source record.
             lines[index] = ""
             continue
-        lines[index] = "    " + _guard_command(line, source, image, mode=mode, module=module)
+        if preamble_runtime is not None:
+            try:
+                first = shlex.split(line)[0]
+            except (ValueError, IndexError):
+                first = None
+            if first is not None and Path(first).name in _CONTAINER_RUNTIMES and first != preamble_runtime:
+                raise ValueError("the payload's container runtime differs from the one its preamble checks")
+        try:
+            lines[index] = "    " + _guard_command(line, source, image, mode=mode, module=module,
+                                                   images=images, attempt_root=attempt_root)
+        except ValueError as exc:
+            raise ValueError(f"{exc} (refused line: {line[:160]!r})") from None
         count += 1
     if not count:
         raise ValueError("no MDClaw payload found")
@@ -187,7 +310,9 @@ def prepare_submission(arguments: list[str], manifest_path: str) -> tuple[list[s
     if not original.is_file():
         raise ValueError("the last sbatch argument must be a generated script file")
     script = original.read_text()
-    guarded, count = guard_script(script, source, image, mode=mode, module=module)
+    aliases = tuple(Path(p) for p in (environment.get("sif_resolved"),) if p)
+    guarded, count = guard_script(script, source, image, mode=mode, module=module,
+                                  images=aliases, attempt_root=manifest_file.parent)
     directory = manifest_file.parent / "slurm" / "source-checked"
     directory.mkdir(parents=True, exist_ok=True)
     snapshot = directory / f"{uuid.uuid4().hex}.sbatch"

@@ -92,15 +92,40 @@ def _worker_environment(environment) -> dict:
     the environment is returned unchanged.
     """
     environment = dict(environment)
-    if not (environment.get("APPTAINER_CONTAINER") or environment.get("SINGULARITY_CONTAINER")):
-        return environment
-    for key in list(environment):
-        if key.startswith(("APPTAINER", "SINGULARITY")) or key in _IMAGE_ONLY_VARIABLES:
-            del environment[key]
-    host_path = environment.get("MDCLAW_SLURM_PATH")
-    if host_path:
-        environment["PATH"] = host_path
+    # MDClaw's runtime preamble sources ${MDCLAW_MODULE_INIT} on the node when
+    # the runtime is not on PATH; the job never needs the agent's value.
+    environment.pop("MDCLAW_MODULE_INIT", None)
+    if environment.get("APPTAINER_CONTAINER") or environment.get("SINGULARITY_CONTAINER"):
+        for key in list(environment):
+            if key.startswith(("APPTAINER", "SINGULARITY")) or key in _IMAGE_ONLY_VARIABLES:
+                del environment[key]
+        host_path = environment.get("MDCLAW_SLURM_PATH")
+        if host_path:
+            environment["PATH"] = host_path
+    # A bare `singularity` on the job's PATH must be the host's, never a file
+    # the agent put in its own attempt tree. The attempt's .mddatabench/bin
+    # leads the agent PATH so that sbatch reaches this shim, and it stays on the
+    # job's PATH for the same reason unless it (or another attempt directory
+    # on PATH) holds a container runtime.
+    manifest = environment.get("MDDATABENCH_MANIFEST")
+    if manifest and environment.get("PATH"):
+        root = Path(manifest).resolve().parent
+        environment["PATH"] = os.pathsep.join(
+            entry for entry in environment["PATH"].split(os.pathsep)
+            if entry and not (_inside(Path(entry), root) and _holds_runtime(Path(entry))))
     return environment
+
+
+def _inside(path: Path, root: Path) -> bool:
+    try:
+        return path.is_relative_to(root) or path.resolve().is_relative_to(root)
+    except OSError:
+        return False
+
+
+def _holds_runtime(directory: Path) -> bool:
+    return any(os.access(directory / name, os.X_OK) and not (directory / name).is_dir()
+               for name in ("singularity", "apptainer"))
 
 
 def _declared_source_mode(manifest_path: str) -> str:
@@ -153,9 +178,10 @@ def main(argv=None) -> int:
             submitted, overlay = prepare_submission(submitted, manifest_path)
         except (OSError, ValueError, KeyError) as exc:
             mode = _declared_source_mode(manifest_path)
-            detail = (f"mddatabench_source_overlay_invalid: {exc}. "
-                      f"Use configure_container --source-mode {mode} and submit_job/"
-                      "submit_array_job with a direct mdclaw payload.\n")
+            advice = ("" if "inside the attempt directory" in str(exc) else
+                      f" Use configure_container --source-mode {mode} and submit_job/"
+                      "submit_array_job with a direct mdclaw payload.")
+            detail = f"mddatabench_source_overlay_invalid: {exc}.{advice}\n"
             sys.stderr.write(detail)
             event_log = os.environ.get("MDDATABENCH_EVENT_LOG")
             if event_log:
