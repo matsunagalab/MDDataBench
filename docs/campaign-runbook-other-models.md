@@ -31,11 +31,14 @@ as one more bar next to kimi-k3 in `scripts/paper_figures.py` (fig6). Written
 - **Image**: the fixed path above; `<target>.sif.deployment.json` next to the
   link target says which mdclaw is baked in (`source_commit`) and its digest.
   The spec's `sif_sha256` must equal the image's digest; the launcher trusts
-  the spec, it does not hash the file. Current target (since 2026-09-18 06:40
-  JST): `modgeom-28f5e4a4f461`, digest
-  `fa683b6a5158db62378e868669f10c463127fd01901e87f9e3d70e6ab072d0be`, mdclaw
-  `b6b7721` (the v3/v4/glm skill-full campaigns ran on `6ecc1ad9…`, the v2fix
-  image). Images from mdclaw 87f6862 on write a runtime preamble into every
+  the spec, it does not hash the file. Current target (since 2026-09-26 15:35
+  JST): `tempinherit-20e916d447b9`, digest
+  `51bb13ca5809ae704d502c5c6c57faea143d53f627040961420207ed3ce12771`, mdclaw
+  `87050da`: production takes its temperature from the eq node when
+  `--temperature-kelvin` is omitted (the skills now tell agents to omit it).
+  The pi skill checkout is at the same commit. The stopped glm-5.3-flash
+  3cond ran on `modgeom-28f5e4a4f461` (`fa683b6a…`, mdclaw `b6b7721`); the
+  v3/v4/glm skill-full campaigns on `6ecc1ad9…`, the v2fix image. Images from mdclaw 87f6862 on write a runtime preamble into every
   job script; the shim accepts it from MDDataBench `shim-runtime-preamble` on,
   and `init_experiment` refuses an image whose own scripts the shim would
   refuse (`shim_rejects_image_scripts`: teach `mddatabench/source_overlay.py`
