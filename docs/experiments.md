@@ -166,9 +166,21 @@ starts it inside the same sandbox on the compute node with the launcher and
 job plan under `sandbox/`, which the agent cannot see. `--wrap` becomes a
 payload; a script on standard input is refused.
 
-It is not a wall against an agent that sets out to escape: the real `sbatch`
-stays reachable, and a job submitted around the shim runs unsandboxed; it is
-missing from the shim's record and present in Slurm accounting.
+The scheduler is guarded too (`mddatabench/slurm_guard.py`): on 2026-09-26 a
+sandboxed agent cleared "its" jobs with `scancel $(squeue -u $USER -h -o '%i')`
+and cancelled every job of the owner, including another project's production
+runs. Inside the sandbox `/usr/bin/scancel`, `scontrol`, `squeue` and `sacct`
+see only the attempt's jobs (recorded by the shim, or run from inside the
+attempt); `scancel` takes job ids and refuses selection by user, name,
+partition, state, account, QOS, node or reservation; `srun`, `salloc`,
+`sattach`, `scrontab` and `strigger` are refused; `/usr/bin/sbatch` is the
+shim. The real clients are under `/.mddatabench-slurm`, which the MDClaw image
+also sees, so MDClaw's own Slurm calls are guarded the same way.
+
+It is not a wall against an agent that sets out to escape: the real clients
+stay reachable under `/.mddatabench-slurm`, and a job submitted around the shim
+runs unsandboxed; it is missing from the shim's record and present in Slurm
+accounting.
 `init_experiment` probes the sandbox and refuses with `sandbox_probe_failed`
 when it does not hold; `experiment.json` records the probe.
 

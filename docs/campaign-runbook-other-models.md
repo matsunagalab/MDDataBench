@@ -73,7 +73,10 @@ system. After `init_experiment`, `experiment.json` must carry `sandbox_probe`
 with `"ok": true`. At each tick, check the shim record against Slurm
 accounting (jobs inside an attempt that the shim never recorded ran outside
 the sandbox) and audit newly sealed transcripts for reads outside the
-condition; both are part of the monitoring script of 2026-09-26.
+condition; both are part of the monitoring script of 2026-09-26. Agents see and
+cancel only their own jobs (the sandbox's Slurm guard, since 6da0110); a
+campaign started before that could cancel every job of the owner, which one
+agent did on 2026-09-26.
 
 ## Spec for one model, CLI + skills only
 
