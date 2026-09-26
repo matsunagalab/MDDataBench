@@ -12,9 +12,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 if __package__:
-    from .source_overlay import prepare_submission, source_mode
+    from .source_overlay import prepare_submission, sandbox_submission, source_mode
 else:
-    from source_overlay import prepare_submission, source_mode
+    from source_overlay import prepare_submission, sandbox_submission, source_mode
 
 
 def _without_time_limit(arguments: list[str]) -> list[str]:
@@ -187,6 +187,17 @@ def main(argv=None) -> int:
             if event_log:
                 _record(Path(event_log), submitted, "", 2, {"error": detail.strip()})
             return 2
+        try:
+            submitted, sandboxed = sandbox_submission(submitted, manifest_path)
+        except (OSError, ValueError, KeyError) as exc:
+            detail = f"mddatabench_sandbox_submission_invalid: {exc}\n"
+            sys.stderr.write(detail)
+            event_log = os.environ.get("MDDATABENCH_EVENT_LOG")
+            if event_log:
+                _record(Path(event_log), submitted, "", 2, {"error": detail.strip()})
+            return 2
+        if sandboxed is not None:
+            overlay = {**(overlay or {}), "sandbox": sandboxed}
     completed = subprocess.run([real, *submitted], text=True, capture_output=True,
                                check=False, env=_worker_environment(os.environ))
     sys.stdout.write(completed.stdout)

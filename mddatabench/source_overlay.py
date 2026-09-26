@@ -328,3 +328,91 @@ def prepare_submission(arguments: list[str], manifest_path: str) -> tuple[list[s
               "submitted_sha256": hashlib.sha256(guarded.encode()).hexdigest()}
     arguments = [*arguments[:-1], str(snapshot)]
     return arguments, record
+
+
+def _script_header(text: str) -> list[str]:
+    """The leading shebang, comment and blank lines, where sbatch reads #SBATCH."""
+    header = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#"):
+            break
+        header.append(line)
+    return header
+
+
+def _wrap_command(arguments: list[str]) -> tuple[int | None, str | None]:
+    """Index and command of an ``sbatch --wrap`` submission, if it is one."""
+    for index, argument in enumerate(arguments):
+        if argument.startswith("--wrap="):
+            return index, argument.split("=", 1)[1]
+        if argument == "--wrap" and index + 1 < len(arguments):
+            return index, arguments[index + 1]
+    return None, None
+
+
+def _script_index(arguments: list[str]) -> int | None:
+    """Position of the batch script: the first operand that is a script file.
+
+    sbatch takes options, then the script, then the script's own arguments.
+    An option's separate value (``-J name``) is not an existing script, so the
+    first operand that is a file starting with ``#!`` is the script.
+    """
+    for index, argument in enumerate(arguments):
+        if argument.startswith("-"):
+            continue
+        path = Path(argument)
+        try:
+            if path.is_file() and path.read_bytes()[:2] == b"#!":
+                return index
+        except OSError:
+            continue
+    return None
+
+
+def sandbox_submission(arguments: list[str], manifest_path: str) -> tuple[list[str], dict | None]:
+    """Make the submitted job start inside the attempt's sandbox on its node.
+
+    Applies when the attempt runs sandboxed (``environment.agent_sandbox``),
+    to every condition: a sif_only job script is not source-guarded and would
+    otherwise run on the compute node with the owner's full view. The job's
+    script (after any source guard) is kept read-only as the payload; the
+    submitted script repeats its #SBATCH lines and execs the attempt's
+    launcher, which the agent cannot see or change, with the job plan.
+    """
+    manifest_file = Path(manifest_path)
+    manifest = json.loads(manifest_file.read_text())
+    if not (manifest.get("environment") or {}).get("agent_sandbox"):
+        return arguments, None
+    attempt = manifest_file.parent
+    directory = attempt / "slurm" / "sandboxed"
+    directory.mkdir(parents=True, exist_ok=True)
+    stem = uuid.uuid4().hex
+    wrap_index, wrapped = _wrap_command(arguments)
+    if wrap_index is not None:
+        text = "#!/bin/bash\n" + wrapped + "\n"
+        width = 1 if arguments[wrap_index].startswith("--wrap=") else 2
+        options, script_args = arguments[:wrap_index] + arguments[wrap_index + width:], []
+    else:
+        index = _script_index(arguments)
+        if index is None:
+            raise ValueError("submit a batch script file (or --wrap): a script given on "
+                             "standard input cannot be started inside the attempt sandbox")
+        text = Path(arguments[index]).read_text()
+        options, script_args = arguments[:index], arguments[index + 1:]
+    payload = directory / f"{stem}.payload.sh"
+    payload.write_text(text)
+    payload.chmod(0o444)
+    launcher = attempt / "sandbox" / "sandbox.py"
+    plan = attempt / "sandbox" / "plan-job.json"
+    header = [line for line in _script_header(text) if line.lstrip().startswith("#SBATCH")]
+    wrapper = directory / f"{stem}.sbatch"
+    wrapper.write_text(
+        "#!/bin/bash\n" + "".join(line + "\n" for line in header)
+        + "# MDDataBench: this job runs inside its attempt's sandbox (mddatabench/sandbox.py).\n"
+        + f"exec /usr/bin/python3 {shlex.quote(str(launcher))} --plan {shlex.quote(str(plan))}"
+        + f" -- /bin/bash {shlex.quote(str(payload))} \"$@\"\n")
+    wrapper.chmod(0o444)
+    record = {"wrapper": str(wrapper), "payload": str(payload), "plan": str(plan),
+              "payload_sha256": hashlib.sha256(text.encode()).hexdigest()}
+    return [*options, str(wrapper), *script_args], record

@@ -27,6 +27,7 @@ from collections import Counter, defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
 
+from . import sandbox as agent_sandbox
 from .attempt_diagnostics import diagnose, gpu_totals, measured, read_record
 from .recovery import recovery_report
 from .slurm_binds import discover_slurm_binds
@@ -425,6 +426,9 @@ def _normalise_spec(spec: dict, experiment_dir: Path, dataset_dir: Path) -> dict
             raise ValueError(f"axis_overrides[{axis!r}].agent_timeout_seconds must be positive")
         if "md_time_limit" in limits and not re.fullmatch(r"[0-9:-]+", str(limits["md_time_limit"])):
             raise ValueError(f"axis_overrides[{axis!r}].md_time_limit must be a Slurm time value")
+    sandboxed = spec.get("agent_sandbox", False)
+    if not isinstance(sandboxed, bool):
+        raise ValueError("agent_sandbox must be true or false")
     normal_cells = []
     for cell in cells:
         condition = str(cell.get("condition") or "")
@@ -479,6 +483,8 @@ def _normalise_spec(spec: dict, experiment_dir: Path, dataset_dir: Path) -> dict
         notes = cell.get("slurm_notes", spec.get("slurm_notes")) or []
         if not isinstance(notes, list) or not all(isinstance(n, str) and n.strip() for n in notes):
             raise ValueError("slurm_notes must be a list of non-empty strings")
+        if sandboxed and harness != "pi":
+            raise ValueError("agent_sandbox supports the pi harness only")
         normal_cells.append({**cell, "condition": condition, "harness": harness,
                              "model": model, "skill_source": skill_source,
                              "source_mode": source_mode, "skills_dir": skills_dir,
@@ -492,6 +498,7 @@ def _normalise_spec(spec: dict, experiment_dir: Path, dataset_dir: Path) -> dict
         "agent_timeout_seconds": agent_timeout,
         "md_time_limit": md_time_limit,
         "axis_overrides": {str(axis): dict(limits) for axis, limits in axis_overrides.items()},
+        "agent_sandbox": sandboxed,
         "pass_rule": PASS_RULE,
         "tasks": [str(task) for task in tasks],
         "cells": normal_cells,
@@ -649,6 +656,9 @@ def _plan_attempt(root: Path, spec: dict, dataset: Path, task_id: str, cell: dic
         "slurm_notes": list(cell.get("slurm_notes") or []),
         "agent_timeout_seconds": agent_timeout_seconds,
         "md_time_limit": md_time_limit,
+        # See mddatabench/sandbox.py: the agent and its jobs see only this
+        # attempt, the images and the system trees.
+        "agent_sandbox": bool(spec.get("agent_sandbox")),
     }
     bin_dir = workspace / ".mddatabench" / "bin"
     bin_dir.mkdir(parents=True)
@@ -795,8 +805,54 @@ def _plan_attempt(root: Path, spec: dict, dataset: Path, task_id: str, cell: dic
                      "PORTABLE_SUBMISSION.md", "runtime_sif"]),
     }
     _write_json(attempt / "manifest.json", manifest)
+    if environment_spec["agent_sandbox"]:
+        agent_sandbox.prepare_attempt(attempt, manifest)
     _append_event(attempt, "attempt_planned")
     return {"attempt_id": attempt_id, "attempt_dir": str(attempt)}
+
+
+def _probe_sandbox(root: Path, spec: dict, images: dict) -> dict:
+    """Refuse a campaign whose agent sandbox does not hold on this host.
+
+    Builds a throwaway attempt inside the experiment, runs the launcher with a
+    job plan and checks from inside that the harness checkout and the rest of
+    the experiment are absent, that the home is the attempt's own (empty), that
+    the workspace is writable, and that the image starts. See sandbox.py.
+    """
+    probe_root = root / ".sandbox-probe"
+    attempt = probe_root / "attempts" / "probe" / "attempt"
+    workspace = attempt / "workspace"
+    workspace.mkdir(parents=True)
+    image = next(iter(images.values()), None)
+    manifest = {"attempt_id": "sandbox-probe", "condition": "cli_sif",
+                "paths": {"workspace": str(workspace)},
+                "environment": {"sif": spec.get("sif") if image else None,
+                                "sif_resolved": image["sif"] if image else None,
+                                "container_binds": [], "agent_sandbox": True}}
+    plan = agent_sandbox.prepare_attempt(attempt, manifest)
+    hidden = [str(Path(__file__).resolve().parents[1]), str(root / "host-binds"),
+              str(probe_root / "attempts" / "probe" / "attempt" / "sandbox")]
+    runtime = shutil.which("singularity") or shutil.which("apptainer") or "singularity"
+    checks = ["set -e"]
+    checks += [f"test ! -e {shlex.quote(path)} || {{ echo VISIBLE {shlex.quote(path)}; exit 3; }}"
+               for path in hidden]
+    checks += ['test -z "$(ls -A "$HOME")" || { echo HOME_NOT_EMPTY; exit 3; }',
+               f"touch {shlex.quote(str(workspace / '.probe'))}"]
+    if image:
+        checks.append(f"{shlex.quote(runtime)} exec {shlex.quote(str(spec['sif']))} /bin/true")
+    checks.append("echo SANDBOX_OK")
+    started = time.monotonic()
+    completed = subprocess.run(
+        agent_sandbox.launcher_command(attempt, plan, ["/bin/sh", "-c", "; ".join(checks)]),
+        cwd=workspace, capture_output=True, text=True, timeout=300, check=False)
+    seconds = round(time.monotonic() - started, 1)
+    if "SANDBOX_OK" not in completed.stdout or completed.returncode:
+        raise ValueError("sandbox_probe_failed: the agent sandbox does not hold on this host "
+                         f"(exit {completed.returncode}): "
+                         f"{(completed.stdout + completed.stderr).strip()[-600:]}")
+    shutil.rmtree(probe_root)
+    return {"ok": True, "seconds": seconds, "hidden_checked": hidden,
+            "image_started": bool(image)}
 
 
 def init_experiment(experiment_dir: str, spec_file: str,
@@ -840,6 +896,7 @@ def init_experiment(experiment_dir: str, spec_file: str,
     container_binds = spec.get("container_binds")
     if images and container_binds is None:
         container_binds = discover_slurm_binds(str(root / "host-binds"))
+    sandbox_probe = _probe_sandbox(root, spec, images) if spec.get("agent_sandbox") else None
     runtimes: dict[str, dict] = {}
     for cell in spec["cells"]:
         runtime_sif = cell.get("runtime_sif") or spec.get("runtime_sif")
@@ -856,6 +913,7 @@ def init_experiment(experiment_dir: str, spec_file: str,
         "images": list(images.values()),
         "runtime_images": list(runtimes.values()),
         "container_binds": container_binds,
+        "sandbox_probe": sandbox_probe,
     })
 
     attempts = []
@@ -957,6 +1015,41 @@ def _wait_for_user_skills(attempt: Path, manifest: dict, interval_seconds: float
     return found
 
 
+# Variables of the operator's own session that a sandboxed agent must not
+# inherit. The dispatcher is started from an interactive shell; on 2026-09-26
+# its environment carried the operator's Claude Code messaging socket and
+# token, a terminal-multiplexer socket (HERDR_*), and the session's D-Bus and
+# runtime directory into every agent. The sandbox hides the sockets; the
+# variables go too. PI_CODING_AGENT_DIR would point pi outside its sandbox.
+_SANDBOX_DROPPED_ENV = ("CLAUDE", "AI_AGENT", "HERDR_", "DBUS_", "XDG_", "SSH_",
+                        "COREPACK_", "GIT_EDITOR", "PI_CODING_AGENT_DIR")
+
+
+def _sandbox_environment(environment: dict) -> dict:
+    return {key: value for key, value in environment.items()
+            if not key.startswith(_SANDBOX_DROPPED_ENV)}
+
+
+def _pi_sandbox_inputs(manifest: dict, executable: str) -> dict:
+    """What pi needs inside the sandbox: its installation and its agent directory."""
+    install = Path(executable).parent.parent  # <node distribution>/bin/pi
+    dirs = [str(install)]
+    node = shutil.which("node")
+    if node:
+        node_root = Path(node).resolve().parent.parent
+        if not node_root.is_relative_to(install.resolve()):
+            dirs.append(str(node_root))
+    skills_file = (_user_skills_file()
+                   if manifest.get("condition") == "cli_skill_sif"
+                   and manifest.get("skill_source") == "user" else None)
+    return {"install_dirs": dirs,
+            "agent_dir": str(Path(os.environ.get("PI_CODING_AGENT_DIR",
+                                                 Path.home() / ".pi" / "agent"))),
+            "real_home": str(Path.home()),
+            "skill_package": str(skills_file.parents[2]) if skills_file else None,
+            "user_skill_targets": str(Path.home() / ".agents" / "skills")}
+
+
 def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
                       dry_run: bool = False) -> dict:
     """Run one pi/Claude Code/Codex attempt and capture its transcript and usage."""
@@ -1031,6 +1124,15 @@ def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
                                  + ", ".join(launchers) + "\n")
     if manifest["condition"] == "sif_only":
         environment["MDDATABENCH_RUNTIME_SIF"] = manifest["environment"]["runtime_sif"]
+    sandbox_plan = None
+    if manifest["environment"].get("agent_sandbox"):
+        environment = _sandbox_environment(environment)
+        sandbox_plan = agent_sandbox.build_plan(
+            attempt, manifest, role="agent", pi=_pi_sandbox_inputs(manifest, command[0]))
+        plan_path = attempt / "sandbox" / "plan-agent.json"
+        if not dry_run:
+            plan_path.write_text(json.dumps(sandbox_plan, indent=2) + "\n")
+        command = agent_sandbox.launcher_command(attempt, plan_path, command)
     if dry_run:
         exposed = {key: value for key, value in environment.items()
                    if key == "PATH" or key.startswith(("APPTAINER", "SINGULARITY",
@@ -1039,7 +1141,7 @@ def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
                 "command": command, "cwd": str(workspace),
                 "timeout_seconds": effective_timeout,
                 "md_time_limit": manifest["environment"]["md_time_limit"],
-                "environment": exposed}
+                "environment": exposed, "sandbox_plan": sandbox_plan}
     skills_file = _wait_for_user_skills(attempt, manifest)
     _append_event(attempt, "agent_start", command=command,
                   skills_file=str(skills_file) if skills_file else None)
@@ -1205,7 +1307,7 @@ def _truncated_response(message: dict | None) -> str | None:
 # by the replanning step.
 _RUN_RECORDS = ("workspace", "agent-session", "agent.stdout.jsonl", "agent.stderr.log",
                 "timeline.jsonl", "md_sacct.txt", "slurm", "evaluation", "score.json",
-                "result.json", "events.jsonl")
+                "result.json", "events.jsonl", "sandbox")
 MAX_INFRA_RETRIES = 3
 
 
