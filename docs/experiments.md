@@ -134,6 +134,44 @@ evaluator scorer submits plain `sbatch` and relies on it as well.
 [`examples/experiment-rikyu-image.json`](../examples/experiment-rikyu-image.json)
 is a complete image-mode spec.
 
+## Agent sandbox
+
+`"agent_sandbox": true` (top-level, pi cells only) runs every agent and every
+job it submits through the shim inside a filesystem sandbox
+(`mddatabench/sandbox.py`). Without it an agent runs as the campaign owner and
+can read what the owner can: in glm-5.3-flash-3cond-full (2026-09-26) a
+CLI-only agent read about ten skill pages from the owner's MDClaw checkout and
+another read a skill-condition attempt's submitted scripts, against the agent
+instructions.
+
+The sandbox is assembled per attempt from user, mount and PID namespaces
+(`unshare`, no root, no setuid helper): read-only `/usr`, `/etc`, `/var`,
+`/opt`, Apptainer's installation, the attempt's `workspace/`, `slurm/` and
+`agent-session/`, a redacted manifest (no reference accession, no harness
+paths), the condition's image (`sif_only`: the runtime image only) and a home
+of its own (`sandbox/home`). pi gets its installation, its credentials
+read-only, and settings without the package list; `cli_skill_sif` also gets
+the skill package's `skills/` and `package.json`, not the rest of the checkout.
+The owner's home, other attempts and campaigns, the harness, the reference
+bundles and the owner's other processes do not exist inside, and the owner's
+session variables (`CLAUDE*`, `HERDR_*`, `XDG_*`, `DBUS_*`, `SSH_*`) are not
+passed on. Apptainer inside runs the SIF unprivileged through squashfuse (no
+extraction; `mdclaw --version` takes as long as setuid). When the agent exits
+or is killed, the PID namespace ends and takes any detached process with it.
+
+The shim wraps every submission of a sandboxed attempt (every condition; a
+`sif_only` script is otherwise unguarded): the script is kept read-only under
+`slurm/sandboxed/`, and the submitted wrapper repeats its `#SBATCH` lines and
+starts it inside the same sandbox on the compute node with the launcher and
+job plan under `sandbox/`, which the agent cannot see. `--wrap` becomes a
+payload; a script on standard input is refused.
+
+It is not a wall against an agent that sets out to escape: the real `sbatch`
+stays reachable, and a job submitted around the shim runs unsandboxed; it is
+missing from the shim's record and present in Slurm accounting.
+`init_experiment` probes the sandbox and refuses with `sandbox_probe_failed`
+when it does not hold; `experiment.json` records the probe.
+
 ## Site scheduler notes
 
 `slurm_notes` (top-level or per cell) is a list of sentences shown in every

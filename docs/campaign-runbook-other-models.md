@@ -65,6 +65,16 @@ as one more bar next to kimi-k3 in `scripts/paper_figures.py` (fig6). Written
   `rikyu/kimi-k3`, `rikyu/glm-5.2`, `rikyu/kimi-k2.6`, `rikyu/qwen3.6-35b`, all
   reasoning models on the rikyu gateway, used with `thinking: high` so far.
 
+## Sandbox (from 2026-09-26)
+
+Every new spec sets `"agent_sandbox": true` (docs/experiments.md "Agent
+sandbox"): agents and their jobs see only their attempt, the images and the
+system. After `init_experiment`, `experiment.json` must carry `sandbox_probe`
+with `"ok": true`. At each tick, check the shim record against Slurm
+accounting (jobs inside an attempt that the shim never recorded ran outside
+the sandbox) and audit newly sealed transcripts for reads outside the
+condition; both are part of the monitoring script of 2026-09-26.
+
 ## Spec for one model, CLI + skills only
 
 Copy `runs/prep/experiment-kimi-k3-3cond-full-v3.json` and change: one cell,
