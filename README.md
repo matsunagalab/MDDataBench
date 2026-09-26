@@ -130,7 +130,12 @@ copy with a runtime import check; the CLI runs only if `mdclaw.__file__` resolve
 to the frozen source. The source record appears in job stderr as
 `MDDATABENCH_SOURCE`, and script hashes are recorded in `sbatch-events.jsonl`.
 Use direct `mdclaw` payloads via `submit_job`/`submit_array_job`; custom shell
-setup and `sbatch --wrap` are refused in these conditions. `sif_only` is
+setup, MPS-packed jobs (`submit_mps_job`) and `sbatch --wrap` are refused in
+these conditions. The only shell accepted besides the payload lines is the
+container-runtime preamble MDClaw writes (87f6862 and later), verbatim; the
+recorded fixtures under `tests/test_benchmark/fixtures/mdclaw_sbatch/` pin the
+accepted forms, and `init_experiment` refuses an image whose own `submit_job`
+scripts the shim would refuse (`shim_rejects_image_scripts`). `sif_only` is
 unaffected. Initialize a new experiment to obtain these wrappers; existing
 campaign artifacts are not retrofitted.
 

@@ -28,13 +28,22 @@ as one more bar next to kimi-k3 in `scripts/paper_figures.py` (fig6). Written
 - **Harness**: `/data1/rkp00079/rku00161/MDDataBench` (main). The dispatcher
   runs the agents from this checkout (`PYTHONPATH=$PWD`), the scorer jobs bind
   it into the image. Pull only between campaigns.
-- **Image**: the fixed path above; `apptainer inspect <path> | grep
-  source.commit` says which mdclaw is baked in (b648068 since 9/14 09:26 JST).
+- **Image**: the fixed path above; `<target>.sif.deployment.json` next to the
+  link target says which mdclaw is baked in (`source_commit`) and its digest.
   The spec's `sif_sha256` must equal the image's digest; the launcher trusts
-  the spec, it does not hash the file. Current digest:
-  `fdcda5ab414860b6bf5eecfaa6c600b0541e8388c3849c5c65126ecc4fcf9d79`
-  (`protonation-7c66c59d41fe`, main `dd7a672`, switched 2026-09-17; the v3/v4/glm
-  campaigns ran on `6ecc1ad9…`, the v2fix image). Since 2026-09-17 the dataset is
+  the spec, it does not hash the file. Current target (since 2026-09-18 06:40
+  JST): `modgeom-28f5e4a4f461`, digest
+  `fa683b6a5158db62378e868669f10c463127fd01901e87f9e3d70e6ab072d0be`, mdclaw
+  `b6b7721` (the v3/v4/glm skill-full campaigns ran on `6ecc1ad9…`, the v2fix
+  image). Images from mdclaw 87f6862 on write a runtime preamble into every
+  job script; the shim accepts it from MDDataBench `shim-runtime-preamble` on,
+  and `init_experiment` refuses an image whose own scripts the shim would
+  refuse (`shim_rejects_image_scripts`: teach `mddatabench/source_overlay.py`
+  the new form; `shim_probe_failed`: the probe could not run, see its message).
+  After an image switch, record fixtures inside the new image with
+  `scripts/record_mdclaw_sbatch_fixtures.py` and run
+  `tests/test_benchmark/test_mdclaw_sbatch_fixtures.py` there (the drift test
+  only runs where MDClaw is importable). Since 2026-09-17 the dataset is
   v0.5: the standard-state sentence is gone from the prompts and the scorer tolerates
   ionisation states the task does not name; specs copied from the v4 spec must
   re-pin `sif_sha256`.
@@ -196,3 +205,10 @@ progress as passed/completed, in that order.
   shell scripting mistake; usually recovered within the budget.
 - `associated_ligands_require_selection`, `residue_range_chain_not_found`:
   refusals before the node begins; they cost time, not nodes.
+- `mddatabench_source_overlay_invalid` on the first submission of most CLI
+  attempts (campaign_status.py `ANOMALY sbatch_failures`, shim rejected): the
+  shim does not know a script form the image's `submit_job` writes. Agents
+  recover by hand-writing scripts, so the pass rate hides it (glm-5.3-flash,
+  2026-09-26, 10 h). Stop, fix the shim, and relaunch with a fresh
+  `init_experiment` from committed main in a new directory: attempts planned
+  earlier keep the shim copy made at planning.

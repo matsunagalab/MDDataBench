@@ -100,13 +100,27 @@ host search path, whose first entry is the attempt's `sbatch` shim. The agent
 never names a bind.
 
 The shim then runs *inside* the image. It rejects any job whose `PYTHONPATH`
-is non-empty, whose image differs from the manifest, or whose binds shadow the
-probed package directory, and rewrites the payload so the job aborts unless
-`mdclaw.__file__` is the probed module. Because `sbatch` exports the
+is non-empty, whose image differs from the manifest (the configured path and
+the host-resolved path recorded at init, `sif_resolved`, are both the image),
+whose binds shadow the probed package directory, or whose container runtime is
+a file inside the attempt directory, and rewrites the payload so the job aborts
+unless `mdclaw.__file__` is the probed module. Besides the payload lines and the
+array `case` scaffold it accepts one piece of shell: the container-runtime
+preamble MDClaw writes since 87f6862 (`if ! command -v singularity ...; then`
+source the login profile and module init `fi`), verbatim, once, before the
+payload. MPS-packed jobs are refused by name. `init_experiment` generates a
+single and an array script with the image's own MDClaw and refuses the image
+(`shim_rejects_image_scripts`, `shim_probe_failed`) if the shim would refuse
+them, so an image replaced in place cannot silently break every submission
+again (glm-5.3-flash, 2026-09-26: the first submission refused in 149 of 153 CLI
+attempts, agents hand-writing their own scripts). Because `sbatch` exports the
 submitter's environment to the job, the shim also hands the worker a host
 environment: image-only loader and interpreter variables (`LD_PRELOAD`,
 `LD_LIBRARY_PATH`, `PYTHONPATH`, `PYTHONHOME`) and Apptainer bookkeeping are
-dropped and `PATH` becomes the host search path. Measured 2026-09-09 on
+dropped and `PATH` becomes the host search path. In every mode it also drops
+`MDCLAW_MODULE_INIT` (the file the preamble would source) and removes from
+`PATH` any attempt directory holding a `singularity` or `apptainer`, so a bare
+runtime name on the node is the host's. Measured 2026-09-09 on
 Rikyu, a job submitted from inside the SIF without this failed with
 `singularity: command not found` and logged an `ld.so` preload error for every
 host process.

@@ -889,6 +889,95 @@ def test_overlay_attempts_record_no_image_audit(tmp_path, monkeypatch):
     assert manifest["environment"]["source_mode"] == "overlay"
 
 
+def test_image_attempts_record_the_host_resolved_image(tmp_path, monkeypatch):
+    """The manifest keeps both spellings of a shared image replaced in place."""
+    resolved = tmp_path / "mdclaw-build-1234.sif"
+
+    def probe(sif, sha256=None):
+        return {"sif": str(resolved), "sha256": "imagedigest",
+                "mdclaw_module": "/opt/mdclaw/lib/python3.12/site-packages/mdclaw/__init__.py",
+                "mdclaw_version": "0.6.8", "python": "/opt/mdclaw/bin/python3"}
+
+    monkeypatch.setattr(ex, "_probe_image", probe)
+    spec, sif = image_spec(tmp_path, [cell("cli_sif")])
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(spec), str(DATASET))
+    environment = json.loads(attempts(root)[0].read_text())["environment"]
+    assert environment["sif"] == str(sif)
+    assert environment["sif_resolved"] == str(resolved) != environment["sif"]
+
+
+MODULE = "/opt/mdclaw/lib/python3.12/site-packages/mdclaw/__init__.py"
+
+
+def probe_output(image, **changes):
+    fixtures = Path(__file__).parent / "fixtures" / "mdclaw_sbatch" / "b6b7721-shared"
+    record = {"module": MODULE,
+              **{kind: (fixtures / f"image_{kind}.sbatch").read_text().replace(
+                  "/images/mdclaw.sif", str(image)) for kind in ("single", "array")}}
+    record.update(changes)
+    return json.dumps(record) + "\n"
+
+
+def fake_image_runtime(monkeypatch, submission_stdout, seen=None):
+    """Answer both singularity calls of _probe_image: import, then submissions."""
+    monkeypatch.setattr(ex.shutil, "which", lambda name: "/usr/bin/singularity")
+
+    def fake_run(argv, **kwargs):
+        if seen is not None:
+            seen.append((argv, kwargs))
+        if ex._SUBMISSION_PROBE in argv:
+            return SimpleNamespace(returncode=0, stdout=submission_stdout, stderr="")
+        return SimpleNamespace(returncode=0, stdout=f"{MODULE}\n0.6.8\n/opt/mdclaw/bin/python\n",
+                               stderr="")
+
+    monkeypatch.setattr(ex.subprocess, "run", fake_run)
+
+
+def test_image_probe_checks_the_images_own_scripts_against_the_shim(tmp_path, monkeypatch):
+    """init refuses an image whose submit_job the shim would refuse (87f6862)."""
+    image = tmp_path / "mdclaw.sif"
+    image.write_text("")
+    seen = []
+    fake_image_runtime(monkeypatch, probe_output(image), seen)
+    record = ex._probe_image(image, "imagedigest")
+    assert record["submission_probe"]["single"]["commands"] == 1
+    assert record["submission_probe"]["array"]["commands"] == 2
+    argv, kwargs = seen[-1]
+    assert json.loads(argv[-1]) == ex._image_container(str(image))
+    assert kwargs["cwd"] != str(Path.cwd()) and not Path(kwargs["cwd"]).exists()
+
+    array = json.loads(probe_output(image))["array"].replace("; then\n", "; then\n    id\n", 1)
+    fake_image_runtime(monkeypatch, probe_output(image, array=array))
+    with pytest.raises(ValueError, match="shim_rejects_image_scripts: .*array.*refused line"):
+        ex._probe_image(image, "imagedigest")
+
+    single = json.loads(probe_output(image))["single"].replace(
+        "# Job command", "source /etc/profile.d/modules.sh\n# Job command")
+    fake_image_runtime(monkeypatch, probe_output(image, single=single))
+    with pytest.raises(ValueError, match="MDCLAW_MODULE_LOADS"):
+        ex._probe_image(image, "imagedigest")
+
+    fake_image_runtime(monkeypatch, probe_output(image, module="/home/me/mdclaw/mdclaw/__init__.py"))
+    with pytest.raises(ValueError, match="shim_probe_failed: .*imported /home/me/mdclaw"):
+        ex._probe_image(image, "imagedigest")
+
+    fake_image_runtime(monkeypatch, "Traceback: not json\n")
+    with pytest.raises(ValueError, match="shim_probe_failed: unexpected output"):
+        ex._probe_image(image, "imagedigest")
+
+
+def test_init_refuses_an_image_the_shim_would_refuse(tmp_path, monkeypatch):
+    spec, sif = image_spec(tmp_path, [cell("cli_sif")])
+    single = json.loads(probe_output(sif))["single"].replace("# Job command", "id\n# Job command")
+    fake_image_runtime(monkeypatch, probe_output(sif, single=single))
+    monkeypatch.setattr(ex, "_sha256", lambda path: "imagedigest")
+    root = tmp_path / "experiment"
+    with pytest.raises(ValueError, match="shim_rejects_image_scripts"):
+        ex.init_experiment(str(root), str(spec), str(DATASET))
+    assert not attempts(root)
+
+
 def test_shim_hands_the_worker_a_host_environment_from_inside_a_sif(monkeypatch):
     from mddatabench import sbatch_shim
 
