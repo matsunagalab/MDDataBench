@@ -197,3 +197,50 @@ def test_a_failed_or_trajectoryless_parent_ends_the_chain(tmp_path):
     assert [n.name for n in sc.production_segments(tmp_path, head)] == ["prod_002"]
     single = _prod(tmp_path, "prod_009", eq, 2.0)
     assert [n.name for n in sc.production_segments(tmp_path, single)] == ["prod_009"]
+
+
+# MDClaw names a node's files after an output prefix when the agent passes one
+# and records each under a fixed key in node.json. Reading fixed names scored
+# completed runs 0/20 as "the min node produced no minimized_structure.pdb"
+# (glm v3 003_membrane_5zk8 cli_sif r2: m2_dppc_min_minimized_structure.pdb).
+
+def _record(node, **artifacts):
+    data = json.loads((node / "node.json").read_text())
+    data["artifacts"] = artifacts
+    (node / "node.json").write_text(json.dumps(data))
+
+
+def test_prefixed_artifacts_recorded_in_node_json_resolve(tmp_path):
+    _dag(tmp_path)
+    nodes_dir = tmp_path / "nodes"
+    minimized = next(p for p in nodes_dir.iterdir() if p.name.startswith("min"))
+    (minimized / "artifacts" / "minimized_structure.pdb").rename(
+        minimized / "artifacts" / "m2_min_minimized_structure.pdb")
+    _record(minimized, minimized_structure="artifacts/m2_min_minimized_structure.pdb")
+    topo = next(p for p in nodes_dir.iterdir() if p.name.startswith("topo"))
+    (topo / "artifacts" / "system.system.xml").rename(topo / "artifacts" / "run.system.xml")
+    _record(topo, system_xml="artifacts/run.system.xml")
+    nodes, reason = sc._resolve_stages(tmp_path)
+    assert reason is None
+    assert sc._artifact(nodes["min"], "minimized_structure", "minimized_structure.pdb").name \
+        == "m2_min_minimized_structure.pdb"
+    assert sc._artifact(nodes["topo"], "system_xml", "system.system.xml").name == "run.system.xml"
+
+
+def test_an_unrecorded_or_missing_artifact_falls_back_to_the_fixed_name(tmp_path):
+    _dag(tmp_path)
+    minimized = next(p for p in (tmp_path / "nodes").iterdir() if p.name.startswith("min"))
+    _record(minimized, minimized_structure="artifacts/gone.pdb")
+    assert sc._artifact(minimized, "minimized_structure", "minimized_structure.pdb") \
+        == minimized / "artifacts" / "minimized_structure.pdb"
+    (minimized / "artifacts" / "minimized_structure.pdb").unlink()
+    nodes, reason = sc._resolve_stages(tmp_path)
+    assert nodes is None and "minimized_structure.pdb" in reason
+
+
+def test_a_recorded_trajectory_is_preferred_to_the_first_dcd(tmp_path):
+    _dag(tmp_path)
+    prod = next(p for p in (tmp_path / "nodes").iterdir() if p.name.startswith("prod"))
+    (prod / "artifacts" / "m2_prod_trajectory.dcd").write_bytes(b"")
+    _record(prod, trajectory="artifacts/m2_prod_trajectory.dcd")
+    assert sc._trajectory(prod).name == "m2_prod_trajectory.dcd"

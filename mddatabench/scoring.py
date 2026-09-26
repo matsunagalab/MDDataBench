@@ -276,7 +276,7 @@ def production_segments(job_dir: pathlib.Path, prod: pathlib.Path) -> list:
         parents = [name for name in (current[1].get("parent_node_ids") or [])
                    if name in nodes and nodes[name][1].get("node_type") == "prod"
                    and nodes[name][1].get("status") == "completed"
-                   and any((nodes[name][0] / "artifacts").glob("*.dcd"))]
+                   and _trajectory(nodes[name][0]) is not None]
         if not parents or parents[0] in chain:
             break
         chain.append(parents[0])
@@ -343,12 +343,44 @@ def _load_system(path: pathlib.Path, system=None):
     return system, None
 
 
+def _artifact(node: pathlib.Path, key: str, default: str) -> pathlib.Path:
+    """A node's artifact file: the one its ``node.json`` records, else the default name.
+
+    MDClaw names a node's files after an output prefix when the agent passes
+    one, and records each file under a fixed key. Reading fixed names scored a
+    completed run 0/20 as "the min node produced no minimized_structure.pdb"
+    three times, always in the CLI-only condition (kimi-k3 v4 041_ligand_4erf, glm
+    3cond 007, glm v3 003_membrane_5zk8 r2 with m2_dppc_min_minimized_structure.pdb).
+    As for the prepared structure, the node says where its files are; ask it.
+    """
+    try:
+        recorded = (json.loads((node / "node.json").read_text()).get("artifacts") or {}).get(key)
+    except (OSError, ValueError):
+        recorded = None
+    if isinstance(recorded, str) and recorded:
+        path = pathlib.Path(recorded)
+        path = path if path.is_absolute() else node / path
+        if path.is_file():
+            return path
+    return node / "artifacts" / default
+
+
+def _trajectory(node: pathlib.Path) -> pathlib.Path | None:
+    recorded = _artifact(node, "trajectory", "")
+    if recorded.is_file():
+        return recorded
+    return next(iter(sorted((node / "artifacts").glob("*.dcd"))), None)
+
+
 def _minimized_state(job_dir: pathlib.Path):
     """Serialised state of the latest completed min node, or None."""
     try:
         node = find_node(job_dir, "min")
     except SystemExit:
         return None
+    recorded = _artifact(node, "state", "")
+    if recorded.is_file():
+        return recorded
     artifacts = node / "artifacts"
     return next(iter(sorted(artifacts.glob("minimized*.xml"))
                      or sorted(artifacts.glob("*.xml"))), None)
@@ -571,14 +603,15 @@ def _resolve_stages(job_dir):
             return None, str(exc)
         except OSError as exc:
             return None, f"the {stage} node could not be read: {exc}"
-    required = {"topo": ("system.topology.pdb", "system.system.xml",
-                         "amber_metadata.json"),
-                "min": ("minimized_structure.pdb",)}
+    required = {"topo": (("topology_pdb", "system.topology.pdb"),
+                         ("system_xml", "system.system.xml"),
+                         ("amber_metadata", "amber_metadata.json")),
+                "min": (("minimized_structure", "minimized_structure.pdb"),)}
     for stage, names in required.items():
-        for name in names:
-            if not (nodes[stage] / "artifacts" / name).exists():
-                return None, f"the {stage} node produced no {name}"
-    if not list((nodes["prod"] / "artifacts").glob("*.dcd")):
+        for key, name in names:
+            if not _artifact(nodes[stage], key, name).exists():
+                return None, f"the {stage} node produced no {name} (node.json records no {key})"
+    if _trajectory(nodes["prod"]) is None:
         return None, "the prod node produced no trajectory"
     return nodes, None
 
@@ -588,7 +621,7 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     if unrunnable:
         return _unrunnable(task, unrunnable)
     prep, topo, minimized, prod = (nodes[t] for t in REQUIRED_STAGES)
-    amber = json.loads((topo / "artifacts" / "amber_metadata.json").read_text())
+    amber = json.loads(_artifact(topo, "amber_metadata", "amber_metadata.json").read_text())
     prod_meta = json.loads((prod / "node.json").read_text()).get("metadata", {})
     signature = prod_meta.get("system_signature", {})
     production = production_summary(production_segments(job_dir, prod))
@@ -615,13 +648,13 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     # all; nothing is compared against it any more, because every comparison
     # wants the system as it was built rather than as it was handed in.
     _prepared_structure(prep)
-    topology_pdb = topo / "artifacts" / "system.topology.pdb"
+    topology_pdb = _artifact(topo, "topology_pdb", "system.topology.pdb")
     # The minimised structure supplies coordinates and residue labels, but not
     # connectivity.  Close fragment ends can sit at a peptide-bond distance
     # without a force term, and a declared link can begin 9.63 A apart (5ZK8)
     # before minimisation.  Split the reference by its deposited topology and
     # the submission by the force-bearing bonds in its System instead.
-    minimized_structure = minimized / "artifacts" / "minimized_structure.pdb"
+    minimized_structure = _artifact(minimized, "minimized_structure", "minimized_structure.pdb")
     reference_residues = cp.read_residues(bundle / "reference.pdb")
     submitted_residues = cp.read_residues(minimized_structure)
 
@@ -630,7 +663,7 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     reference_topology = tp.load_reference(tp.find_reference_topology(bundle),
                                            bundle / "reference.pdb")
     submitted_topology, submitted_bonds, topology_error, submitted_system = \
-        tp.load_submission(topo / "artifacts" / "system.system.xml", topology_pdb)
+        tp.load_submission(_artifact(topo, "system_xml", "system.system.xml"), topology_pdb)
     reference_backbone_links = tp.backbone_links(reference_topology)
     try:
         reference_monomers, reference_mapped_links = \
@@ -849,7 +882,7 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     # not deserialise leaves the scorer unable to look at the force field at all.
     # It used to raise straight out of the scorer, so a broken submission crashed
     # the run instead of being recorded; everything below is reported either way.
-    system, load_error = _load_system(topo / "artifacts" / "system.system.xml",
+    system, load_error = _load_system(_artifact(topo, "system_xml", "system.system.xml"),
                                       submitted_system)
     check("topology_loads_and_is_parameterized", load_error is None,
           load_error or f"{system.getNumParticles()} particles, System deserialised")
@@ -882,7 +915,7 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
         check("potential_energy_is_physical", False, load_error)
         check("minimization_reduced_the_energy", False, load_error)
     else:
-        built = en.single_point(system, (topo / "artifacts" / "system.state.xml").read_text())
+        built = en.single_point(system, _artifact(topo, "state_xml", "system.state.xml").read_text())
         passed, detail = en.is_physical(
             built, ceiling=spec_energy["maximum_abs_energy_per_particle_kj_mol"])
         check("potential_energy_is_physical", passed, detail)
@@ -955,10 +988,9 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
           f"{production['simulation_time_ns']:g} ns{chained} at {prod_meta.get('timestep_fs')} fs "
           f"(HMR={prod_meta.get('hmr')}){dropped}")
 
-    traj_paths = [next((node / "artifacts").glob("*.dcd")) for node in segments]
+    traj_paths = [_trajectory(node) for node in segments]
     traj_path = traj_paths[0]
-    traj = md.load([str(path) for path in traj_paths],
-                   top=str(topo / "artifacts" / "system.topology.pdb"))
+    traj = md.load([str(path) for path in traj_paths], top=str(topology_pdb))
 
     # --- the clock: reference-independent evidence that time passed -----------
     claimed = production["simulation_time_ns"] * 1000.0
@@ -1142,7 +1174,8 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
 
     # --- what the run reported about itself, measured rather than declared ----
     log = merge_energy_logs([path for node in segments
-                             for path in (node / "artifacts").glob("energy.dat")])
+                             for path in [_artifact(node, "energy", "energy.dat")]
+                             if path.is_file()])
     spec_temperature = spec["measured_temperature_matches_reference"]
     wanted = float(task["reference"]["reference_conditions"]["TEMP"])
     measured = log.get("Temperature (K)")
