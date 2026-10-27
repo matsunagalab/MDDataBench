@@ -91,7 +91,7 @@ def _dag(root, stages=("prep", "topo", "min", "prod"), artifacts=True):
         if artifacts and stage == "min":
             (node / "artifacts" / "minimized_structure.pdb").write_text("END\n")
         if artifacts and stage == "prod":
-            (node / "artifacts" / "run.dcd").write_bytes(b"")
+            (node / "artifacts" / "run.dcd").write_bytes(b"dcd")
     return root
 
 
@@ -151,7 +151,7 @@ def _prod(root, name, parent, ns, **meta):
         "metadata": {"simulation_time_ns": ns, "temperature_kelvin": 310.0, "pressure_bar": 1.0,
                      "timestep_fs": 4.0, "hmr": True, "system_signature": {"ensemble": "NPT"},
                      **meta}}))
-    (node / "artifacts" / "trajectory.dcd").write_bytes(b"")
+    (node / "artifacts" / "trajectory.dcd").write_bytes(b"dcd")
     (node / "artifacts" / "energy.dat").write_text(
         '#"Step","Temperature (K)","Density (g/mL)","Box Volume (nm^3)"\n'
         + "".join(f"{i},{309 + i},{1.0},{1000 + i}\n" for i in range(3)))
@@ -241,6 +241,6 @@ def test_an_unrecorded_or_missing_artifact_falls_back_to_the_fixed_name(tmp_path
 def test_a_recorded_trajectory_is_preferred_to_the_first_dcd(tmp_path):
     _dag(tmp_path)
     prod = next(p for p in (tmp_path / "nodes").iterdir() if p.name.startswith("prod"))
-    (prod / "artifacts" / "m2_prod_trajectory.dcd").write_bytes(b"")
+    (prod / "artifacts" / "m2_prod_trajectory.dcd").write_bytes(b"dcd")
     _record(prod, trajectory="artifacts/m2_prod_trajectory.dcd")
     assert sc._trajectory(prod).name == "m2_prod_trajectory.dcd"

@@ -72,6 +72,9 @@ def _outcome(row: dict) -> str:
     stage, code, exit_reason = row["failure_stage"], row["failure_code"], row["exit_reason"]
     if exit_reason == "timeout":
         return "timeout"
+    if code == "submission_not_at_contract_path":
+        # The MD ran, but the DAG is not where the evaluator reads it.
+        return "checks failed"
     if stage == "agent":
         return "no MD submitted"
     if stage == "execution" or stage == "md":

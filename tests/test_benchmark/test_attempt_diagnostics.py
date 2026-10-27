@@ -147,3 +147,40 @@ def test_zero_cpu_and_typed_gpu_allocations(tmp_path):
     assert result["gpu_seconds"] == 40
     assert result["gpu_coverage"] == 1
     assert result["md_jobs"][0]["gpu_seconds"] == 0
+
+
+def test_dag_outside_the_contract_path_is_named(tmp_path):
+    # v5 qwen 080 r3 / 070 r2 (2026-10-27): the MD ran, but the DAG sat at
+    # workspace/jobs/main or under the sandbox HOME, not workspace/study/jobs/main.
+    attempt = tmp_path / "attempt"
+    job_dir = attempt / "workspace" / "study" / "jobs" / "main"
+    job_dir.mkdir(parents=True)
+    node(attempt / "workspace" / "jobs" / "main", "prod_001", "completed")
+    node(attempt / "sandbox" / "home" / "study" / "jobs" / "main", "prod_001", "completed")
+    result = diagnose(job_dir, BAD_SCORE, False)
+    assert result["failure_stage"] == "agent"
+    assert result["failure_code"] == "submission_not_at_contract_path"
+    assert "workspace/jobs/main" in result["failure_detail"]
+    assert "sandbox/home/study/jobs/main" in result["failure_detail"]
+
+
+def test_no_dag_anywhere_stays_unknown(tmp_path):
+    job_dir = tmp_path / "attempt" / "workspace" / "study" / "jobs" / "main"
+    job_dir.mkdir(parents=True)
+    assert diagnose(job_dir, BAD_SCORE, False)["failure_code"] == "execution_evidence_unavailable"
+
+
+@pytest.mark.parametrize("portable", [True, False])
+def test_unscorable_submission_is_an_evaluation_failure_with_its_error(tmp_path, portable):
+    report = {**BAD_SCORE, "scoring_aborted": {"error": "AttributeError",
+              "message": "'str' object has no attribute 'get'", "traceback": "..."}}
+    node(tmp_path, "prod_001", "completed")
+    result = diagnose(tmp_path, report, False, portable=portable)
+    assert (result["failure_stage"], result["failure_code"]) == ("evaluation", "submission_unscorable")
+    assert result["failure_detail"].startswith("AttributeError:")
+
+
+def test_portable_scheduler_failure_still_precedes_unscorable(tmp_path):
+    report = {**BAD_SCORE, "scoring_aborted": {"error": "OSError", "message": "no trajectory"}}
+    result = diagnose(tmp_path, report, False, [{"job_id": "1", "state": "FAILED"}], portable=True)
+    assert result["failure_code"] == "scheduler_failure_observed"

@@ -21,6 +21,7 @@ import hashlib
 import itertools
 import json
 import pathlib
+import traceback
 
 import mdtraj as md
 import numpy as np
@@ -366,10 +367,17 @@ def _artifact(node: pathlib.Path, key: str, default: str) -> pathlib.Path:
 
 
 def _trajectory(node: pathlib.Path) -> pathlib.Path | None:
+    # A dangling link or an empty file is no trajectory: v5 SIF-only
+    # submissions (2026-10-27) left a 0-byte trajectory.dcd, which mdtraj
+    # refused deep inside the MD checks instead of the prod stage saying so.
+    def usable(path):
+        return path.is_file() and path.stat().st_size > 0
+
     recorded = _artifact(node, "trajectory", "")
-    if recorded.is_file():
+    if usable(recorded):
         return recorded
-    return next(iter(sorted((node / "artifacts").glob("*.dcd"))), None)
+    return next((path for path in sorted((node / "artifacts").glob("*.dcd")) if usable(path)),
+                None)
 
 
 def _minimized_state(job_dir: pathlib.Path):
@@ -617,13 +625,44 @@ def _resolve_stages(job_dir):
 
 
 def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
+    """Grade one submission; a submission the scorer cannot read fails every check.
+
+    Until 2026-10-27 any exception escaped, the scorer job exited 1 and the
+    attempt was sealed as ``scorer/scorer_error``, which reads as a harness
+    fault: 49 SIF-only attempts of the v5 campaigns, all of them malformed
+    submissions (a string ``system_signature``, a missing trajectory, an
+    unparsable ``energy.dat``). Now the report carries every check as failed
+    and ``scoring_aborted`` with the exception and its traceback, so the
+    diagnosis can name it (``evaluation/submission_unscorable``) and a scorer
+    defect stays visible in the record rather than silently becoming an
+    agent failure.
+    """
+    try:
+        return _score(job_dir, bundle, task)
+    except Exception as exc:  # noqa: BLE001 - the report carries the traceback
+        reason = f"the submission could not be scored: {type(exc).__name__}: {exc}"
+        report = _unrunnable(task, reason[:2000])
+        report["scoring_aborted"] = {"error": type(exc).__name__, "message": str(exc)[:2000],
+                                     "traceback": traceback.format_exc()[-6000:]}
+        return report
+
+
+def _score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     nodes, unrunnable = _resolve_stages(job_dir)
     if unrunnable:
         return _unrunnable(task, unrunnable)
     prep, topo, minimized, prod = (nodes[t] for t in REQUIRED_STAGES)
     amber = json.loads(_artifact(topo, "amber_metadata", "amber_metadata.json").read_text())
     prod_meta = json.loads((prod / "node.json").read_text()).get("metadata", {})
-    signature = prod_meta.get("system_signature", {})
+    signature = prod_meta.get("system_signature")
+    # The portable contract asks for an object with ``ensemble`` and
+    # ``pressure_bar``; 43 SIF-only submissions of the v5 campaigns wrote a
+    # hash string there (2026-10-27), and ``.get`` on it crashed the scorer.
+    signature_note = ""
+    if not isinstance(signature, dict):
+        signature_note = (f"; system_signature is {type(signature).__name__}, "
+                          "not an object with ensemble and pressure_bar")
+        signature = {}
     production = production_summary(production_segments(job_dir, prod))
     segments = [prod.parent / name for name in production["segments"]]
     # ``reference["reference_system"]`` is provenance only: every composition
@@ -977,7 +1016,8 @@ def score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     check("thermodynamic_conditions_match_reference",
           abs(temperature - float(task["reference"]["reference_conditions"]["TEMP"])) <= 1.0
           and signature.get("ensemble") == task["reference"]["reference_conditions"]["ENSEMBLE"],
-          f"T={temperature} K, ensemble={signature.get('ensemble')}, P={prod_meta.get('pressure_bar')} bar")
+          f"T={temperature} K, ensemble={signature.get('ensemble')}, P={prod_meta.get('pressure_bar')} bar"
+          f"{signature_note}")
     chained = (f" over {len(segments)} chained segments "
                f"({' + '.join(f'{ns:g}' for ns in production['lengths_ns'])})"
                if len(segments) > 1 else "")

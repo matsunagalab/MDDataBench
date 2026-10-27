@@ -27,6 +27,30 @@ def read_record(path):
         return {}
 
 
+def _misplaced_dags(job_dir):
+    """Job directories with nodes elsewhere in the attempt than the contract path.
+
+    ``job_dir`` is ``<attempt>/workspace/study/jobs/main``; an agent can put the
+    study at the workspace root or under the sandbox HOME
+    (``<attempt>/sandbox/home``) instead.
+    """
+    job_dir = Path(job_dir)
+    try:
+        workspace = job_dir.parents[2]
+    except IndexError:
+        return []
+    roots = [workspace, workspace.parent / "sandbox" / "home"]
+    found = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for pattern in ("jobs/*/nodes", "*/jobs/*/nodes", "*/*/jobs/*/nodes"):
+            for nodes in sorted(root.glob(pattern)):
+                if nodes.is_dir() and nodes.parent != job_dir and any(nodes.glob("*/node.json")):
+                    found.append(nodes.parent)
+    return list(dict.fromkeys(found))
+
+
 def diagnose(job_dir, report, passed, jobs=(), explicit=None, scheduler_source=None,
              portable=False):
     """Preserve failures, without treating recovered branches as final causes.
@@ -81,12 +105,27 @@ def diagnose(job_dir, report, passed, jobs=(), explicit=None, scheduler_source=N
     # they must not be selected as the final execution failure.
     stage, code, detail = None, None, None
     status = "completed" if complete else "unknown"
+    aborted = (report or {}).get("scoring_aborted") or {}
+    misplaced = [] if nodes or portable else _misplaced_dags(Path(job_dir))
     if not passed:
         if explicit:
             stage, code, detail = explicit.get("stage"), explicit.get("code"), explicit.get("detail")
             status = "reported_failure"
         elif portable and scheduler_failed:
             stage, code, status = "execution", "scheduler_failure_observed", "failed"
+        elif aborted:
+            # The scorer could not read the submission (scoring.score): every
+            # check failed and the report keeps the exception and traceback.
+            stage, code = "evaluation", "submission_unscorable"
+            detail = f"{aborted.get('error')}: {aborted.get('message')}"
+        elif misplaced:
+            # No DAG at the contract path, but one elsewhere in the attempt
+            # (v5, 2026-10-27: workspace/jobs/main, and the sandbox HOME).
+            # The MD may well have run; the submission is just not where the
+            # prompt says the evaluator reads it.
+            stage, code = "agent", "submission_not_at_contract_path"
+            detail = (f"no DAG at {job_dir}; found one at "
+                      + ", ".join(str(path) for path in misplaced))
         elif complete:
             stage, code = "evaluation", "checks_failed" if checks else "score_unavailable"
         elif failed:

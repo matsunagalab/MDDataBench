@@ -159,3 +159,38 @@ def test_a_non_system_object_is_reported(tmp_path):
 def test_unreadable_input_is_reported_not_raised(tmp_path):
     loaded, error = _load_system(write(tmp_path, "junk.xml", "this is not xml at all"))
     assert loaded is None and error
+
+
+def test_an_exception_while_scoring_fails_every_check_and_keeps_the_error(monkeypatch, tmp_path):
+    # v5 (2026-10-27): 49 malformed SIF-only submissions crashed the scorer
+    # (exit 1, sealed as scorer_error). The report must grade them instead.
+    from mddatabench import scoring
+
+    def boom(job_dir, bundle, task):
+        signature = "054f61318bb30f53"
+        return signature.get("ensemble")
+
+    monkeypatch.setattr(scoring, "_score", boom)
+    task = {"task_id": "t", "scoring": {"deterministic_checks": [
+        {"check_id": "a", "category": "prep", "weight": 1.0},
+        {"check_id": "b", "category": "md", "weight": 1.0}]}}
+    report = scoring.score(tmp_path, tmp_path, task)
+    assert report["passed"] == 0 and report["total"] == 2
+    assert report["scoring_aborted"]["error"] == "AttributeError"
+    assert "boom" in report["scoring_aborted"]["traceback"]
+    assert all("could not be scored" in row["detail"] for row in report["checks"])
+
+
+def test_a_dangling_or_empty_trajectory_is_no_trajectory(tmp_path):
+    from mddatabench.scoring import _trajectory
+
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    (tmp_path / "node.json").write_text("{}")
+    (artifacts / "trajectory.dcd").symlink_to(tmp_path / "gone.dcd")
+    assert _trajectory(tmp_path) is None
+    (artifacts / "trajectory.dcd").unlink()
+    (artifacts / "trajectory.dcd").write_bytes(b"")
+    assert _trajectory(tmp_path) is None
+    (artifacts / "trajectory.dcd").write_bytes(b"x")
+    assert _trajectory(tmp_path) == artifacts / "trajectory.dcd"

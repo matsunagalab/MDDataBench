@@ -5,6 +5,34 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-10-27 — A malformed submission no longer crashes the scorer; two new failure codes (`submission_unscorable`, `submission_not_at_contract_path`)
+
+Asked for after the v5-condition campaigns (glm-5.3-flash v5, qwen3.6-35b, kimi-k3 v5). Two kinds of sealed result were misleading.
+
+- **SIF only `scorer/scorer_error`, 49 attempts (qwen 42, glm 7, kimi 0).** In every one the scorer exited 1 on a malformed submission:
+  - 43 wrote `production.json` `system_signature` as a string (a hash such as `"054f61318bb30f53"`). The SIF-only contract asks for an object with `ensemble` and `pressure_bar`. `scoring.py`'s `signature.get("ensemble")` raised AttributeError. kimi-k3 wrote the object every time.
+  - The other six: an unreadable `trajectory.dcd` (some of them 0 bytes), a non-numeric line in `energy.dat`, an empty array, and a topology and trajectory that disagree.
+- **Changes:**
+  - `system_signature` that is not an object is read as `{}`. The thermodynamic check then fails and says why (`system_signature is str, not an object with ensemble and pressure_bar`).
+  - `_trajectory` ignores dangling links and empty files, so a 0-byte trajectory now reads "the prod node produced no trajectory".
+  - `score` is a safety net around `_score`. Any exception grades every check as failed and adds `scoring_aborted` (error, message, traceback) to the report. `diagnose` names this `evaluation/submission_unscorable` with the error as detail, after a portable scheduler failure and before `checks_failed`.
+  - The traceback stays in the report, so a scorer defect remains visible rather than turning silently into an agent failure. The cost is that an aborted report carries no per-check detail.
+- **Re-scored all 49 with the fixed scorer.** Output went to a scratch directory; sealed results are untouched.
+  - All 49 produced a report and none passed.
+  - 26 are now graded, with the thermodynamic check failing on the string signature.
+  - 14 are "the prod node produced no trajectory".
+  - 9 abort as `submission_unscorable`: 5 OSError (unreadable dcd, one 78 bytes), 3 IndexError, 1 ValueError (atom mismatch).
+  - The SIF-only rates of the three campaigns therefore do not change, and these attempts were not re-sealed.
+- **`unknown/execution_evidence_unavailable`, 2 qwen CLI + skills attempts (080 r3, 070 r2).** The MD completed, but the DAG was not at the contract path `workspace/study/jobs/main`: 080 built it at `workspace/jobs/main`, 070 under the sandbox HOME (`<attempt>/sandbox/home/study/jobs/main`).
+  - `diagnose` now looks for a DAG elsewhere in the attempt (the workspace and the sandbox HOME, three levels) and calls this `agent/submission_not_at_contract_path`, naming where the DAG was found.
+  - Re-diagnosed read-only, both get the new code. `collect_experiment` re-reads sealed `execution_evidence_unavailable` rows, so a collect run will relabel them.
+  - `paper_figures.py` counts the new code as "checks failed" rather than "no MD submitted", because the MD ran.
+- **Tests:**
+  - Diagnosis: misplaced DAG at both places, no DAG anywhere stays unknown, unscorable in both conditions, a portable scheduler failure still comes first.
+  - Scoring: an exception becomes a graded report with its traceback; dangling, empty and non-empty trajectories.
+  - `test_unrunnable.py` fixtures that stood in for a trajectory with an empty `.dcd` now write three bytes.
+  - Fast suite 1500 passed / 64 skipped, slow 34 passed / 3 skipped, ruff clean (in the v4fix mdclaw SIF).
+
 ## 2026-09-26 — v3 stopped: a sandboxed agent cancelled every Slurm job of the owner; Slurm guard (6da0110), scorer artifact lookup (91ef804), membrane-cache image; v4
 
 At 19:53:22 JST agent `005_membrane_6a93 sif_only r2` of `glm-5.3-flash-3cond-full-v3`, clearing its own old chain before resubmitting, ran `scancel $(squeue -u $USER -h -o '%i' | tr '\n' ' ')`. The sandbox hid files but not the scheduler, and the agent runs as the owner, so this cancelled every job of rku00161: nine t1r production segments (`prod_*_s4`, 14–22 h into their run) and their nine successors (`_s5`), four SST2 jobs (`nbsst2_b1_A/B/C`, about 3 h in, and `nbsst2_b1_MD`), and three jobs of other attempts (141280, 141287, 141289 — the last explains 006_membrane_6a94 cli_skill_sif r1's `production_incomplete`: its min job was cancelled 2 s after submission). A search of every campaign's transcripts found no other broad `scancel`. v3 was stopped at once by PID (dispatcher 940230, six agent trees; the monitoring cron deleted); sealed at the stop: 46 of 882 (CLI + skills 15/16, CLI only 13/16, SIF only 0/14). The owner resubmitted t1r and SST2 from another session. The directory stays as a record.
