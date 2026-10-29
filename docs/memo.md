@@ -5,6 +5,20 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-10-29 — Next-campaign pins: image `/data1/rkp00079/mdclaw.sif` (mdclaw `d65eca2`, sha256 `8ef9e9e0…`), pi skills `8f45de7`, template spec `runs/prep/experiment-template-v6.json`
+
+- The RIKYU shared image moved to `/data1/rkp00079/mdclaw.sif` (a link into `/data1/rkp00079/sif/`).
+  - The old `…-fusefix-6f171d2f0fa5.sif` path is now a link to it.
+  - The image is mdclaw `d65eca2`: the tool fixes from the v5 investigation, plus a CPU fallback for steepest descent that saturates on CUDA.
+  - Details in mdclaw `docs/memo.md` (2026-10-29) and `/data1/rkp00079/RIKYU.md`.
+- `pi update git:github.com/matsunagalab/mdclaw@main` moved the skill checkout from `b82e7db` to `8f45de7`. Between `d65eca2` and `8f45de7` only docs changed, so the skills match the image.
+- Draft specs under `runs/prep`:
+  - The 10 that never ran now name `mdclaw.sif` and pin `sif_sha256` `8ef9e9e0…`. Those missing `agent_sandbox: true` gained it, and each carries a `_sif_update` note.
+  - The specs of experiments that ran are records and were not edited. That includes the two whose runs were archived (`kimi-k3-3cond-full`, `kimi-k3-image-pilot`); a first pass re-pinned them by mistake and they were restored to their previous pins.
+- `runs/prep/experiment-template-v6.json` copies the v5 settings with a `MODEL` placeholder.
+  - An init-only check from it (`runs/sifcheck-20261029`: 027 x 3 conditions x 1, kimi-k3, never launched) passed: `sandbox_probe.ok`, image resolved to the new file, and the shim accepted the image's single and array job scripts.
+- Runbook (`docs/campaign-runbook-other-models.md`) updated to the new path, digest and template.
+
 ## 2026-10-27 — A malformed submission no longer crashes the scorer; two new failure codes (`submission_unscorable`, `submission_not_at_contract_path`)
 
 Asked for after the v5-condition campaigns (glm-5.3-flash v5, qwen3.6-35b, kimi-k3 v5). Two kinds of sealed result were misleading.

@@ -9,8 +9,8 @@ as one more bar next to kimi-k3 in `scripts/paper_figures.py` (fig6). Written
 ## Never
 
 - Never write under `/data1/rkp00048` (that project has ended).
-- Never replace the shared image behind
-  `/data1/rkp00079/mdclaw-rikyu-arm64-cuda130-cufft121-fusefix-6f171d2f0fa5.sif`
+- Never repoint the shared image `/data1/rkp00079/mdclaw.sif` (since
+  2026-10-29; the old `…-fusefix-6f171d2f0fa5.sif` path is a link to it)
   and never run `pi update` while any campaign is running (v3 runs from
   2026-09-14 20:06 JST for about two days: `runs/kimi-k3-3cond-full-v3`,
   check `ps -p $(cat .../dispatcher.pid)`). A campaign compares conditions;
@@ -28,11 +28,19 @@ as one more bar next to kimi-k3 in `scripts/paper_figures.py` (fig6). Written
 - **Harness**: `/data1/rkp00079/rku00161/MDDataBench` (main). The dispatcher
   runs the agents from this checkout (`PYTHONPATH=$PWD`), the scorer jobs bind
   it into the image. Pull only between campaigns.
-- **Image**: the fixed path above; `<target>.sif.deployment.json` next to the
-  link target says which mdclaw is baked in (`source_commit`) and its digest.
+- **Image**: `/data1/rkp00079/mdclaw.sif`, a link to a versioned file in
+  `/data1/rkp00079/sif/` (`<file>.sha256` beside it; `apptainer inspect` gives
+  `org.mdclaw.source.commit`). Since 2026-10-29 08:52 JST:
+  `mdclaw-0.6.12-d65eca2981a4-arm64-cuda13.sif`, digest
+  `8ef9e9e0adafd9d40b693f750f594e2f7613ebda7759a1abe89069782abcf6c1`, mdclaw
+  `d65eca2` (the v5 tool fixes and the CUDA steepest-descent fix); the pi
+  skill checkout is at `8f45de7` (skills identical to `d65eca2`).
+  `runs/prep/experiment-template-v6.json` carries these pins and the v5
+  settings; an init-only check of it passed (`runs/sifcheck-20261029`). The
+  campaign record of RIKYU image switches is `/data1/rkp00079/RIKYU.md`.
   The spec's `sif_sha256` must equal the image's digest; the launcher trusts
-  the spec, it does not hash the file. Current target (since 2026-09-26 15:35
-  JST): `tempinherit-20e916d447b9`, digest
+  the spec, it does not hash the file. Earlier targets: (2026-09-26 15:35
+  JST) `tempinherit-20e916d447b9`, digest
   `51bb13ca5809ae704d502c5c6c57faea143d53f627040961420207ed3ce12771`, mdclaw
   `87050da`: production takes its temperature from the eq node when
   `--temperature-kelvin` is omitted (the skills now tell agents to omit it).
@@ -90,8 +98,8 @@ stays. Example `runs/prep/experiment-glm-5.2-skill-full.json`:
   "replicates": 3,
   "agent_timeout_seconds": 1800,
   "md_time_limit": "00:20:00",
-  "sif": "/data1/rkp00079/mdclaw-rikyu-arm64-cuda130-cufft121-fusefix-6f171d2f0fa5.sif",
-  "sif_sha256": "6ecc1ad9a4c6376448fa43fd1228f997939c15597f2d63478c62f016001a62bc",
+  "sif": "/data1/rkp00079/mdclaw.sif",
+  "sif_sha256": "8ef9e9e0adafd9d40b693f750f594e2f7613ebda7759a1abe89069782abcf6c1",
   "source_mode": "image",
   "cells": [{"condition": "cli_skill_sif", "harness": "pi", "model": "rikyu/glm-5.2",
              "thinking": "high", "skill_source": "user"}],
@@ -144,7 +152,7 @@ cd /data1/rkp00079/rku00161/MDDataBench
 exec env PYTHONPATH=$PWD /usr/bin/python3 -m mddatabench run_experiment \
   --experiment-dir /data1/rkp00079/rku00161/runs/glm-5.2-skill-full \
   --bundle-root /data1/rkp00079/rku00161/references \
-  --scorer-sif /data1/rkp00079/mdclaw-rikyu-arm64-cuda130-cufft121-fusefix-6f171d2f0fa5.sif \
+  --scorer-sif /data1/rkp00079/mdclaw.sif \
   --max-agents 6 --max-seconds-per-call 30
 SH
 chmod +x $E/launch.sh; cd $E && nohup ./launch.sh > run_experiment.log 2>&1 &
