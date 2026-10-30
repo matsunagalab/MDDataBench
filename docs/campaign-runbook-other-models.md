@@ -30,13 +30,16 @@ as one more bar next to kimi-k3 in `scripts/paper_figures.py` (fig6). Written
   it into the image. Pull only between campaigns.
 - **Image**: `/data1/rkp00079/mdclaw.sif`, a link to a versioned file in
   `/data1/rkp00079/sif/` (`<file>.sha256` beside it; `apptainer inspect` gives
-  `org.mdclaw.source.commit`). Since 2026-10-29 08:52 JST:
-  `mdclaw-0.6.12-d65eca2981a4-arm64-cuda13.sif`, digest
-  `8ef9e9e0adafd9d40b693f750f594e2f7613ebda7759a1abe89069782abcf6c1`, mdclaw
-  `d65eca2` (the v5 tool fixes and the CUDA steepest-descent fix); the pi
-  skill checkout is at `8f45de7` (skills identical to `d65eca2`).
+  `org.opencontainers.image.revision`). Since 2026-10-31 04:32 JST:
+  `mdclaw-0.6.14-ac0e328670a1-arm64-cuda13.sif`, digest
+  `9104afbfbe2eaeee57828ac6890a46f0e22586e6ea44f734b28d017a67f47ed6`, mdclaw
+  `ac0e328`, built from the pixi `cuda13` environment: **OpenMM 8.6.1** (the
+  v5 campaigns ran 8.5.1, so a new campaign is not on the v5 runtime). The pi
+  skill checkout `8f45de7` has the same skills as `ac0e328`.
   `runs/prep/experiment-template-v6.json` carries these pins and the v5
-  settings; an init-only check of it passed (`runs/sifcheck-20261029`). The
+  settings; an init-only check of it passed (`runs/sifcheck-20261031`). The
+  2026-10-29 image (`d65eca2`, OpenMM 8.5.1, `8ef9e9e0…`) stays reachable as
+  `/data1/rkp00079/mdclaw.pre-pixi-20261031.sif`. The
   campaign record of RIKYU image switches is `/data1/rkp00079/RIKYU.md`.
   The spec's `sif_sha256` must equal the image's digest; the launcher trusts
   the spec, it does not hash the file. Earlier targets: (2026-09-26 15:35

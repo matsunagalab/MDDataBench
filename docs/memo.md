@@ -5,6 +5,17 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-10-31 — Pins moved to the pixi-built image: `mdclaw.sif` = mdclaw `ac0e328`, sha256 `9104afbf…`, OpenMM 8.6.1
+
+- The RIKYU shared image behind `/data1/rkp00079/mdclaw.sif` was rebuilt from the pixi `cuda13` environment and switched at 04:32 JST.
+  - mdclaw 0.6.14, main `ac0e328`; OpenMM 8.5.1 → 8.6.1.
+  - Details in mdclaw `docs/memo.md` and `/data1/rkp00079/RIKYU.md`.
+- Re-pinned `sif_sha256` from `8ef9e9e0…` to `9104afbf…` (user: 「付け替えて」) in `runs/prep/experiment-template-v6.json` and the 10 never-run drafts that name `mdclaw.sif`.
+  - The spec of the 2026-10-29 init-only check (`experiment-sifcheck-20261029.json`) was caught by the same pass and restored to its recorded pin; it is a record.
+- A new init-only check from the template, `runs/sifcheck-20261031` (027 × 3 conditions × 1, kimi-k3, never launched), passed: `sandbox_probe.ok`, the image resolved to the new file (mdclaw 0.6.14), and the shim accepted its single and array job scripts.
+- **A campaign started now runs OpenMM 8.6.1.** The v5 results (glm, qwen, kimi) are on 8.5.1. To add a model comparable to v5 on the same runtime, set `sif` to `/data1/rkp00079/mdclaw.pre-pixi-20261031.sif` and pin `8ef9e9e0…`.
+- The pi skill checkout `8f45de7` has the same skills as `ac0e328`.
+
 ## 2026-10-29 — Next-campaign pins: image `/data1/rkp00079/mdclaw.sif` (mdclaw `d65eca2`, sha256 `8ef9e9e0…`), pi skills `8f45de7`, template spec `runs/prep/experiment-template-v6.json`
 
 - The RIKYU shared image moved to `/data1/rkp00079/mdclaw.sif` (a link into `/data1/rkp00079/sif/`).
