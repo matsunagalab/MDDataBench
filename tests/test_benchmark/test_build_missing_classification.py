@@ -11,6 +11,7 @@ MODELLER's loop modelling needs an anchor on both sides and so takes internal
 gaps only; a terminus is PDBFixer's, and only when asked, since neither builds
 one by default. Six tasks need terminal construction and four need only
 internal, so a change to either path has a known set of tasks to answer for.
+The test split (v0.6) adds three, all internal: 119 5Y9J, 120 3L5W, 121 2O6X.
 
 The fixture is checked in with each bundle's SHA-256 so the numbers stay
 reviewable where the bundles, which are fetched and never vendored, are absent.
@@ -40,7 +41,9 @@ RECORDED = json.loads(FIXTURE.read_text())
 BUILDS_AT_A_TERMINUS = {"029_complex_1e3u", "062_metal_6w9c", "065_soluble_1a62",
                         "068_soluble_1ail", "076_soluble_1ctf", "080_soluble_1ez3"}
 BUILDS_ONLY_INTERNALLY = {"015_antibody_1ahw", "021_antibody_3eoa",
-                          "022_antibody_3rvw", "023_antibody_3wd5"}
+                          "022_antibody_3rvw", "023_antibody_3wd5",
+                          # test split (v0.6): every build site is internal
+                          "119_antibody_5y9j", "120_antibody_3l5w", "121_soluble_2o6x"}
 BUILDS_NOTHING = {"001_membrane_5yc8", "004_membrane_5zkb", "008_membrane_6i53",
                   "011_membrane_6kuy", "019_antibody_2dd8", "020_antibody_2vis",
                   "030_complex_1ffw", "043_ligand_5od1", "044_ligand_5oh3",

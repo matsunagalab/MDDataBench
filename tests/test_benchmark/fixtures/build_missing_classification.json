@@ -358,5 +358,89 @@
         "site": "B:26"
       }
     ]
+  },
+  "119_antibody_5y9j": {
+    "build_sites": [
+      "H:138",
+      "H:139",
+      "H:140",
+      "H:141",
+      "H:142"
+    ],
+    "bundle_reference_pdb_sha256": "d0667adb07dc518c514b00b655944da57db6fabc838768a420c0db7d5f703df6",
+    "reference_delta": 5,
+    "segments": [
+      {
+        "class": "internal",
+        "site": "H:138"
+      },
+      {
+        "class": "internal",
+        "site": "H:139"
+      },
+      {
+        "class": "internal",
+        "site": "H:140"
+      },
+      {
+        "class": "internal",
+        "site": "H:141"
+      },
+      {
+        "class": "internal",
+        "site": "H:142"
+      }
+    ]
+  },
+  "120_antibody_3l5w": {
+    "build_sites": [
+      "I:23",
+      "I:24",
+      "I:25"
+    ],
+    "bundle_reference_pdb_sha256": "21fc4126335a437e3d63016f8e54456ca125b71a0fc6285734e2a86e86838a7f",
+    "reference_delta": 3,
+    "segments": [
+      {
+        "class": "internal",
+        "site": "I:23"
+      },
+      {
+        "class": "internal",
+        "site": "I:24"
+      },
+      {
+        "class": "internal",
+        "site": "I:25"
+      }
+    ]
+  },
+  "121_soluble_2o6x": {
+    "build_sites": [
+      "A:94",
+      "A:95",
+      "A:96",
+      "A:97"
+    ],
+    "bundle_reference_pdb_sha256": "a7cc64f85da0129b586032bfa4e51e07c86e2f774fd0d6832852c66b6a60d57f",
+    "reference_delta": 4,
+    "segments": [
+      {
+        "class": "internal",
+        "site": "A:94"
+      },
+      {
+        "class": "internal",
+        "site": "A:95"
+      },
+      {
+        "class": "internal",
+        "site": "A:96"
+      },
+      {
+        "class": "internal",
+        "site": "A:97"
+      }
+    ]
   }
 }

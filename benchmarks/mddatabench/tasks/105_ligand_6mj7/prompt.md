@@ -1,0 +1,14 @@
+# Task 105_ligand_6mj7
+
+Simulate Sequestosome-1, PDB entry **6MJ7**, chain **A** residues **118–171**, in explicit solvent.
+
+- **Amber ff99SB-ILDN** protein force field, **TIP3P** water, neutralised
+- **298 K**, **NPT** at **1 bar**
+- at least **1 ns** of production MD
+- neutral pH; ionisation states of the side chains are your choice
+- Include the **ARG** ligand bound to the protein, and treat it as having expected formal net charge **+1** at pH 7
+
+The deposit's **DIO** and **ZN** are not part of the reference. Simulate the protein without them.
+
+Leave the prepared structure, the topology, the minimised state and the production
+trajectory as artifacts. The evaluator recomputes everything it needs from them.

@@ -1,6 +1,6 @@
 {
-  "dataset_id": "MDDataBench-v0.5",
-  "description": "Short-MD tasks whose reference simulations come from MDDB. Each task is scored on two separate axes: prep (system building, checkable without running MD) and md (the run happened, at the conditions asked for, and its equilibrium statistics are indistinguishable from the reference own windows). Split 69 train / 29 evaluation by homology cluster, so the same system never appears on both sides.",
+  "dataset_id": "MDDataBench-v0.6",
+  "description": "Short-MD tasks whose reference simulations come from MDDB. Each task is scored on two separate axes: prep (system building, checkable without running MD) and md (the run happened, at the conditions asked for, and its equilibrium statistics are indistinguishable from the reference own windows). Split 69 train / 29 evaluation by homology cluster, so the same system never appears on both sides. Version 0.6 adds a held-out test split of 30 new systems, sequence-distinct from the 98 and from everything MDClaw was developed against.",
   "reference_database": {
     "name": "MDDB",
     "url": "https://mddbr.eu/",
@@ -694,15 +694,227 @@
       "axis": "soluble_amber",
       "path": "tasks/100_soluble_2axf/task.json",
       "prompt": "tasks/100_soluble_2axf/prompt.md"
+    },
+    {
+      "task_id": "101_membrane_7dfp",
+      "split": "test",
+      "axis": "membrane",
+      "path": "tasks/101_membrane_7dfp/task.json",
+      "prompt": "tasks/101_membrane_7dfp/prompt.md"
+    },
+    {
+      "task_id": "102_ligand_4mre",
+      "split": "test",
+      "axis": "ligand",
+      "path": "tasks/102_ligand_4mre/task.json",
+      "prompt": "tasks/102_ligand_4mre/prompt.md"
+    },
+    {
+      "task_id": "103_ligand_5yj8",
+      "split": "test",
+      "axis": "ligand",
+      "path": "tasks/103_ligand_5yj8/task.json",
+      "prompt": "tasks/103_ligand_5yj8/prompt.md"
+    },
+    {
+      "task_id": "104_ligand_3s0e",
+      "split": "test",
+      "axis": "ligand",
+      "path": "tasks/104_ligand_3s0e/task.json",
+      "prompt": "tasks/104_ligand_3s0e/prompt.md"
+    },
+    {
+      "task_id": "105_ligand_6mj7",
+      "split": "test",
+      "axis": "ligand",
+      "path": "tasks/105_ligand_6mj7/task.json",
+      "prompt": "tasks/105_ligand_6mj7/prompt.md"
+    },
+    {
+      "task_id": "106_metal_6rnt",
+      "split": "test",
+      "axis": "metal",
+      "path": "tasks/106_metal_6rnt/task.json",
+      "prompt": "tasks/106_metal_6rnt/prompt.md"
+    },
+    {
+      "task_id": "107_complex_1lj2",
+      "split": "test",
+      "axis": "complex",
+      "path": "tasks/107_complex_1lj2/task.json",
+      "prompt": "tasks/107_complex_1lj2/prompt.md"
+    },
+    {
+      "task_id": "108_complex_4mqv",
+      "split": "test",
+      "axis": "complex",
+      "path": "tasks/108_complex_4mqv/task.json",
+      "prompt": "tasks/108_complex_4mqv/prompt.md"
+    },
+    {
+      "task_id": "109_complex_5sxp",
+      "split": "test",
+      "axis": "complex",
+      "path": "tasks/109_complex_5sxp/task.json",
+      "prompt": "tasks/109_complex_5sxp/prompt.md"
+    },
+    {
+      "task_id": "110_complex_3k1r",
+      "split": "test",
+      "axis": "complex",
+      "path": "tasks/110_complex_3k1r/task.json",
+      "prompt": "tasks/110_complex_3k1r/prompt.md"
+    },
+    {
+      "task_id": "111_nucleic_1je8",
+      "split": "test",
+      "axis": "nucleic",
+      "path": "tasks/111_nucleic_1je8/task.json",
+      "prompt": "tasks/111_nucleic_1je8/prompt.md"
+    },
+    {
+      "task_id": "112_nucleic_1hlv",
+      "split": "test",
+      "axis": "nucleic",
+      "path": "tasks/112_nucleic_1hlv/task.json",
+      "prompt": "tasks/112_nucleic_1hlv/prompt.md"
+    },
+    {
+      "task_id": "113_nucleic_3jxc",
+      "split": "test",
+      "axis": "nucleic",
+      "path": "tasks/113_nucleic_3jxc/task.json",
+      "prompt": "tasks/113_nucleic_3jxc/prompt.md"
+    },
+    {
+      "task_id": "114_nucleic_1jrn",
+      "split": "test",
+      "axis": "nucleic",
+      "path": "tasks/114_nucleic_1jrn/task.json",
+      "prompt": "tasks/114_nucleic_1jrn/prompt.md"
+    },
+    {
+      "task_id": "115_nanobody_8ijz",
+      "split": "test",
+      "axis": "nanobody",
+      "path": "tasks/115_nanobody_8ijz/task.json",
+      "prompt": "tasks/115_nanobody_8ijz/prompt.md"
+    },
+    {
+      "task_id": "116_nanobody_6ni2",
+      "split": "test",
+      "axis": "nanobody",
+      "path": "tasks/116_nanobody_6ni2/task.json",
+      "prompt": "tasks/116_nanobody_6ni2/prompt.md"
+    },
+    {
+      "task_id": "117_nanobody_7vne",
+      "split": "test",
+      "axis": "nanobody",
+      "path": "tasks/117_nanobody_7vne/task.json",
+      "prompt": "tasks/117_nanobody_7vne/prompt.md"
+    },
+    {
+      "task_id": "118_antibody_3mxw",
+      "split": "test",
+      "axis": "antibody",
+      "path": "tasks/118_antibody_3mxw/task.json",
+      "prompt": "tasks/118_antibody_3mxw/prompt.md"
+    },
+    {
+      "task_id": "119_antibody_5y9j",
+      "split": "test",
+      "axis": "antibody",
+      "path": "tasks/119_antibody_5y9j/task.json",
+      "prompt": "tasks/119_antibody_5y9j/prompt.md"
+    },
+    {
+      "task_id": "120_antibody_3l5w",
+      "split": "test",
+      "axis": "antibody",
+      "path": "tasks/120_antibody_3l5w/task.json",
+      "prompt": "tasks/120_antibody_3l5w/prompt.md"
+    },
+    {
+      "task_id": "121_soluble_2o6x",
+      "split": "test",
+      "axis": "soluble_charmm",
+      "path": "tasks/121_soluble_2o6x/task.json",
+      "prompt": "tasks/121_soluble_2o6x/prompt.md"
+    },
+    {
+      "task_id": "122_soluble_1j8r",
+      "split": "test",
+      "axis": "soluble_charmm",
+      "path": "tasks/122_soluble_1j8r/task.json",
+      "prompt": "tasks/122_soluble_1j8r/prompt.md"
+    },
+    {
+      "task_id": "123_soluble_3lae",
+      "split": "test",
+      "axis": "soluble_charmm",
+      "path": "tasks/123_soluble_3lae/task.json",
+      "prompt": "tasks/123_soluble_3lae/prompt.md"
+    },
+    {
+      "task_id": "124_soluble_2cwy",
+      "split": "test",
+      "axis": "soluble_charmm",
+      "path": "tasks/124_soluble_2cwy/task.json",
+      "prompt": "tasks/124_soluble_2cwy/prompt.md"
+    },
+    {
+      "task_id": "125_soluble_2p54",
+      "split": "test",
+      "axis": "soluble_charmm",
+      "path": "tasks/125_soluble_2p54/task.json",
+      "prompt": "tasks/125_soluble_2p54/prompt.md"
+    },
+    {
+      "task_id": "126_soluble_1pwt",
+      "split": "test",
+      "axis": "soluble_amber",
+      "path": "tasks/126_soluble_1pwt/task.json",
+      "prompt": "tasks/126_soluble_1pwt/prompt.md"
+    },
+    {
+      "task_id": "127_soluble_1j7a",
+      "split": "test",
+      "axis": "soluble_amber",
+      "path": "tasks/127_soluble_1j7a/task.json",
+      "prompt": "tasks/127_soluble_1j7a/prompt.md"
+    },
+    {
+      "task_id": "128_soluble_1ajj",
+      "split": "test",
+      "axis": "soluble_amber",
+      "path": "tasks/128_soluble_1ajj/task.json",
+      "prompt": "tasks/128_soluble_1ajj/prompt.md"
+    },
+    {
+      "task_id": "129_soluble_2cro",
+      "split": "test",
+      "axis": "soluble_amber",
+      "path": "tasks/129_soluble_2cro/task.json",
+      "prompt": "tasks/129_soluble_2cro/prompt.md"
+    },
+    {
+      "task_id": "130_soluble_1c2a",
+      "split": "test",
+      "axis": "soluble_amber",
+      "path": "tasks/130_soluble_1c2a/task.json",
+      "prompt": "tasks/130_soluble_1c2a/prompt.md"
     }
   ],
   "counts": {
-    "total": 98,
+    "total": 128,
     "train": 69,
-    "eval": 29
+    "eval": 29,
+    "test": 30
   },
   "changelog": [
     "v0.4 (2026-09-14): every prompt names the deposit's non-polymer components the reference does not carry (48 tasks) and, for 6W9C, which of two zincs is kept; glycosylation sites are named as glycans to leave out (four tasks, 9/14 morning).",
-    "v0.5 (2026-09-16): the standard-protonation sentence is gone from every prompt. MDDB records no pH or protonation state, so the sentence encoded the references' build convention; the scorer now tolerates one proton on any ionisable side chain the task does not name, and the six tasks whose reference carries a variant name it with its residue name (HIP) and keep it strict."
+    "v0.5 (2026-09-16): the standard-protonation sentence is gone from every prompt. MDDB records no pH or protonation state, so the sentence encoded the references' build convention; the scorer now tolerates one proton on any ionisable side chain the task does not name, and the six tasks whose reference carries a variant name it with its residue name (HIP) and keep it strict.",
+    "v0.6 (2026-10-31): a held-out test split of 30 new systems (tasks 101-130), chosen by the pre-registered rule of docs/test-set-selection.md (no MDClaw, agent or MD involved in the choice) and sequence-distinct from the 98, the two withdrawn tasks, MDPrepBench, MDStudyBench and every PDB entry the mdclaw checkout documents; built by scripts/build_test_tasks.py, prompts from _task_builder.build_prompt, which gained the ligand bullet the cast's ligand prompts carry. The 98 are unchanged."
   ]
 }

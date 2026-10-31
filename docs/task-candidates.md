@@ -153,3 +153,64 @@ MDDB の全 8 ノードを走査した 35602 プロジェクトから選定し�
 | T099 | 訓練 | mmb:A014L | [1VYC](https://www.rcsb.org/structure/1VYC) | A:1-65 | 65 | Parm99 | TIP3P | 300 | 1 ns | 1 | 3.41 | Neurotoxin from Bungarus candidus |
 | T100 | 訓練 | mmb:A002J | [2AXF](https://www.rcsb.org/structure/2AXF) | A:1-276 B:1-99 C:1-10 | 385 | Parm99 | TIP3P | 300 | 1 ns | 1 | 2.66 | The Immunogenicity of a Viral Cytotoxic T Cell Epito |
 
+## テスト (30, 2026-10-31 選定・データセット v0.6)
+
+訓練・評価の 98 件とは別の、保留テスト分割（`split: "test"`、タスク 101-130）。
+選定規則・母集団の件数・検証・構築の記録は `docs/test-set-selection.md` にある。
+選定には MDDB のメタデータ・参照ファイル・RCSB の寄託だけを使い、MDClaw・エージェント・MD は
+一切使っていない。
+
+- **配列の重複なし**: 98 件、取り下げた 038/061、開発用タスク 1EDN、MDPrepBench、
+  MDStudyBench、mdclaw の文書に出てくる PDB エントリ全体に対して、3-mer 包含率
+  （DNA/RNA は 6-mer）が 0.70 未満。対象は系全体と、30 残基以上の各鎖（Ig は V ドメイン）。
+- **軸ごとの件数**: 膜 1、リガンド 4、金属 1、蛋白-蛋白 4、核酸 4、ナノボディ 3、
+  抗体-抗原 3、ATLAS 5、MoDEL 5。
+  - 膜と金属は規則の結果として不足し、その枠は単鎖に回した。
+- **予備との差し替え**: 構築時に 2 件を各軸の次の予備に差し替えた。
+  - 2AF1 → 1JE8: 対称操作でできる二重鎖を、ビルダーが正確に書けない。
+  - 1PNE → 1J7A: 参照が持つ ACE キャップを、ビルダーが書けない。
+- **予備（この順に使う）**:
+
+  | 軸 | 予備 |
+  |---|---|
+  | 抗体-抗原 | 4ETQ, 5O14, 5X0T |
+  | 蛋白-蛋白 | 3O6Q, 4KT5, 6B12 |
+  | ナノボディ | 6IR2, 6X05, 6B73 |
+  | リガンド | 2PQL, 3G19, 1KJR |
+  | 核酸 | 4F6N, 1VTN（1JE8 は使用済み） |
+  | ATLAS | 1HOE, 5N76, 7ONN |
+  | MoDEL | 1A5D, 1HP9（1J7A は使用済み） |
+  | 膜・金属 | なし |
+
+| # | 軸 | ノード:accession | PDB | 鎖:残基範囲 | 残基 | 力場 | 水 | T | 窓 | rep | RMSD | 内容 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| T101 | 膜 | mmb:A024X | [7DFP](https://www.rcsb.org/structure/7DFP) | A:35-216+364-442 | 254 | CHARMM36 | TIP3P | 310 | 1 ns | 1 | 2.98 | Human dopamine D2 receptor in complex with spiperone |
+| T102 | リガンド | cin:A00DC | [4MRE](https://www.rcsb.org/structure/4MRE) | A:24-173 | 150 | Amber ff99SB-ILDN | TIP3P | 298 | 1 ns | 1 | 2.92 | Crystal structure of the murine CD44 hyaluronan bind |
+| T103 | リガンド | cin:A000Y | [5YJ8](https://www.rcsb.org/structure/5YJ8) | A:549-608 | 60 | Amber ff99SB-ILDN | TIP3P | 298 | 1 ns | 1 | 3.68 | Identification of a small molecule inhibitor for the |
+| T104 | リガンド | cin:A00AR | [3S0E](https://www.rcsb.org/structure/3S0E) | A:1-119 | 119 | Amber ff99SB-ILDN | TIP3P | 298 | 1 ns | 1 | 3.01 | Apis mellifera OBP14 in complex with the odorant eug |
+| T105 | リガンド | cin:A0002 | [6MJ7](https://www.rcsb.org/structure/6MJ7) | A:118-171 | 54 | Amber ff99SB-ILDN | TIP3P | 298 | 1 ns | 1 | 3.03 | Crystal structure of p62 ZZ domain in complex with f |
+| T106 | 金属 | cin:A0008 | [6RNT](https://www.rcsb.org/structure/6RNT) | A:1-104 | 104 | Amber ff99SB-ILDN | TIP3P | 298 | 1 ns | 1 | 2.19 | CRYSTAL STRUCTURE OF RIBONUCLEASE T1 COMPLEXED WITH  |
+| T107 | 蛋白-蛋白 | inr:A001D | [1LJ2](https://www.rcsb.org/structure/1LJ2) | A:207-312 B:206-315 C:138-159 D:133-159 | 265 | CHARMM36m | TIP3P | 310 | 2.5 ns | 1 | 3.51 | Recognition of eIF4G by Rotavirus NSP3 reveals a bas |
+| T108 | 蛋白-蛋白 | inr:A007Y | [4MQV](https://www.rcsb.org/structure/4MQV) | A:204-268 B:5-30 | 91 | CHARMM36m | TIP3P | 310 | 2.5 ns | 1 | 2.34 | Crystal complex of Rpa32c and Smarcal1 N-terminus |
+| T109 | 蛋白-蛋白 | inr:A009Z | [5SXP](https://www.rcsb.org/structure/5SXP) | A:183-243 B:184-243 G:248-268 | 142 | CHARMM36m | TIP3P | 310 | 2.5 ns | 1 | 3.39 | STRUCTURAL BASIS FOR THE INTERACTION BETWEEN ITCH PR |
+| T110 | 蛋白-蛋白 | inr:A005C | [3K1R](https://www.rcsb.org/structure/3K1R) | A:1-192 B:388-461 | 266 | CHARMM36m | TIP3P | 310 | 2.5 ns | 1 | 2.86 | Structure of harmonin NPDZ1 in complex with the SAM- |
+| T111 | 核酸 | mmb:A01DM | [1JE8](https://www.rcsb.org/structure/1JE8) | C:1-20 D:21-40 | 40 | 未記録 | TIP3P | 300 | 1 ns | 1 | 2.98 | Two-Component response regulator NarL/DNA Complex: D |
+| T112 | 核酸 | mmb:A017B | [1HLV](https://www.rcsb.org/structure/1HLV) | C:1-21 B:1-21 | 42 | 未記録 | SPCE | 298 | 1 ns | 1 | 2.67 | CRYSTAL STRUCTURE OF CENP-B(1-129) COMPLEXED WITH TH |
+| T113 | 核酸 | mmb:A01E0 | [3JXC](https://www.rcsb.org/structure/3JXC) | A:21-40 B:1-20 | 40 | 未記録 | TIP3P | 300 | 1 ns | 1 | 3.05 | Crystal structure of the P22 c2 repressor protein in |
+| T114 | 核酸 | mmb:A01DC | [1JRN](https://www.rcsb.org/structure/1JRN) | A:1001-1012 B:2001-2012 | 24 | 未記録 | TIP3P | 300 | 1 ns | 1 | 1.17 | Orthorhombic form of Oxytricha telomeric DNA at 2.0A |
+| T115 | ナノボディ | mmb:A05CE | [8IJZ](https://www.rcsb.org/structure/8IJZ) | A:4-126 | 123 | Amber ff99SB-ILDN | TIP3P | 300 | 1 ns | 2 | 2.04 | anti-VEGF mutant |
+| T116 | ナノボディ | mmb:A059A | [6NI2](https://www.rcsb.org/structure/6NI2) | A:1-113 | 113 | Amber ff99SB-ILDN | TIP3P | 300 | 1 ns | 3 | 3.93 | Stabilized beta-arrestin 1-V2T subcomplex of a GPCR- |
+| T117 | ナノボディ | mmb:A05BH | [7VNE](https://www.rcsb.org/structure/7VNE) | U:2-117 | 116 | Amber ff99SB-ILDN | TIP3P | 300 | 1 ns | 3 | 3.05 | Structure of the SARS-CoV-2 spike glycoprotein in co |
+| T118 | 抗体-抗原 | inr:A00LA | [3MXW](https://www.rcsb.org/structure/3MXW) | A:39-191 L:1-212 H:1-214 | 585 | CHARMM36m | TIP3P | 300 | 2.5 ns | 3 | 2.51 | Crystal structure Sonic hedgehog bound to the 5E1 fa |
+| T119 | 抗体-抗原 | inr:A00LX | [5Y9J](https://www.rcsb.org/structure/5Y9J) | L:2-211 H:2-224 A:142-285 | 577 | CHARMM36m | TIP3P | 300 | 2.5 ns | 3 | 2.73 | BAFF in complex with belimumab |
+| T120 | 抗体-抗原 | inr:A00L8 | [3L5W](https://www.rcsb.org/structure/3L5W) | L:1-213 H:1-223 I:7-110 | 540 | CHARMM36m | TIP3P | 300 | 2.5 ns | 3 | 3.30 | Crystal structure of the complex between IL-13 and C |
+| T121 | ATLAS | bsc:A0311 | [2O6X](https://www.rcsb.org/structure/2O6X) | A:8-317 | 310 | CHARMM36m | TIP3P | 300 | 1 ns | 3 | 2.37 | Crystal Structure of ProCathepsin L1 from Fasciola h |
+| T122 | ATLAS | bsc:A02NS | [1J8R](https://www.rcsb.org/structure/1J8R) | A:1-196 | 196 | CHARMM36m | TIP3P | 300 | 1 ns | 3 | 2.17 | BINARY COMPLEX OF THE PAPG RECEPTOR-BINDING DOMAIN B |
+| T123 | ATLAS | bsc:A03DG | [3LAE](https://www.rcsb.org/structure/3LAE) | A:-2-78 | 81 | CHARMM36m | TIP3P | 300 | 1 ns | 3 | 2.17 | The crystal structure of a functionally unknown cons |
+| T124 | ATLAS | bsc:A02WZ | [2CWY](https://www.rcsb.org/structure/2CWY) | A:1-94 | 94 | CHARMM36m | TIP3P | 300 | 1 ns | 3 | 2.20 | Crystal structure of conserved hypothetical protein, |
+| T125 | ATLAS | bsc:A031Y | [2P54](https://www.rcsb.org/structure/2P54) | A:202-468 | 267 | CHARMM36m | TIP3P | 300 | 1 ns | 3 | 2.40 | a crystal structure of PPAR alpha bound with SRC1 pe |
+| T126 | MoDEL | mmb:A00W4 | [1PWT](https://www.rcsb.org/structure/1PWT) | A:1-61 | 61 | Amber Parm99 | TIP3P | 300 | 1 ns | 1 | 3.10 | THERMODYNAMIC ANALYSIS OF ALPHA-SPECTRIN SH3 AND TWO |
+| T127 | MoDEL | mmb:A00O3 | [1J7A](https://www.rcsb.org/structure/1J7A) | A:1-98 | 98 | Amber Parm99 | TIP3P | 300 | 1 ns | 1 | 3.16 | STRUCTURE OF THE ANABAENA FERREDOXIN D68K MUTANT |
+| T128 | MoDEL | mmb:A001O | [1AJJ](https://www.rcsb.org/structure/1AJJ) | A:4-40 | 37 | Amber Parm99 | TIP3P | 300 | 1 ns | 1 | 2.44 | LDL RECEPTOR LIGAND-BINDING MODULE 5, CALCIUM-COORDI |
+| T129 | MoDEL | mmb:A008D | [2CRO](https://www.rcsb.org/structure/2CRO) | A:-1-63 | 65 | Amber Parm99 | TIP3P | 300 | 1 ns | 1 | 1.91 | STRUCTURE OF PHAGE 434 CRO PROTEIN AT 2.35 ANGSTROMS |
+| T130 | MoDEL | mmb:A009E | [1C2A](https://www.rcsb.org/structure/1C2A) | A:4-123 | 120 | Amber Parm99 | TIP3P | 300 | 1 ns | 1 | 3.77 | CRYSTAL STRUCTURE OF BARLEY BBI |

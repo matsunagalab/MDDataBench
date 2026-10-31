@@ -66,3 +66,18 @@ def test_the_audit_writes_exclusions_once_and_bumps_the_dataset_version(tmp_path
     again = apply_audit.apply(dataset, audit)
     assert again["changed"] == []
     assert (dataset / "tasks/069_soluble_1aol/prompt.md").read_text() == prompt_069
+
+
+def test_a_later_dataset_is_never_downgraded(tmp_path):
+    """v0.6 added the test split after this step; rerunning it must not reset the id."""
+    dataset, audit = _dataset(tmp_path)
+    apply_audit.apply(dataset, audit)
+    meta = json.loads((dataset / "dataset.json").read_text())
+    meta["dataset_id"] = "MDDataBench-v0.6"
+    (dataset / "dataset.json").write_text(json.dumps(meta))
+    lines = len(meta["changelog"])
+    result = apply_audit.apply(dataset, audit)
+    meta = json.loads((dataset / "dataset.json").read_text())
+    assert result["dataset_id"] == "MDDataBench-v0.6"
+    assert meta["dataset_id"] == "MDDataBench-v0.6" and len(meta["changelog"]) == lines
+    assert result["changed"] == []

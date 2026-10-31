@@ -60,6 +60,14 @@ def polymer_subject(task: dict) -> str:
     return "protein"
 
 
+def _older(current, target) -> bool:
+    """Whether dataset id ``current`` precedes ``target`` (missing counts as older)."""
+    def version(text):
+        found = re.search(r"v(\d+)\.(\d+)", str(text or ""))
+        return (int(found.group(1)), int(found.group(2))) if found else (-1, -1)
+    return version(current) < version(target)
+
+
 def apply(dataset: Path, audit: Path, dry_run: bool = False) -> dict:
     changed, unchanged = [], []
     for row in csv.DictReader(audit.open()):
@@ -101,7 +109,10 @@ def apply(dataset: Path, audit: Path, dry_run: bool = False) -> dict:
         changed.append({"task": task_id, "excluded": names, "kept": [e["name"] for e in kept_entries]})
     meta_path = dataset / "dataset.json"
     meta = json.loads(meta_path.read_text())
-    if meta.get("dataset_id") != DATASET_ID:
+    # Bump to this version only from an older one. A later dataset (v0.6 added
+    # the test split) already contains this step, and resetting its id would
+    # both downgrade it and append this changelog line a second time.
+    if _older(meta.get("dataset_id"), DATASET_ID):
         meta["dataset_id"] = DATASET_ID
         meta.setdefault("changelog", []).append(CHANGELOG)
         if not dry_run:

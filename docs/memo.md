@@ -5,6 +5,31 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-10-31 — Test split built: tasks 101-130, dataset v0.6 (uncommitted); 2AF1 and 1PNE replaced by reserves; all 30 audit clean
+
+The rule, the result and the build are in `docs/test-set-selection.md` (Parts 1-3). The selection is in `/data1/rkp00079/rku00161/testset-20261031/selection/selected.json`, the build record in `.../build/`.
+Code: `scripts/scan_mddb_pool.py`, `verify_candidates.py`, `select_test_set.py` and `build_test_tasks.py`.
+Only MDDB metadata and reference files, RCSB, the MDPrepBench/MDStudyBench task lists and the mdclaw checkout text were read. No MD, MDClaw or agent ran, and no campaign result was consulted.
+
+- **Selection (v4).**
+  - Pool: 7 of 8 nodes (oxf timed out), 34778 projects, 10866 eligible.
+  - Distinctness: 3-mer containment < 0.70 (nucleotides 6-mer), whole system and per chain, against a development set of 287: the 98, 038, 061, 1EDN, MDPrepBench, MDStudyBench, and 171 PDB entries the mdclaw checkout mentions.
+  - Result: membrane 1, metal 1, antibody 3, complex 4, nanobody 3, ligand 4, nucleic 4, soluble 5 + 5.
+  - The rule changes v1-v4 and the coordinator's decisions are listed in the doc (1.9, 1.10).
+- **Build.**
+  - The prompts come from `build_prompt`, which gained a tested `ligands` argument for the cast's ligand bullet (it reproduces 037's shipped prompt).
+  - The same derivation applied to the 98 reproduces 76 prompts exactly and 17 up to the molecule name, and all eight cast ligand charges.
+  - 2AF1 → 1JE8 (a symmetry duplex the builder cannot state) and 1PNE → 1J7A (a kept ACE cap the builder cannot state). The contract audit showed both.
+- **A defect caught during the build.** `calibrate()` without `window_ns` takes 100 frames at the reference's own step: 10 ns windows on DynaRepo, 0.1 ns on MoDEL. The 16 affected calibrations were redone at the cast's 1 / 2.5 ns.
+- **A second defect.** Rerun on a later dataset, `apply_nonpolymer_audit.py` and `apply_dataset_v05.py` reset `dataset_id` to their own version. Both are fixed to bump only from an older one, with a test each.
+- **Verification.**
+  - `audit_task_cast` over 128: 126 clean. All 30 test tasks are clean; the 2 findings are the cast's own (028, 036) and were the same before the build.
+  - The apply scripts change nothing on the 128.
+  - pytest, with bundles: 4 failures per image, all environmental or pre-existing (029 build-missing record, also at HEAD).
+  - Held out: 8 of the 11 multi-replica test tasks reject nothing at slack 4.
+  - A dry `init_experiment` took one test task × 3 conditions.
+  - An MDClaw-free positive control is not possible without MD: the references are solvent-stripped and carry no OpenMM System.
+
 ## 2026-10-31 — Pins moved to the pixi-built image: `mdclaw.sif` = mdclaw `ac0e328`, sha256 `9104afbf…`, OpenMM 8.6.1
 
 - The RIKYU shared image behind `/data1/rkp00079/mdclaw.sif` was rebuilt from the pixi `cuda13` environment and switched at 04:32 JST.

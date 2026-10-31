@@ -1078,10 +1078,26 @@ def protonation_statements(protonation):
     return sentences
 
 
+def ligand_bullet(ligand) -> str:
+    """The conditions bullet naming a ligand the reference keeps, with its charge.
+
+    ``ligand``: ``{"name": "OLA", "charge": -1}``.  The wording is the one the
+    cast's ligand prompts carry since 2026-08-25 (memo: "Ligand prompts now name
+    the ligand and its expected charge"); the charge is derived as the CCD
+    formal charge plus the reference's hydrogens minus the CCD's.  A zero is
+    written ``0``, any other value with its sign.
+    """
+    charge = int(ligand["charge"])
+    text = f"{charge:+d}" if charge else "0"
+    return (f"- Include the **{ligand['name']}** ligand bound to the protein, and treat it "
+            f"as having expected formal net charge **{text}** at pH 7")
+
+
 def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonation,
                  window_ns, replicas=1, joined_chains=(), disulfides=None,
                  extra_components=(), excluded_components=(),
-                 effective_components=(), kept_components=(), polymer_subject="protein"):
+                 effective_components=(), kept_components=(), polymer_subject="protein",
+                 ligands=()):
     """The text an agent is given.  Derived, not written.
 
     ``joined_chains`` names the deposit chains whose pieces the reference holds
@@ -1109,6 +1125,11 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
     ``effective_components`` is the ordered deposit-author range grouping read
     from ``reference.selection``. When present it replaces the older all-or-none
     ``joined_chains`` hint and emits every mixed or separated peptide boundary.
+
+    ``ligands`` lists the small molecules the reference keeps, each as
+    ``{"name": <deposit CCD code>, "charge": <expected formal charge>}``; each
+    becomes the last conditions bullet (``ligand_bullet``).  Empty by default,
+    which leaves every other prompt exactly as before.
     """
     field = buildable_force_field(metadata.get("FF"))
     water = WATERS.get(str(metadata.get("WAT") or "").upper())
@@ -1141,6 +1162,8 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
     lines.append(f"- at least **{window_ns:g} ns** of production MD")
     if not protonation:
         lines.append(f"- {FREE_IONISATION_BULLET}")
+    for ligand in ligands or ():
+        lines.append(ligand_bullet(ligand))
     lines.append("")
     modified_names = {
         (str(item.get("chain")), str(item.get("residue"))): item.get("name")

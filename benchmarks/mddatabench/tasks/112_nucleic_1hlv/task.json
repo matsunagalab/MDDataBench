@@ -1,0 +1,894 @@
+{
+  "schema_version": "1.1",
+  "task_id": "112_nucleic_1hlv",
+  "split": "test",
+  "axis": "nucleic",
+  "category": "database_derived_md",
+  "primary_score": "database_agreement",
+  "evaluation_target": "agent_md_fidelity",
+  "reference": {
+    "database": "MDDB",
+    "node": "mmb",
+    "api": "https://irb-dev.mddbr.eu/api/rest/v1/projects",
+    "accession": "A017B",
+    "retrieved": "2026-10-31",
+    "license": "This trajectory dataset is released under a Creative Commons Attribution 4.0 International Public License",
+    "pdb_ids": [
+      "1HLV"
+    ],
+    "replicas": 1,
+    "reference_conditions": {
+      "FF": null,
+      "WAT": "SPCE",
+      "TEMP": "298",
+      "TIMESTEP": null,
+      "FRAMESTEP": 0.001,
+      "PROGRAM": "Amber",
+      "METHOD": "Classical MD",
+      "ENSEMBLE": "NPT",
+      "ENSEMBLE_recorded_by_reference": null,
+      "PRESSURE_BAR": 1,
+      "PRESSURE_recorded_by_reference": null
+    },
+    "reference_system": {
+      "PROTRES": 0,
+      "PROTATS": 0,
+      "DNARES": 42,
+      "RNARES": 0,
+      "LIPIRES": 0,
+      "SYSTATS": 1331,
+      "SOL": 0,
+      "NA": 0,
+      "CL": 0,
+      "structural_metals": []
+    },
+    "selection": {
+      "chains": [
+        "C",
+        "B"
+      ],
+      "ranges": {
+        "C": [
+          [
+            "1",
+            "21"
+          ]
+        ],
+        "B": [
+          [
+            "1",
+            "21"
+          ]
+        ]
+      },
+      "numbering": "the deposit's own author numbering, not SEQRES positions",
+      "build_missing": {},
+      "differences_from_deposit": [],
+      "modified_residues_reverted": [],
+      "stated_protonation": [],
+      "numbering_certain": true,
+      "derivation": "reference structure aligned to the deposit's SEQRES, then SEQRES positions mapped to author numbering through the observed residues"
+    },
+    "deposit": {
+      "method": "X-ray",
+      "modeled_residues": 173,
+      "unmodeled_residues": 0,
+      "disulfide_bonds": 0,
+      "chains": 3
+    },
+    "reference_stability": {
+      "last_third_rmsd_angstrom": 2.667,
+      "drift_angstrom": -0.013,
+      "note": "measured from MDDB's own rmsds analysis; above 4.0 A the reference has left the deposited fold and a 1 ns submission started from the deposit could not match it"
+    },
+    "bundle": {
+      "fetch": "mddatabench fetch_benchmark_reference --node mmb --accession A017B --out <bundle>",
+      "sha256": {
+        "pca_atom_indices.json": "956215ed7d65adad552938c3f8ac06e57b3160fec233e26148fd685aa2d52ba9",
+        "reference.pdb": "e69ce92ec17f556e287e352e83b7b5202d10bc9eeb6ce99e572fc67a2d879a72",
+        "reference.prmtop": "4abf6a8ebcef9f229f236e749d6160a2931b41800181100af12bbaf068effd1b",
+        "reference_fluctuation.json": "737adf7baf4f8caeae627c3f52f68b97924c0da4665d2d622dd731f4025fd59c",
+        "reference_rgyr.json": "d7ab801a7632ce503358429ab22951f6b4cb7f21c665817103d0f178c0486109"
+      },
+      "policy": "Fetched at scoring time. Never staged into the solver workspace.",
+      "topology_file": "topology.prmtop"
+    },
+    "md_calibration": {
+      "window_statistics": {
+        "1": [
+          {
+            "rank_correlation": 0.8352923805837577,
+            "total_fluctuation_angstrom": 1.8055010311488586,
+            "radius_of_gyration_angstrom": 21.642631779829316
+          },
+          {
+            "rank_correlation": 0.5844693080939307,
+            "total_fluctuation_angstrom": 1.3577335633132859,
+            "radius_of_gyration_angstrom": 21.76015569328659
+          },
+          {
+            "rank_correlation": 0.4439294047974455,
+            "total_fluctuation_angstrom": 1.4962018166526827,
+            "radius_of_gyration_angstrom": 21.742940661218228
+          },
+          {
+            "rank_correlation": 0.49322792834586987,
+            "total_fluctuation_angstrom": 1.3107366092230748,
+            "radius_of_gyration_angstrom": 21.69453618116565
+          },
+          {
+            "rank_correlation": 0.7019103806744512,
+            "total_fluctuation_angstrom": 1.5882748277797654,
+            "radius_of_gyration_angstrom": 21.780981212961507
+          },
+          {
+            "rank_correlation": 0.7515986720307076,
+            "total_fluctuation_angstrom": 1.3283174528883852,
+            "radius_of_gyration_angstrom": 21.607815363882306
+          },
+          {
+            "rank_correlation": 0.8428684683480093,
+            "total_fluctuation_angstrom": 1.3901410350913699,
+            "radius_of_gyration_angstrom": 21.816320845230024
+          },
+          {
+            "rank_correlation": 0.7670277171054639,
+            "total_fluctuation_angstrom": 1.6197740441490922,
+            "radius_of_gyration_angstrom": 21.861291032550763
+          },
+          {
+            "rank_correlation": 0.7196580641961918,
+            "total_fluctuation_angstrom": 1.4017477923606039,
+            "radius_of_gyration_angstrom": 21.874172156879112
+          },
+          {
+            "rank_correlation": 0.6809228242515504,
+            "total_fluctuation_angstrom": 1.193134337953979,
+            "radius_of_gyration_angstrom": 21.67573171372162
+          },
+          {
+            "rank_correlation": 0.5681754776957877,
+            "total_fluctuation_angstrom": 1.4769117678117911,
+            "radius_of_gyration_angstrom": 21.746908610505415
+          },
+          {
+            "rank_correlation": 0.7630624536732746,
+            "total_fluctuation_angstrom": 1.6447761782328882,
+            "radius_of_gyration_angstrom": 21.641107041057126
+          },
+          {
+            "rank_correlation": 0.5957257255825773,
+            "total_fluctuation_angstrom": 1.3904374791540879,
+            "radius_of_gyration_angstrom": 21.61526498529081
+          },
+          {
+            "rank_correlation": 0.7053065447064368,
+            "total_fluctuation_angstrom": 1.3538287533612545,
+            "radius_of_gyration_angstrom": 21.943417649240477
+          },
+          {
+            "rank_correlation": 0.8015342643408988,
+            "total_fluctuation_angstrom": 1.3758739196325733,
+            "radius_of_gyration_angstrom": 21.722158902875112
+          },
+          {
+            "rank_correlation": 0.6845647532067008,
+            "total_fluctuation_angstrom": 1.4713233414100753,
+            "radius_of_gyration_angstrom": 21.7316406678786
+          },
+          {
+            "rank_correlation": 0.8216727797558032,
+            "total_fluctuation_angstrom": 1.5989199153301608,
+            "radius_of_gyration_angstrom": 21.66227450503331
+          },
+          {
+            "rank_correlation": 0.5895074890188119,
+            "total_fluctuation_angstrom": 1.7472644469172562,
+            "radius_of_gyration_angstrom": 21.54264413426638
+          },
+          {
+            "rank_correlation": 0.7197759545577725,
+            "total_fluctuation_angstrom": 1.4288203071932493,
+            "radius_of_gyration_angstrom": 21.76456527581104
+          },
+          {
+            "rank_correlation": 0.7795621121945683,
+            "total_fluctuation_angstrom": 1.5379480561504861,
+            "radius_of_gyration_angstrom": 21.60294432439269
+          },
+          {
+            "rank_correlation": 0.7006608196432346,
+            "total_fluctuation_angstrom": 1.275918479851941,
+            "radius_of_gyration_angstrom": 21.556413079435828
+          },
+          {
+            "rank_correlation": 0.664597505222627,
+            "total_fluctuation_angstrom": 1.2381974436336647,
+            "radius_of_gyration_angstrom": 21.887209913763016
+          },
+          {
+            "rank_correlation": 0.7359426784097161,
+            "total_fluctuation_angstrom": 1.5046032779087049,
+            "radius_of_gyration_angstrom": 21.81838718224499
+          },
+          {
+            "rank_correlation": 0.6025080694465448,
+            "total_fluctuation_angstrom": 1.379013906557583,
+            "radius_of_gyration_angstrom": 21.788884064619776
+          },
+          {
+            "rank_correlation": 0.6135851553428194,
+            "total_fluctuation_angstrom": 1.3217039626089795,
+            "radius_of_gyration_angstrom": 21.892232321460412
+          },
+          {
+            "rank_correlation": 0.3867072665231064,
+            "total_fluctuation_angstrom": 1.5651065746977286,
+            "radius_of_gyration_angstrom": 21.65850347058842
+          },
+          {
+            "rank_correlation": 0.5034183404802887,
+            "total_fluctuation_angstrom": 1.614126101516744,
+            "radius_of_gyration_angstrom": 21.836253527603773
+          },
+          {
+            "rank_correlation": 0.7388273441953646,
+            "total_fluctuation_angstrom": 1.3568724838884743,
+            "radius_of_gyration_angstrom": 21.586623399805884
+          },
+          {
+            "rank_correlation": 0.6024796528773038,
+            "total_fluctuation_angstrom": 1.543508501121446,
+            "radius_of_gyration_angstrom": 21.824378700903914
+          },
+          {
+            "rank_correlation": 0.6185158141138161,
+            "total_fluctuation_angstrom": 1.598032240863789,
+            "radius_of_gyration_angstrom": 21.652602815886702
+          },
+          {
+            "rank_correlation": 0.836558837953442,
+            "total_fluctuation_angstrom": 1.4996214469767857,
+            "radius_of_gyration_angstrom": 21.74114611452548
+          },
+          {
+            "rank_correlation": 0.7122229072550675,
+            "total_fluctuation_angstrom": 1.4731337023977888,
+            "radius_of_gyration_angstrom": 21.804971624034515
+          },
+          {
+            "rank_correlation": 0.6869325446383181,
+            "total_fluctuation_angstrom": 1.3894998561432603,
+            "radius_of_gyration_angstrom": 21.808987166615676
+          },
+          {
+            "rank_correlation": 0.6924323028095185,
+            "total_fluctuation_angstrom": 1.4703013592245624,
+            "radius_of_gyration_angstrom": 21.846280446780526
+          },
+          {
+            "rank_correlation": 0.6485056628707102,
+            "total_fluctuation_angstrom": 1.3343461125917435,
+            "radius_of_gyration_angstrom": 21.80701136020376
+          },
+          {
+            "rank_correlation": 0.8756642613136006,
+            "total_fluctuation_angstrom": 1.4362197856999461,
+            "radius_of_gyration_angstrom": 21.85449860699371
+          },
+          {
+            "rank_correlation": 0.6998736038737219,
+            "total_fluctuation_angstrom": 1.5176772210669338,
+            "radius_of_gyration_angstrom": 21.717598193016673
+          },
+          {
+            "rank_correlation": 0.7416747612348459,
+            "total_fluctuation_angstrom": 1.3645123128892453,
+            "radius_of_gyration_angstrom": 21.712175340179357
+          },
+          {
+            "rank_correlation": 0.8192116744549218,
+            "total_fluctuation_angstrom": 1.5251766357142849,
+            "radius_of_gyration_angstrom": 21.74023261998699
+          },
+          {
+            "rank_correlation": 0.6605082073057778,
+            "total_fluctuation_angstrom": 1.3744920161220358,
+            "radius_of_gyration_angstrom": 21.671875977447222
+          },
+          {
+            "rank_correlation": 0.7624610976269054,
+            "total_fluctuation_angstrom": 1.31158996592884,
+            "radius_of_gyration_angstrom": 21.87735899536923
+          },
+          {
+            "rank_correlation": 0.708532593330669,
+            "total_fluctuation_angstrom": 1.2496946192478546,
+            "radius_of_gyration_angstrom": 21.90895145636365
+          },
+          {
+            "rank_correlation": 0.7677412033980273,
+            "total_fluctuation_angstrom": 1.4637803097192097,
+            "radius_of_gyration_angstrom": 21.734716756606403
+          },
+          {
+            "rank_correlation": 0.8180734756545142,
+            "total_fluctuation_angstrom": 1.4966705389555308,
+            "radius_of_gyration_angstrom": 21.726948252732097
+          },
+          {
+            "rank_correlation": 0.6884228784926979,
+            "total_fluctuation_angstrom": 1.325484677391403,
+            "radius_of_gyration_angstrom": 21.690220058132653
+          },
+          {
+            "rank_correlation": 0.6822046419289325,
+            "total_fluctuation_angstrom": 1.3281011249584258,
+            "radius_of_gyration_angstrom": 21.65316389326584
+          },
+          {
+            "rank_correlation": 0.6606476020981354,
+            "total_fluctuation_angstrom": 1.4288460173782331,
+            "radius_of_gyration_angstrom": 21.706937305510355
+          },
+          {
+            "rank_correlation": 0.7016834321282162,
+            "total_fluctuation_angstrom": 1.396967339543337,
+            "radius_of_gyration_angstrom": 21.647315181001318
+          },
+          {
+            "rank_correlation": 0.8801375669228949,
+            "total_fluctuation_angstrom": 1.3970282449169047,
+            "radius_of_gyration_angstrom": 21.790624511202832
+          },
+          {
+            "rank_correlation": 0.7564709616324525,
+            "total_fluctuation_angstrom": 1.6321376008392303,
+            "radius_of_gyration_angstrom": 21.73711308969287
+          },
+          {
+            "rank_correlation": 0.8642630729249021,
+            "total_fluctuation_angstrom": 1.7244080886667197,
+            "radius_of_gyration_angstrom": 21.59493278481487
+          },
+          {
+            "rank_correlation": 0.6935785657714674,
+            "total_fluctuation_angstrom": 1.2748150329467403,
+            "radius_of_gyration_angstrom": 21.689606313027245
+          },
+          {
+            "rank_correlation": 0.4920797453454587,
+            "total_fluctuation_angstrom": 1.4790482859721503,
+            "radius_of_gyration_angstrom": 21.72737107911876
+          },
+          {
+            "rank_correlation": 0.7915124315834634,
+            "total_fluctuation_angstrom": 1.6842929332799277,
+            "radius_of_gyration_angstrom": 21.637505236790574
+          },
+          {
+            "rank_correlation": 0.7236217915976113,
+            "total_fluctuation_angstrom": 1.4240634146447373,
+            "radius_of_gyration_angstrom": 21.5583342057925
+          },
+          {
+            "rank_correlation": 0.6762567467806486,
+            "total_fluctuation_angstrom": 1.5439120602104774,
+            "radius_of_gyration_angstrom": 21.830900747196733
+          },
+          {
+            "rank_correlation": 0.768250013590517,
+            "total_fluctuation_angstrom": 1.3926367313987502,
+            "radius_of_gyration_angstrom": 21.94377760549154
+          },
+          {
+            "rank_correlation": 0.7123173731474091,
+            "total_fluctuation_angstrom": 1.6090619938225077,
+            "radius_of_gyration_angstrom": 21.862871966133298
+          },
+          {
+            "rank_correlation": 0.779662722209989,
+            "total_fluctuation_angstrom": 1.4928515011174377,
+            "radius_of_gyration_angstrom": 21.985803837098423
+          },
+          {
+            "rank_correlation": 0.7118028028395325,
+            "total_fluctuation_angstrom": 1.4289937258404435,
+            "radius_of_gyration_angstrom": 21.61585941871203
+          },
+          {
+            "rank_correlation": 0.6197557749527216,
+            "total_fluctuation_angstrom": 1.5419033172347347,
+            "radius_of_gyration_angstrom": 21.478523378857798
+          },
+          {
+            "rank_correlation": 0.783344971972846,
+            "total_fluctuation_angstrom": 1.3648930721178412,
+            "radius_of_gyration_angstrom": 21.80199071217612
+          },
+          {
+            "rank_correlation": 0.6980046384345909,
+            "total_fluctuation_angstrom": 1.4448575809325304,
+            "radius_of_gyration_angstrom": 21.79063696129745
+          },
+          {
+            "rank_correlation": 0.7782968068479612,
+            "total_fluctuation_angstrom": 1.5236482867706453,
+            "radius_of_gyration_angstrom": 21.839725908095833
+          },
+          {
+            "rank_correlation": 0.8469930949725635,
+            "total_fluctuation_angstrom": 1.3392933944828158,
+            "radius_of_gyration_angstrom": 21.869809825610115
+          },
+          {
+            "rank_correlation": 0.6342194246886708,
+            "total_fluctuation_angstrom": 1.2486904636111178,
+            "radius_of_gyration_angstrom": 21.80128803879832
+          },
+          {
+            "rank_correlation": 0.7532065122389758,
+            "total_fluctuation_angstrom": 1.4535494518599372,
+            "radius_of_gyration_angstrom": 21.92550989586531
+          },
+          {
+            "rank_correlation": 0.5836567478167166,
+            "total_fluctuation_angstrom": 1.33318764513078,
+            "radius_of_gyration_angstrom": 21.84513428128024
+          },
+          {
+            "rank_correlation": 0.7670853182593308,
+            "total_fluctuation_angstrom": 1.330649237235446,
+            "radius_of_gyration_angstrom": 21.67530064273589
+          },
+          {
+            "rank_correlation": 0.6337371110269595,
+            "total_fluctuation_angstrom": 1.6933549126045246,
+            "radius_of_gyration_angstrom": 21.898285380992817
+          },
+          {
+            "rank_correlation": 0.715473148363924,
+            "total_fluctuation_angstrom": 1.4015756781669253,
+            "radius_of_gyration_angstrom": 22.059457996132732
+          },
+          {
+            "rank_correlation": 0.6635411000607101,
+            "total_fluctuation_angstrom": 1.6957625214819576,
+            "radius_of_gyration_angstrom": 22.15673187647183
+          },
+          {
+            "rank_correlation": 0.8229899261408903,
+            "total_fluctuation_angstrom": 1.4938276647546138,
+            "radius_of_gyration_angstrom": 21.91537828275117
+          },
+          {
+            "rank_correlation": 0.8154146063920235,
+            "total_fluctuation_angstrom": 1.4844250651607536,
+            "radius_of_gyration_angstrom": 22.014034610128743
+          },
+          {
+            "rank_correlation": 0.6494568499248968,
+            "total_fluctuation_angstrom": 1.5425091691092707,
+            "radius_of_gyration_angstrom": 21.644746989108288
+          },
+          {
+            "rank_correlation": 0.6963599334878481,
+            "total_fluctuation_angstrom": 1.6647284620493323,
+            "radius_of_gyration_angstrom": 21.821289020029994
+          },
+          {
+            "rank_correlation": 0.46961721537587575,
+            "total_fluctuation_angstrom": 1.4192096810087003,
+            "radius_of_gyration_angstrom": 22.058534289332528
+          },
+          {
+            "rank_correlation": 0.7808082171565529,
+            "total_fluctuation_angstrom": 1.5194533845453482,
+            "radius_of_gyration_angstrom": 21.853123896869594
+          },
+          {
+            "rank_correlation": 0.6176713811981289,
+            "total_fluctuation_angstrom": 1.2558842578422615,
+            "radius_of_gyration_angstrom": 21.84082741708929
+          },
+          {
+            "rank_correlation": 0.8038974476802065,
+            "total_fluctuation_angstrom": 1.5096829485113121,
+            "radius_of_gyration_angstrom": 21.916218670280482
+          },
+          {
+            "rank_correlation": 0.6387845081364595,
+            "total_fluctuation_angstrom": 1.5837024312705479,
+            "radius_of_gyration_angstrom": 21.879536997923086
+          },
+          {
+            "rank_correlation": 0.8550173197138987,
+            "total_fluctuation_angstrom": 1.4720838761820536,
+            "radius_of_gyration_angstrom": 21.929825823179495
+          },
+          {
+            "rank_correlation": 0.7229467060742927,
+            "total_fluctuation_angstrom": 1.611346737382541,
+            "radius_of_gyration_angstrom": 21.967032117880727
+          },
+          {
+            "rank_correlation": 0.7737102189693956,
+            "total_fluctuation_angstrom": 1.4652570090815282,
+            "radius_of_gyration_angstrom": 21.59942133871469
+          },
+          {
+            "rank_correlation": 0.7936452103073041,
+            "total_fluctuation_angstrom": 1.3192599070049753,
+            "radius_of_gyration_angstrom": 21.769111543222525
+          },
+          {
+            "rank_correlation": 0.6168776372978447,
+            "total_fluctuation_angstrom": 1.3551404075950815,
+            "radius_of_gyration_angstrom": 21.86171176621044
+          },
+          {
+            "rank_correlation": 0.7332573126164468,
+            "total_fluctuation_angstrom": 1.4391459039246894,
+            "radius_of_gyration_angstrom": 21.770480231192554
+          },
+          {
+            "rank_correlation": 0.5217554758099326,
+            "total_fluctuation_angstrom": 1.4947541070573374,
+            "radius_of_gyration_angstrom": 21.757648684018267
+          },
+          {
+            "rank_correlation": 0.6869398407844745,
+            "total_fluctuation_angstrom": 1.3617697385764171,
+            "radius_of_gyration_angstrom": 21.910069633446266
+          },
+          {
+            "rank_correlation": 0.800291615448146,
+            "total_fluctuation_angstrom": 1.484257545150853,
+            "radius_of_gyration_angstrom": 21.83980250518578
+          },
+          {
+            "rank_correlation": 0.7423567588966286,
+            "total_fluctuation_angstrom": 1.4325126048204808,
+            "radius_of_gyration_angstrom": 21.821008144705534
+          },
+          {
+            "rank_correlation": 0.8268687878422794,
+            "total_fluctuation_angstrom": 1.41681548643076,
+            "radius_of_gyration_angstrom": 21.838130882974546
+          },
+          {
+            "rank_correlation": 0.7882898390284632,
+            "total_fluctuation_angstrom": 1.2835326119486787,
+            "radius_of_gyration_angstrom": 21.900603796040023
+          },
+          {
+            "rank_correlation": 0.5291764244664364,
+            "total_fluctuation_angstrom": 1.357913584297671,
+            "radius_of_gyration_angstrom": 21.760953757302087
+          },
+          {
+            "rank_correlation": 0.6847982298837075,
+            "total_fluctuation_angstrom": 1.4599189464160798,
+            "radius_of_gyration_angstrom": 21.705689602388297
+          },
+          {
+            "rank_correlation": 0.7886081814055003,
+            "total_fluctuation_angstrom": 1.5297687004474199,
+            "radius_of_gyration_angstrom": 21.644220911415545
+          },
+          {
+            "rank_correlation": 0.7691881443831607,
+            "total_fluctuation_angstrom": 1.4062197820262894,
+            "radius_of_gyration_angstrom": 21.778139685088107
+          },
+          {
+            "rank_correlation": 0.5401874610396106,
+            "total_fluctuation_angstrom": 1.331154258225553,
+            "radius_of_gyration_angstrom": 21.461249677583492
+          },
+          {
+            "rank_correlation": 0.808657223028065,
+            "total_fluctuation_angstrom": 1.5321946098512718,
+            "radius_of_gyration_angstrom": 21.639472974114682
+          },
+          {
+            "rank_correlation": 0.7304951452846883,
+            "total_fluctuation_angstrom": 1.4472881822675865,
+            "radius_of_gyration_angstrom": 21.797517410106607
+          }
+        ]
+      },
+      "windows": 100,
+      "window_ns": 1.0,
+      "frames_per_window": 100,
+      "window_frame_stride": 10,
+      "replicas_used": [
+        1
+      ],
+      "windows_per_replica": {
+        "1": 100
+      },
+      "frames_per_replica": {
+        "1": 123829
+      },
+      "window_definition": "potentially overlapping 1 ns windows with starts spread across each replica, 100 frames at 10 ps, contract atoms only, pooled across 1 replica(s)",
+      "window_fetch": "GET {api}/{accession}[.replica]/trajectory?frames=<start>:<start+frames-1>:1&atoms=<contract ranges, 1-based>; both ends inclusive",
+      "estimator": "frames superposed on their own mean structure, a linear trend in time removed per atom, then per-atom RMSF; the same estimator is applied to the submission",
+      "observed_window_sd": {
+        "rank_correlation": 0.10132409881654326,
+        "total_fluctuation_angstrom": 0.12304940191523851,
+        "radius_of_gyration_angstrom": 0.1276728462008995
+      },
+      "slack_window_sd": {
+        "rank_correlation": 4.0,
+        "total_fluctuation_angstrom": 4.0,
+        "radius_of_gyration_angstrom": 4.0
+      },
+      "rank_correlation": [
+        0.3867072665231064,
+        0.8801375669228949
+      ],
+      "total_fluctuation_angstrom": [
+        1.193134337953979,
+        1.8055010311488586
+      ],
+      "radius_of_gyration_angstrom": [
+        21.461249677583492,
+        22.15673187647183
+      ],
+      "slack_rationale": "Four window standard deviations, chosen empirically. Where a reference has replicas the choice can be checked against an independent run: leave one replica out, calibrate on the rest, score every window of the held-out one. Over the 39 references that allow it, four takes 37, 37 and 38 of them to zero observed rejections on the three checks. Thirty windows per fold bounds the true per-submission rejection rate at roughly one in ten, not at zero, and the same figure cannot be measured at all on the 61 single-replica references, whose bands are built inside one trajectory and are therefore narrower than a between-run band by a median factor of 1.21 and up to 2.84. The value applies to every task alike: demoting a check only where the evidence exists would penalise the references that carry more of it. Two window SD, the value measured on three PLpro tasks by cross-validation inside one trajectory, leaves a correct submission rejected 10 per cent of the time at the median and 70 at the worst.",
+      "per_check": {
+        "rank_correlation": {
+          "adversarial_headroom_window_sd": 3.82,
+          "held_out_requirement_window_sd": null,
+          "scored": false,
+          "demoted_because": "shuffled_atoms lands 3.8 window SD from the band, inside the slack of 4: the widened band contains it, so this check decides nothing on this task"
+        },
+        "total_fluctuation_angstrom": {
+          "adversarial_headroom_window_sd": 9.7,
+          "held_out_requirement_window_sd": null,
+          "scored": true,
+          "demoted_because": null
+        },
+        "radius_of_gyration_angstrom": {
+          "adversarial_headroom_window_sd": 23.13,
+          "held_out_requirement_window_sd": null,
+          "scored": true,
+          "demoted_because": null
+        }
+      },
+      "adversarial_headroom_note": "How far the degenerate baseline for this check lands from the band, in window standard deviations, computed from this task own windows: a shuffled profile scores about zero, a frozen trajectory has no fluctuation, a structure compressed to 85 per cent has that radius. Below the slack the widened band contains it and the check decides nothing here. It says nothing about fakes that are not degenerate."
+    },
+    "production_window_ns": 1.0,
+    "bilayer": null
+  },
+  "solve_time_network_policy": {
+    "allow": [
+      "files.rcsb.org",
+      "www.rcsb.org"
+    ],
+    "deny": [
+      "mddbr.eu",
+      "irb-dev.mddbr.eu",
+      "bsc.mddbr.eu",
+      "cineca.mddbr.eu",
+      "inria.mddbr.eu",
+      "mdposit.mddbr.eu",
+      "irb.mddbr.eu",
+      "mmb.mddbr.eu",
+      "oxford.mddbr.eu",
+      "jsc.mddbr.eu",
+      "rpbs.mddbr.eu",
+      "devmddb.rc.ufl.edu"
+    ],
+    "rationale": "The agent must not fetch the reference it is scored against."
+  },
+  "required_outputs": [
+    "prepared_structure.pdb",
+    "topology",
+    "minimized_state",
+    "production_trajectory"
+  ],
+  "scoring": {
+    "deterministic_checks": [
+      {
+        "check_id": "monomer_count_matches_reference",
+        "check_type": "monomer_partition_rescan@2",
+        "capability": "identity",
+        "weight": 1.0,
+        "category": "prep",
+        "note": "Splits both sides into polymer backbone components using the C-N and O3'-P links declared by their force-bearing topologies, then pairs them by canonical sequence. PDB chain IDs and interatomic distances are not used: preparation tools relabel and reuse them, and D03's system.topology.pdb carries chains A, B and C where the reference has only A. Every later composition check uses exact component pairs or, when only connectivity differs, an identical full sequence in file order. A failure names the unexpected or missing declared link."
+      },
+      {
+        "check_id": "sequence_matches_reference",
+        "check_type": "sequence_identity_rescan@1",
+        "capability": "identity",
+        "weight": 1.0,
+        "category": "prep",
+        "note": "Residue-by-residue, after collapsing every protonation and bonding variant onto its parent (HID/HIE/HIP -> HIS, CYX/CYM -> CYS, ...). Comparing counts alone would miss a wrong chain of the right length."
+      },
+      {
+        "check_id": "topology_is_chemically_valid",
+        "check_type": "topology_chemistry_rescan@1",
+        "capability": "physical_validity",
+        "weight": 1.0,
+        "category": "prep",
+        "metal_ligand_angstrom": 3.5,
+        "note": "Three faults that are wrong on their own terms, with no reference to compare against: an atom name appearing twice inside a residue (a rebuild that added hydrogens on top of hydrogens already there), an atom carrying more bonds than its element can hold, and a covalent bond between two ligands of the same metal. The last is what MDClaw did on 6W9C: SG(192) and SG(224) sit 3.00 A apart with the zinc 2.85 and 2.57 A from them, distance detection called that a disulfide, and the built system carried a real 0.2038 nm bond term that pulled the two sulfurs to 2.04 A during production and destroyed the site. Read from the submitted System, which is what exerts force, rather than from CONECT, which is metadata."
+      },
+      {
+        "check_id": "residue_atom_counts_match_reference",
+        "check_type": "residue_composition_rescan@1",
+        "capability": "composition_fidelity",
+        "weight": 1.0,
+        "category": "prep",
+        "note": "Atom count of every residue, per monomer. Graded by count and never by residue name: the same MDClaw submission writes CYX in merged.pdb and CYS in system.topology.pdb, GROMACS writes HISD/HISE/HISH, CHARMM HSD/HSE/HSP. Counts are tautomer-blind by construction (HID and HIE have the same formula, and measured 2026-08-21 the reference and the submission disagree on the tautomer in both D01 and D02) while detecting every ionisation and bonding variant, each of which costs or adds exactly one hydrogen: HIP, ASH, GLH, LYN, CYM, and CYX. It also subsumes the truncated-side-chain check this replaces, and does so for every residue rather than four named ones."
+      },
+      {
+        "check_id": "element_composition_matches_reference",
+        "check_type": "element_composition_rescan@1",
+        "capability": "composition_fidelity",
+        "weight": 1.0,
+        "category": "prep",
+        "note": "Heavy atoms counted per element rather than in total, so a substitution that preserves the total does not pass. Tautomer independent."
+      },
+      {
+        "check_id": "disulfide_bonds_match_reference",
+        "check_type": "disulfide_bond_rescan@1",
+        "capability": "composition_fidelity",
+        "weight": 1.0,
+        "category": "prep",
+        "note": "Runs on every task; zero expected pairs is a real expectation, and comparing whole sets rejects a spurious bond as readily as a missing one. Both sides are read from a topology rather than inferred. The reference ships its own topology.prmtop -- MDDB serves one for every project -- so the expected bonds are a bond list, not CYX names plus an SG-SG distance. The submitted bonds come from system.xml, which is what exerts force; CONECT is metadata and can disagree with it. Pairs are compared as positions within the protein, because residue numbering is not comparable across the two files."
+      },
+      {
+        "check_id": "topology_loads_and_is_parameterized",
+        "check_type": "openmm_system_load@1",
+        "capability": "physical_validity",
+        "weight": 0.0,
+        "category": "precondition",
+        "note": "Reported and not scored. Deserialising the submitted System is what lets the scorer look at the force field at all; a file that will not load leaves it unable to measure, rather than telling it the agent prepared badly. The checks that depend on it -- force-field coverage, net charge, and both energies -- do fail in that case, and they are the ones that carry the marks. Until 2026-08-21 this raised straight out of the scorer: a truncated file, an empty System, or a System with no NonbondedForce each crashed the run instead of being recorded, so the graded condition (particle count above zero) could only ever be reached when it was already true."
+      },
+      {
+        "check_id": "forcefield_applied_to_every_atom",
+        "check_type": "forcefield_applied_rescan@1",
+        "capability": "physical_validity",
+        "weight": 1.0,
+        "category": "prep"
+      },
+      {
+        "check_id": "system_is_neutral",
+        "check_type": "net_charge_check@1",
+        "capability": "physical_validity",
+        "expected_net_charge": 0,
+        "weight": 1.0,
+        "category": "prep",
+        "note": "The only solvent-side quantity that can be checked at all. MDDB records SOL, SOLVATS and SOLVRES as zero in all 4554 projects, so water counts are never available; ion counts and box size coexist in only 47 of the 1940 eligible projects and in 46 of those the ion is a single neutralising counterion, so no salt concentration can be demanded either."
+      },
+      {
+        "check_id": "potential_energy_is_physical",
+        "check_type": "openmm_energy_rescan@1",
+        "capability": "physical_validity",
+        "weight": 1.0,
+        "category": "prep",
+        "maximum_abs_energy_per_particle_kj_mol": 1000000.0,
+        "note": "Single-point energy recomputed from the submitted system.xml at the submitted state; the runner's own minimization_report.json is not read, for the same reason the solvent clock does not read simulation_time_ns. The ceiling is deliberately loose and catches only clash-driven systems. The per-atom value is a diagnostic: measured 2026-08-21 it is -17.00 / -16.93 / -16.94 kJ/mol/atom for D01 / D02 / D03, which is three systems on one force field and one water model and does not yet justify a band."
+      },
+      {
+        "check_id": "minimization_reduced_the_energy",
+        "check_type": "minimization_rescan@1",
+        "capability": "physical_validity",
+        "weight": 1.0,
+        "category": "prep",
+        "note": "Both energies are recomputed by the scorer from the same system.xml, at the built state and at the minimised state. Measured 2026-08-21: +505918 -> -532908, +400845 -> -600622, +331474 -> -366799 kJ/mol, with the maximum force falling from 32235 / 45717 / 25096 to 1727 / 1820 / 2427 kJ/mol/nm. The force is recorded as a diagnostic and not graded."
+      },
+      {
+        "check_id": "membrane_matches_reference",
+        "check_type": "lipid_species_rescan@1",
+        "capability": "composition_fidelity",
+        "weight": 1.0,
+        "category": "prep",
+        "minimum_fraction_of_reference_lipids": 0.5,
+        "note": "Which lipid, exactly; how many of it, loosely. The species is a chemistry decision the deposit does not record -- the membrane references are 360 DPPC around a receptor whose crystal carries a handful of ordered lipids at most -- so the prompt states it and this check grades it. The count follows from the box the agent chose, and a perfectly good bilayer of 320 is not wrong, so it is graded only against building no membrane at all. Lipids are excluded from the residue and element comparisons for the same reason: counting them turned every membrane task into a guess at the reference's box, since 360 DPPC contribute 360 monomers and 360 phosphorus atoms to comparisons that demand exact equality."
+      },
+      {
+        "check_id": "water_model_matches_reference",
+        "check_type": "water_model_fingerprint@1",
+        "capability": "composition_fidelity",
+        "weight": 1.0,
+        "category": "prep",
+        "note": "MDDB records WAT for 96.5% of eligible projects, so the model name is a database-backed expectation. The amount of water is not: SOL is empty everywhere. MDClaw defaults to opc; TIP3P must be requested explicitly."
+      },
+      {
+        "check_id": "metal_site_coordination_retained",
+        "check_type": "metal_coordination_rescan@1",
+        "capability": "observable_fidelity",
+        "weight": 0.0,
+        "category": "diagnostic",
+        "metal_ligand_angstrom": 3.5,
+        "occupancy_fraction": 0.9,
+        "note": "Reported, never scored, until it has been measured on more than three systems. Counts the side chains coordinating each metal in the built structure and how many of them are still coordinating for most of production. It is not a comparison with the reference and cannot be: measured 2026-08-22, all three references hold a four-cysteine structural zinc with a bare 12-6 ion, deprotonate two of the four ligands, lose the other two to 5-13 A, and let the zinc be chelated by a glutamine oxygen at 1.75 A instead. Our own submissions use the same ion with the same parameters and one thiolate, and retain one ligand. When this is eventually scored it must also read the spread, because a bonded metal model satisfies a distance test by construction and an over-restrained site would pass."
+      },
+      {
+        "check_id": "thermodynamic_conditions_match_reference",
+        "check_type": "ensemble_conditions_rescan@1",
+        "capability": "composition_fidelity",
+        "weight": 1.0,
+        "category": "md",
+        "temperature_tolerance_k": 1.0
+      },
+      {
+        "check_id": "production_ran_for_one_nanosecond",
+        "check_type": "production_length_check@1",
+        "capability": "execution_validity",
+        "minimum_production_ns": 1.0,
+        "require_finite_coordinates": true,
+        "weight": 1.0,
+        "category": "md",
+        "note": "Reads the runner's recorded metadata. Kept as a declaration check; elapsed_simulated_time_is_physical is what actually verifies it."
+      },
+      {
+        "check_id": "elapsed_simulated_time_is_physical",
+        "check_type": "elapsed_simulated_time@1",
+        "capability": "execution_validity",
+        "minimum_measured_fraction_of_claim": 0.5,
+        "weight": 1.0,
+        "category": "md",
+        "note": "Elapsed time measured from continuously unwrapped solvent displacement instead of the runner's simulation_time_ns. The frame interval comes from the DCD header, not from traj.time, which mdtraj fills with frame indices."
+      },
+      {
+        "check_id": "measured_temperature_matches_reference",
+        "check_type": "measured_temperature@1",
+        "capability": "execution_validity",
+        "weight": 1.0,
+        "category": "md",
+        "tolerance_kelvin": 3.0,
+        "note": "The mean temperature the run actually reported, from the OpenMM state log, not the value it was asked for -- the same class of claim the solvent clock exists to distrust. The tolerance is 3 K against a measured offset of +0.46 to +0.49 K across three runs, so it has six times the room the artefact needs while a 310 K run misses by four times the band. The spread of the temperature is deliberately not graded: it is set by the thermostat's friction, which the task leaves free."
+      },
+      {
+        "check_id": "solvent_box_is_physical",
+        "check_type": "solvent_box_physical@1",
+        "capability": "physical_validity",
+        "weight": 1.0,
+        "category": "md",
+        "density_range_g_per_ml": [
+          0.95,
+          1.1
+        ],
+        "note": "Mean density inside a band wide enough for every water model, and a box volume that actually moved. The band is not a water-model check -- prep already has one -- it is a check that the box holds a liquid: pure TIP3P is 0.982, SPC/E 0.994, TIP4P-Ew 0.995, OPC 0.997 g/mL at 298 K, and a solvated protein runs a little above that (measured 1.011 to 1.013). A vacuum, a bubble or a system that flew apart misses by far more than the margin. The volume having non-zero spread is what says a barostat was connected; zero against non-zero needs no threshold."
+      },
+      {
+        "check_id": "fluctuation_profile_matches_reference",
+        "check_type": "fluctuation_profile_rank@1",
+        "capability": "ensemble_reproduction",
+        "weight": 1.0,
+        "category": "md",
+        "note": "Spearman correlation between the submission's per-atom fluctuation profile and the reference's own, over the contract atoms. Rank-based on purpose: it asks which atoms move more than which and nothing about how much, which is what lets a different force field and a different thermostat pass -- measured, the same system under ff99SBildn scores 0.840 against a band whose floor is 0.840, where ff14SB scores 0.870. It is blind to an reduced-motion run (0.872 with a tenth of the motion). Neither this nor the magnitude upper limit proves absence of restraints. The band is the range over the reference's own one-nanosecond windows; the floor is what is graded, since agreement above it is agreement."
+      },
+      {
+        "check_id": "fluctuation_magnitude_is_physical",
+        "check_type": "fluctuation_magnitude@2",
+        "capability": "system_stability",
+        "weight": 1.0,
+        "category": "md",
+        "note": "Total root-mean-square fluctuation of the contract atoms must be finite, nonnegative and at most the calibrated upper limit. Small fluctuations alone do not establish a system-building error; the reference lower bound is diagnostic, not a failure condition. The upper limit detects excessive motion without proving its cause. This check does not validate restraint intent or prove that MD ran. Linear detrending and mean-structure fitting remain identical on both sides. Historical @1 contracts retain their two-sided verdict."
+      },
+      {
+        "check_id": "radius_of_gyration_matches_reference",
+        "check_type": "radius_of_gyration_band@1",
+        "capability": "ensemble_reproduction",
+        "weight": 1.0,
+        "category": "md",
+        "note": "Mean radius of gyration against the reference's own one-nanosecond windows. It needs no superposition at all, which is why the high side of the judgement rests here: a fit puts a run's drift into every atom's deviation, and a crystal-started nanosecond drifts. Catches a system that came apart or collapsed."
+      },
+      {
+        "check_id": "contract_atoms_resolvable",
+        "check_type": "reference_subspace_recompute@1",
+        "capability": "observable_recompute",
+        "contract_id": "pca_backbone_subspace@1",
+        "weight": 0.0,
+        "category": "precondition",
+        "note": "Scorer-side precondition, reported and not scored: the reference's contract atoms must resolve onto the submitted topology before the fluctuation and radius-of-gyration comparisons can be made. The atom set is still the reference's own published PCA selection, which is why the contract id keeps that name; the subspace test it was introduced for is gone (2026-08-22)."
+      }
+    ]
+  }
+}

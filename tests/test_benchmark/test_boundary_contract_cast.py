@@ -23,9 +23,16 @@ pytestmark = [
 ]
 
 
-def test_all_98_task_boundaries_match_their_reference_topologies():
+def _shipped_tasks():
+    """Every task dataset.json lists: the 98 of v0.5 and, since v0.6, the 30 test tasks."""
     tasks = sorted(DATASET.glob("tasks/*/task.json"))
-    assert len(tasks) == 98
+    listed = json.loads((DATASET / "dataset.json").read_text())["tasks"]
+    assert len(tasks) == len(listed) == 128
+    return tasks
+
+
+def test_every_task_boundary_matches_its_reference_topology():
+    tasks = _shipped_tasks()
     failures = []
     for task_json in tasks:
         task_dir = task_json.parent
@@ -46,9 +53,8 @@ def test_all_98_task_boundaries_match_their_reference_topologies():
     assert failures == []
 
 
-def test_all_98_tasks_disclose_nonstandard_reference_protonation():
-    tasks = sorted(DATASET.glob("tasks/*/task.json"))
-    assert len(tasks) == 98
+def test_every_task_discloses_nonstandard_reference_protonation():
+    tasks = _shipped_tasks()
     failures = []
     for task_json in tasks:
         task_dir = task_json.parent

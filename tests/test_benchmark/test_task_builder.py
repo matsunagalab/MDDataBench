@@ -11,6 +11,8 @@ C111S, and 4OW0 the same range with OCS at 112.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from mddatabench import _task_builder as tb
@@ -783,3 +785,46 @@ def test_build_prompt_places_kept_and_excluded_components(tmp_path):
     assert "The deposit carries two **ZN** on chain C. Keep the one at residue 402" in text
     assert "The deposit's **CL** is not part of the reference. Simulate the protein without it." in text
     assert text.index("Keep the one at residue 402") < text.index("**CL** is not part")
+
+
+# --- the ligand bullet (test split, 2026-10-31) --------------------------------
+# The cast's ligand prompts named their ligand and its expected charge from
+# 2026-08-25, written outside the builder. The test split needs the same line
+# from the builder, so ``build_prompt`` takes ``ligands``; with none given every
+# prompt is what it was.
+
+_CAST = Path(__file__).resolve().parents[2] / "benchmarks" / "mddatabench" / "tasks"
+
+
+def test_the_ligand_bullet_is_the_cast_wording():
+    assert tb.ligand_bullet({"name": "OLA", "charge": -1}) == (
+        "- Include the **OLA** ligand bound to the protein, and treat it as having "
+        "expected formal net charge **-1** at pH 7")
+    assert "charge **+2** at pH 7" in tb.ligand_bullet({"name": "B4L", "charge": 2})
+    assert "charge **0** at pH 7" in tb.ligand_bullet({"name": "9V2", "charge": 0})
+
+
+def test_the_builder_now_writes_a_shipped_ligand_prompt():
+    """037's ligand bullet was added by hand; the builder reproduces the whole prompt."""
+    metadata = {"FF": ["Amber ff99SB-ILDN"], "WAT": "TIP3P", "TEMP": 298, "ENSEMBLE": "NPT",
+                "_pressure_bar": 1}
+    chains = [{"deposit_chain": "A", "ranges": [["1", "131"]]}]
+    text = tb.build_prompt("037_ligand_1g74", "ADIPOCYTE LIPID-BINDING PROTEIN", "1G74",
+                           metadata, chains, [], [], 1.0, excluded_components=["PO4"],
+                           ligands=[{"name": "OLA", "charge": -1}])
+    assert text == (_CAST / "037_ligand_1g74" / "prompt.md").read_text()
+
+
+def test_without_ligands_a_shipped_prompt_is_unchanged():
+    """060 (modified residue, structural zinc, exclusions) through the same call."""
+    metadata = {"FF": ["Amber ff14SB"], "WAT": "TIP3P", "TEMP": 298, "ENSEMBLE": "NPT",
+                "_pressure_bar": 1, "_structural_metals": ["zinc"]}
+    chains = [{"deposit_chain": "A", "ranges": [["4", "315"]]}]
+    modres = [{"name": "OCS", "parent": "CYS", "chain": "A", "residue": "112",
+               "note": "MODIFIED RESIDUE"}]
+    text = tb.build_prompt("060_metal_4ow0", "papain-like protease", "4OW0", metadata, chains,
+                           modres, [], 1.0, excluded_components=["DMS", "GOL", "S88"])
+    assert text == (_CAST / "060_metal_4ow0" / "prompt.md").read_text()
+    assert text == tb.build_prompt("060_metal_4ow0", "papain-like protease", "4OW0", metadata,
+                                   chains, modres, [], 1.0,
+                                   excluded_components=["DMS", "GOL", "S88"], ligands=())

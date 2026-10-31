@@ -69,8 +69,23 @@ def test_it_is_idempotent(tmp_path):
 def test_the_shipped_dataset_is_already_v05():
     dataset = REPO / "benchmarks" / "mddatabench"
     result = v05.apply(dataset, dry_run=True)
-    assert result["changed"] == [] and result["unchanged"] == 98
+    assert result["changed"] == []
+    assert result["unchanged"] == len(list((dataset / "tasks").glob("*/task.json")))
     for prompt in (dataset / "tasks").glob("*/prompt.md"):
         text = prompt.read_text()
         assert "standard state at pH 7" not in text
         assert "your choice" in text
+
+
+def test_a_later_dataset_is_never_downgraded(tmp_path):
+    """v0.6 added the test split after this step; rerunning it must not reset the id."""
+    dataset = _dataset(tmp_path)
+    v05.apply(dataset)
+    meta = json.loads((dataset / "dataset.json").read_text())
+    meta["dataset_id"] = "MDDataBench-v0.6"
+    (dataset / "dataset.json").write_text(json.dumps(meta))
+    lines = len(meta.get("changelog") or [])
+    result = v05.apply(dataset)
+    meta = json.loads((dataset / "dataset.json").read_text())
+    assert result["dataset_id"] == "MDDataBench-v0.6"
+    assert meta["dataset_id"] == "MDDataBench-v0.6" and len(meta.get("changelog") or []) == lines
