@@ -276,11 +276,18 @@ def test_stored_extra_components_are_fully_stated(path):
     task = load(path)
     prompt = (path.parent / "prompt.md").read_text()
     for component in task["reference"].get("extra_components") or []:
+        source = component["placement_source"]
+        if "ccd" in source:
+            # A CCD ligand the agent loads by its code (105, 106): the
+            # declaration only lets the scorer place its contract atoms, and
+            # the prompt names the code and the charge.
+            assert f"Include the **{source['ccd']}** ligand" in prompt
+            assert f"**{component['expected_formal_net_charge']:+d}**" in prompt
+            continue
         assert component["residue_name"] in prompt
         assert component["formula"] in prompt
         assert component["smiles"] in prompt
         assert f"{component['expected_formal_net_charge']:+d}" in prompt
-        source = component["placement_source"]
         assert f"chain {source['chain']}" in prompt
         assert source["sequence"] in prompt
 

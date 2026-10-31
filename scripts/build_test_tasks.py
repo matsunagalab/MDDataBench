@@ -16,6 +16,8 @@ Sub-commands (all idempotent; downloads are cached under ``--workdir``):
                  task and cache the block under ``<workdir>/calibration``.
 ``build``        derive the selection, the prompt and the whole contract, and
                  write ``tasks/<id>/{task.json,prompt.md}``.
+``declare``      add the scorer's SMILES declarations for ligand atoms among
+                 the contract atoms to already built contracts, in place.
 ``regenerate``   the same derivation applied to the 98 shipped tasks, compared
                  with their shipped prompts: evidence that the test tasks are
                  built the way the cast was, and that a builder change leaves
@@ -668,6 +670,9 @@ def build_task(item, sample, draft_root=None):
         "md_calibration": calibration,
         "production_window_ns": window_ns,
     }
+    declarations = contract_ligand_declarations(bundle, d["ligands"])
+    if declarations:
+        reference["extra_components"] = declarations
     if not meta.get("LICENSE"):
         reference["license_note"] = NO_LICENCE_NOTE
     reference["bilayer"] = tb.bilayer(meta)
@@ -688,6 +693,68 @@ def build_task(item, sample, draft_root=None):
             "hetero_selected": d["hetero_selected"], "in_reference": d["in_reference"],
             "reference_nonpolymer": d["reference_nonpolymer"],
             "chains": d["chains"], "title": d["title"]}
+
+
+def contract_ligand_declarations(bundle: Path, ligands) -> list:
+    """Declarations for the non-polymer residues among a reference's contract atoms.
+
+    The md contract atoms are MDDB's own PCA atom list (``pca_atom_indices.json``),
+    and MDDB picks them by atom name, so a ligand whose atoms are named like a
+    polymer backbone lands in it: 6MJ7's free arginine (N, CA) and 6RNT's
+    2'-AMP (O5', C5', ...).  The scorer places such atoms only through one
+    declared SMILES per residue name (``atom_mapping.ligand_correspondence``;
+    the cast's 042 carries one).  Without it every submission scores the md
+    checks "not evaluable", which is what tasks 105 and 106 did on 2026-10-31.
+
+    The SMILES is the reference's own: bonds perceived from its coordinates and
+    hydrogens at the charge the prompt states (``ligands[].charge``).  Nothing
+    here reaches the prompt; the declaration is for the scorer.
+    """
+    from rdkit import Chem
+    from rdkit.Chem import rdDetermineBonds
+    from rdkit.Chem.rdMolDescriptors import CalcMolFormula
+    from mddatabench.topology import POLYMER_RESIDUES
+
+    indices = set(json.loads((bundle / "pca_atom_indices.json").read_text())["atom_indices"])
+    residues, order, index = collections.defaultdict(list), [], 0
+    contract = set()
+    for line in (bundle / "reference.pdb").read_text().splitlines():
+        if not line.startswith(("ATOM", "HETATM")):
+            continue
+        key = (line[21], line[22:27].strip(), line[17:21].strip())
+        if key not in residues:
+            order.append(key)
+        residues[key].append(line)
+        if index in indices and key[2] not in POLYMER_RESIDUES:
+            contract.add(key)
+        index += 1
+    declarations = {}
+    for key in (k for k in order if k in contract):
+        name = key[2]
+        lines = residues[key]
+        matches = [lig for lig in ligands if lig.get("reference_name") == name
+                   and lig.get("reference_atoms") == len(lines)]
+        if len(matches) != 1:
+            raise SystemExit(f"{bundle.name}: contract atoms in non-polymer {key} but "
+                             f"{len(matches)} ligand records match it")
+        ligand = matches[0]
+        mol = Chem.MolFromPDBBlock("\n".join(lines) + "\n", removeHs=False, sanitize=False,
+                                   proximityBonding=False)
+        rdDetermineBonds.DetermineBonds(mol, charge=int(ligand["charge"]))
+        Chem.SanitizeMol(mol)
+        Chem.AssignStereochemistryFrom3D(mol)
+        entry = {"residue_name": name,
+                 "description": f"CCD {ligand['name']}, as the reference carries it",
+                 "formula": CalcMolFormula(mol),
+                 "smiles": Chem.MolToSmiles(Chem.RemoveHs(mol)),
+                 "expected_formal_net_charge": int(ligand["charge"]),
+                 "placement_source": {"ccd": ligand["name"], "reference_residue": list(key)},
+                 "purpose": "scorer atom placement for contract atoms MDDB picked by name"}
+        previous = declarations.get(name)
+        if previous and previous["smiles"] != entry["smiles"]:
+            raise SystemExit(f"{bundle.name}: two {name} residues with different SMILES")
+        declarations[name] = entry
+    return list(declarations.values())
 
 
 # Per-task inputs the derivation has no source for (a kept component when the
@@ -839,7 +906,7 @@ def regenerate_cast():
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("command", choices=["plan", "fetch", "calibrate", "build", "regenerate",
-                                            "finalize"])
+                                            "finalize", "declare"])
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--only", default="", help="comma-separated task ids")
     parser.add_argument("--draft", default="", help="write drafts (no calibration) here")
@@ -882,6 +949,20 @@ def main(argv=None):
     elif args.command == "finalize":
         report = json.loads((WORKDIR / "build" / "build_report.json").read_text())
         print(json.dumps(finalize(items, report), indent=1))
+    elif args.command == "declare":
+        # Add the scorer's ligand declarations to built contracts in place, leaving
+        # every other field as built (2026-10-31: 105 and 106 lacked them).
+        report = json.loads((WORKDIR / "build" / "build_report.json").read_text())
+        ligands = {t["task_id"]: t["ligands"] for t in report["tasks"]}
+        for item in items:
+            path = DATASET / "tasks" / item["task_id"] / "task.json"
+            task = json.loads(path.read_text())
+            bundle = BUNDLE_ROOT / f"{item['node']}_{item['accession']}"
+            declarations = contract_ligand_declarations(bundle, ligands[item["task_id"]])
+            if declarations and task["reference"].get("extra_components") != declarations:
+                task["reference"]["extra_components"] = declarations
+                path.write_text(json.dumps(task, indent=2, ensure_ascii=False) + "\n")
+                print(item["task_id"], "declared", [d["residue_name"] for d in declarations])
     elif args.command == "regenerate":
         result = regenerate_cast()
         (WORKDIR / "build").mkdir(parents=True, exist_ok=True)

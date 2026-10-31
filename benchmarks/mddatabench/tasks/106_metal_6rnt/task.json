@@ -657,7 +657,25 @@
       "adversarial_headroom_note": "How far the degenerate baseline for this check lands from the band, in window standard deviations, computed from this task own windows: a shuffled profile scores about zero, a frozen trajectory has no fluctuation, a structure compressed to 85 per cent has that radius. Below the slack the widened band contains it and the check decides nothing here. It says nothing about fakes that are not degenerate."
     },
     "production_window_ns": 1.0,
-    "bilayer": null
+    "bilayer": null,
+    "extra_components": [
+      {
+        "residue_name": "LIG",
+        "description": "CCD 2AM, as the reference carries it",
+        "formula": "C10H12N5O7P-2",
+        "smiles": "Nc1ncnc2c1ncn2[C@@H]1O[C@H](CO)[C@@H](O)[C@H]1OP(=O)([O-])[O-]",
+        "expected_formal_net_charge": -2,
+        "placement_source": {
+          "ccd": "2AM",
+          "reference_residue": [
+            "H",
+            "106",
+            "LIG"
+          ]
+        },
+        "purpose": "scorer atom placement for contract atoms MDDB picked by name"
+      }
+    ]
   },
   "solve_time_network_policy": {
     "allow": [

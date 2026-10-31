@@ -5,6 +5,41 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-10-31 (3) — Correction to the test split: 105 and 106 were unscorable on the md side (missing ligand declaration); fixed in the contract, all sealed attempts rescored. Overturns "all 30 audit clean" as evidence that every test task is scoreable
+
+**What happened.** In the running test campaign `runs/test-v6-cli`, 105 (6MJ7) went 0/20 and 106 (6RNT) 0/18 across all four models and both CLI conditions, while 101–104 passed 95/96. Every md check failed with the same scorer message: "not evaluable: 3 of 162 (5 of 314) reference contract atoms could not be placed in the submission ... non-polymer contract atoms require one declared SMILES".
+
+**Cause (benchmark, not agent).**
+- The md contract atoms are MDDB's PCA atom list (`pca_atom_indices.json`). MDDB picks them by atom name, so a ligand named like a backbone contributes atoms: 6MJ7's free arginine (N, CA, C) and 6RNT's 2'-AMP (O5', C5', ...).
+- `atom_mapping.ligand_correspondence` places such atoms only through one SMILES per residue name declared in `reference.extra_components`. The cast's 042 carries one; `build_test_tasks.py` never wrote one.
+- No submission could pass, whatever it did. All 128 bundles were scanned: 042, 105 and 106 are the only tasks with non-polymer contract atoms.
+
+**Fix (evaluator side only; prompts unchanged).**
+- `build_test_tasks.contract_ligand_declarations` derives the declaration from the reference's own ligand coordinates and hydrogens at the prompt's charge:
+  - 105: L-Arg, `NC(=[NH2+])NCCC[C@H]([NH3+])C(=O)[O-]`, +1;
+  - 106: 2'-AMP, `Nc1ncnc2c1ncn2[C@@H]1O[C@H](CO)[C@@H](O)[C@H]1OP(=O)([O-])[O-]`, -2.
+  - Both match the CCD definition including stereochemistry.
+- `build` now writes it, and a new idempotent `declare` sub-command added it to the two built contracts in place.
+- New `tests/test_benchmark/test_contract_ligand_declarations.py` (needs bundles) requires one declaration for every non-polymer residue among any task's contract atoms.
+- `test_stored_extra_components_are_fully_stated` accepts the CCD form: the prompt names the code and the charge.
+- Full suite: 2147 passed. The same 4 pre-existing failures remain: 029 bundle delta ×2 and source_overlay ×2 in mdclaw.sif.
+
+**Rescore.**
+- All 36 evaluation-sealed attempts of 105/106 were rescored (`rescore_attempt --reason contract-ligand-declaration`; old results under `retired/`):
+  - 105: 0/20 → 12/20;
+  - 106: 0/18 → 16/24, including attempts sealed meanwhile.
+- The remaining failures are agent-side:
+  - no submission;
+  - 3 disulfide checks;
+  - 1 ligand built in a different protonation or stereo state than the prompt's +1;
+  - 1 water-model record.
+- Attempts still to be scored read the fixed contract.
+
+**Integrity note.**
+- The defect was found from scorer output that was identical for every submission. Its fix touches only the evaluator's declaration; the agent-facing prompts and every other field are unchanged.
+- Every sealed attempt of the two tasks was scored again under the same contract.
+- No MDClaw change follows from it. The campaign records the correction in `runs/test-v6-cli/CORRECTIONS.md`.
+
 ## 2026-10-31 — Test split built: tasks 101-130, dataset v0.6 (uncommitted); 2AF1 and 1PNE replaced by reserves; all 30 audit clean
 
 The rule, the result and the build are in `docs/test-set-selection.md` (Parts 1-3). The selection is in `/data1/rkp00079/rku00161/testset-20261031/selection/selected.json`, the build record in `.../build/`.
