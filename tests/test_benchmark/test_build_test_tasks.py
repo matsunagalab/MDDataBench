@@ -30,8 +30,9 @@ def _stripped(task_id):
 
 
 def _cast_ids():
+    """The 98 shipped tasks: every split but the test splits (test, test_v7, ...)."""
     return sorted(p.parent.name for p in TASKS.glob("*/task.json")
-                  if json.loads(p.read_text())["split"] != "test")
+                  if not json.loads(p.read_text())["split"].startswith("test"))
 
 
 @pytest.mark.parametrize("task_id", _cast_ids())

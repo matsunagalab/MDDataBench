@@ -24,10 +24,12 @@ pytestmark = [
 
 
 def _shipped_tasks():
-    """Every task dataset.json lists: the 98 of v0.5 and, since v0.6, the 30 test tasks."""
+    """Every task dataset.json lists: the 98 of v0.5 and the test splits (v0.6: 30, v0.7: 30)."""
     tasks = sorted(DATASET.glob("tasks/*/task.json"))
-    listed = json.loads((DATASET / "dataset.json").read_text())["tasks"]
-    assert len(tasks) == len(listed) == 128
+    meta = json.loads((DATASET / "dataset.json").read_text())
+    listed = meta["tasks"]
+    assert len(tasks) == len(listed) == meta["counts"]["total"]
+    assert sorted(p.parent.name for p in tasks) == sorted(t["task_id"] for t in listed)
     return tasks
 
 

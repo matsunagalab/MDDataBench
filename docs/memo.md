@@ -5,6 +5,60 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-11-01 — Test split v7 built and sealed: tasks 131-160 (split `test_v7`), dataset v0.7; v6's split `test` is now development data
+
+**Decision (user).** Test sets are single-use. Test-v6 (101-130) was run once on a frozen MDClaw, and its failures were then used to fix MDClaw, so it is development data. test-v7 is the lockbox for the next frozen MDClaw: built, checked and committed locally (not pushed), and **not to be run until that is decided**.
+
+Rule, result, build and verification: `docs/test-set-v7-selection.md`. Work directory: `/data1/rkp00079/rku00161/testset-v7-20261101`. Integrity is as for v6: only MDDB metadata, files and analyses, RCSB, the MDPrepBench/MDStudyBench task lists and the mdclaw text were read. No MD, MDClaw or agent ran, and nothing under `runs*` was read.
+
+- **Rule.** v6's rule v4 unchanged, except:
+  - **The development set** adds the 30 v6 tasks, and the mdclaw checkout read from the git tree of `6524d3e`. That tree has 176 mentions, the 5 new ones (1HLV, 3K1R, 5SXP, 6MJ7, 6RNT) all being v6 task ids. MDPrepBench (30 IDs) and MDStudyBench (`f04519f`, S01 only) are unchanged.
+  - **The anchors** are the 98 plus v6's tasks of the same axis. The caps stay the 98's.
+  - **The listing** was fetched afresh on 2026-11-01. oxf timed out again. cin's 52 new projects lack `TEMP`; ufl's 113 new ones feed no category. All 10866 of v6's eligible records are unchanged, and the pool is 10979.
+  - Ids 131-160; `split: "test_v7"`; dataset v0.7.
+- **Code.**
+  - `scripts/heldout_sets.py` holds each set's parameters, and the four scripts take `--set` (default v6).
+  - A `--set v6` rerun on a copy of v6's inputs reproduces `selected.json` (every key but `generated`) and the 115-attempt `selection_log.json` exactly.
+  - Fixed on the way. Each of these would have broken a v6 rerun or a later set:
+    - the cast was every `task.json`, so 101-130 would have become the cast of their own rerun;
+    - the mdclaw scan read the working tree;
+    - `finalize` reset `dataset_id` to its own version;
+    - `plan()` stopped when a category ran out of reserves, instead of moving the slot to soluble (rule 1.8);
+    - `apply_nonpolymer_audit.py` had not been idempotent since v0.6.1. It re-added 114's K exclusion, and it would have added a second exclusion sentence to 138.
+  - Tests: `test_heldout_sets.py` (18), three new cases in `test_apply_nonpolymer_audit.py`, and the fixed-count and v6-only assumptions removed from four other test files.
+- **Selection.**
+  - Pools after all filters: membrane 0, antibody 13, complex 284, nanobody 123, ligand 87, nucleic 30, metal 3, ATLAS 1687, MoDEL 1339.
+  - Membrane: v6's 7DFP was the only distinct system. Metal: what is left is 2I3H, 2BFR and 8CPA, all rejected again. Both go to soluble (6 slots).
+  - 123 attempts: 30 picks, 21 reserves, 72 dropped (46 unstable).
+  - All 19 unused v6 reserves were picked, and so were v6's replaced 2AF1 and 1PNE; 9 picks are new to both lists.
+  - With the 98 alone as anchors (`selected_anchors98.json`, a record only), 19 of the 30 picks would differ.
+- **Build.** Eight picks and three reserves could not be stated precisely and took the next reserve:
+  - 3G19 → 3QXV, a tripeptide that MDDB flattened into `LIG`;
+  - 1KJR → 5EQ1, a three-component `LIG`;
+  - 3O6Q → 2D10, inter-chain disulfides reduced;
+  - 6B12 → 1I51 and 4ETQ → 3MJ9 → 5C7X → 6A77 → none. The builder pairs twin chains of two copies, or misorders Kabat insertion codes. So **antibody fills 2 of 3**, and its slot went to ATLAS (2PEF);
+  - 7ONN → 1KPT: build sites 204/205 that do not exist; the deposit numbers its linker 225-228;
+  - 2AF1 → 2STW and 1PNE → 1QIB, v6's two cases.
+  - **Composition:** ligand 4, complex 4, nucleic 4, nanobody 3, antibody 2, ATLAS 7, MoDEL 6.
+- **Two audit blind spots** came out of this (doc 3.1), and neither is fixed in `mddatabench/`, because test-v6-sifonly imports it from this checkout:
+  - a selection mixing the chains of two copies passes when one pair touches (4ETQ: Rg 47.6 against 31.9 Å);
+  - a named build site is never checked against the deposit (7ONN).
+  - A Rg comparison over all 55 multi-chain tasks finds no shipped case of the first kind.
+- **Verification.**
+  - `audit_task_cast` 156/158, every v7 task clean; the 2 findings are the cast's 028/036.
+  - Both apply scripts change 0 of 158.
+  - Held out: 11 of 12 multi-replica v7 tasks reject nothing at slack 4. 147 5X0T's Rg rejects 0.21; its headroom is 2.81, so it is demoted to a diagnostic.
+  - Dry `init_experiment` (148 × 3 conditions): 3 attempts, v0.7, prompts byte-identical.
+  - pytest: 2702 passed, 4 failed in mdclaw.sif with bundles, cwd = the checkout. The 4 are the known 029 ×2 and source_overlay ×2. A first run from /tmp gave 62 more, all from the relative dataset path. Ruff clean.
+- **Prompt doubts** (doc 4.1), none of the 114 kind:
+  - 136 4KT5: chain-less MSE sentences, with MSE on chains A and B and only A's in the contract;
+  - 151 2X9O: "Simulate 15" (the name is cut at a comma);
+  - 155 1QIB: MMP-2 without its Zn/Ca, as MoDEL did;
+  - 140 4F6N: 5-methylcytosines reverted;
+  - 133 BEA: charge 0 where the CCD says +1;
+  - first sentences that name only two entities.
+- **Incident.** A cleanup glob briefly deleted v6's `130_soluble_1c2a` from the main checkout. It was gone about 1 min, before 04:48:48 to 04:49:38 host time, and was restored from git byte-identical. If test-v6-sifonly scored a 130 attempt in that minute, that scoring would have failed. Check the dispatcher log (not read).
+
 ## 2026-10-31 (4) — Benchmark-side causes among the 46 failed attempts of test-v6-cli: 114's prompt removed the quadruplex's channel K+, two scorer false negatives (105 disulfide, 106 water model), and 7 attempts of 110 killed from outside. Overturns (3)'s "the remaining failures are agent-side" for the 4 disulfide and the 1 water-model failure, and the build entry's clean audit as evidence that 114's prompt is right
 
 Investigated read-only on the sealed attempts; nothing was rescored or reset. All changes are uncommitted in the worktree `../MDDataBench-worktrees/benchside-20261031` (branch `benchside-fixes-20261031` off 64c4fe2), not in the main checkout, because the running `test-v6-sifonly` scores with the main checkout's scorer and task files.

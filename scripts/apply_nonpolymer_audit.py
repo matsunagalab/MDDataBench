@@ -83,12 +83,24 @@ def apply(dataset: Path, audit: Path, dry_run: bool = False) -> dict:
         task = json.loads((task_dir / "task.json").read_text())
         prompt_path = task_dir / "prompt.md"
         prompt = prompt_path.read_text()
+        selection = task["reference"]["selection"]
+        # A cation the task keeps bound inside the polymer is not excluded
+        # (selection.bound_ions, v0.6.1: 114's channel K+, which its audit row,
+        # written before that fix, still lists as unaddressed).
+        bound = {ion.get("name") for ion in selection.get("bound_ions") or []}
+        names = [n for n in names if n not in bound]
+        stored = selection.get("excluded_components") or []
         sentences = [kept_component_sentence(e) for e in kept_entries]
-        if names:
+        # An exclusion sentence the prompt already carries for a list that holds
+        # every one of the names counts as present: the builder names a sugar
+        # that sits on no glycosylation site together with the rest (138 5GY2:
+        # "NAG and PG4"), where this step expects the sugar left out.
+        covered = bool(names) and set(names) <= set(stored) and \
+            excluded_components_sentence(stored, polymer_subject(task)) in prompt
+        if names and not covered:
             sentences.append(excluded_components_sentence(names, polymer_subject(task)))
         missing = [s for s in sentences if s not in prompt]
-        selection = task["reference"]["selection"]
-        merged = sorted(set(selection.get("excluded_components") or []) | set(names))
+        merged = sorted(set(stored) | set(names))
         touched = missing or merged != (selection.get("excluded_components") or []) \
             or (kept_entries and selection.get("kept_components") != kept_entries)
         if not touched:

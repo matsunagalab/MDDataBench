@@ -46,6 +46,11 @@ Usage::
 
     PYTHONPATH=<MDDataBench> python3 scripts/select_test_set.py \
         --workdir /data1/rkp00079/rku00161/testset-20261031
+
+``--set v7`` selects test-v7 (docs/test-set-v7-selection.md): its own work
+directory, the v6 test tasks added to the development set (and to the anchors),
+and the mdclaw checkout read at the commit the set pins (``heldout_sets.py``).
+The default, ``v6``, reproduces the v6 selection.
 """
 
 from __future__ import annotations
@@ -61,6 +66,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import heldout_sets as hsets                                         # noqa: E402
 import verify_candidates as vc                                       # noqa: E402
 
 from mddatabench import _task_builder as tb                         # noqa: E402
@@ -90,37 +96,27 @@ DEVELOPMENT_EXTRA = [
 # Everything else MDClaw was developed or documented against (rule v4,
 # coordinator decision 2026-10-31).  These get the same three distinctness
 # tests as the cast, on their deposits' entity sequences: they have no MDDB
-# reference.  They are never diversity anchors.
+# reference.  They are never diversity anchors.  The lists live in
+# heldout_sets.py, per set; these names are v6's, kept for importers.
 #
 # MDPrepBench's 40 tasks: PDB IDs read (read-only) from
 # /data1/rkp00048/rku00208/MDPrepBench/benchmarks/mdprepbench/tasks/*.
-MDPREPBENCH_PDBS = ["181L", "1A1T", "1AAY", "1AKE", "1BL8", "1BNA", "1BXW", "1CLL", "1CSP",
-                    "1DAP", "1EMV", "1IEP", "1STP", "1UBQ", "1Y26", "1YCR", "2CBA", "2K39",
-                    "2LOP", "2LZM", "2MS2", "3CNA", "3PWB", "4Q5T", "4RBQ", "5AWL", "5K9P",
-                    "5MVQ", "5PTI", "6YA2"]
+MDPREPBENCH_PDBS = list(hsets.MDPREPBENCH_PDBS)
 
 # MDStudyBench (github.com/matsunagalab/MDStudyBench, main): one task, S01, on
 # T4 lysozyme C54T/C97A/L99A.  It names no PDB ID, only a reference sequence,
 # which is fetched from the task contract.
-MDSTUDYBENCH_TASK = ("https://raw.githubusercontent.com/matsunagalab/MDStudyBench/main/"
-                     "benchmarks/mdstudybench/tasks/S01_pressure_hydration_t4l_l99a/task.json")
+MDSTUDYBENCH_TASK = hsets.V6.mdstudybench_tasks[0][1]
 
 # PDB IDs mentioned in the mdclaw checkout (skills/, tests/, examples/, docs/,
 # matched case-insensitively as whole 4-character tokens and kept when RCSB has
-# the entry).  These tokens matched a current RCSB entry but are not a mention
-# of it; each was checked by reading its context.
+# the entry), read from the git tree of the commit the set pins (v6: ac0e328,
+# the checkout's HEAD on 2026-10-31, whose tree reproduces the 171 mentions v6
+# recorded from the working tree).  These tokens matched a current RCSB entry
+# but are not a mention of it; each was checked by reading its context.
 MDCLAW_CHECKOUT = Path("/home/rku00161/mdclaw")
 MDCLAW_DIRS = ("skills", "tests", "examples", "docs")
-MDCLAW_NOT_PDB = {
-    "10TH": "ordinal ('the 10th residue')", "13PX": "CSS font size",
-    "1E10": "number 1e10", "2E10": "number 6.2e10", "2E12": "number 2e12",
-    "3E13": "number 3e13", "4E11": "number 1.4e11", "5E11": "number 6.5e11",
-    "6E14": "number 1.6e14", "8E13": "number 5.8e13", "9E14": "number 9e14",
-    "2FPS": "URL-encoded '%2Fps'", "30GB": "storage size", "6B50": "sha256 fragment",
-    "7D82": "UUID fragment", "1SOL": "synthetic test fixture name",
-    "2MEM": "synthetic test fixture name", "2XYZ": "placeholder ID in a test",
-    "4AMU": "hydrogen mass '4 amu' in a test name",
-}
+MDCLAW_NOT_PDB = hsets.MDCLAW_NOT_PDB
 
 # Processing order is the quota order; a category that cannot be filled hands
 # its remaining slots to the soluble categories (alternating, ATLAS first).
@@ -299,19 +295,24 @@ SEQ_QUERY = """query($ids: [String!]!) { entries(entry_ids: $ids) { rcsb_id
 def entity_chains(workdir: Path, ids, name):
     """Deposit entity sequences (protein / DNA / RNA) per PDB ID, cached."""
     path = workdir / "cache" / "rcsb" / f"{name}_sequences.json"
-    if path.exists():
-        data = json.loads(path.read_text())
-    else:
-        data = {"entries": []}
-        ids = sorted(set(ids))
-        for start in range(0, len(ids), 100):
-            body = json.dumps({"query": SEQ_QUERY,
-                               "variables": {"ids": ids[start:start + 100]}}).encode()
-            request = urllib.request.Request(GRAPHQL, data=body, headers={
-                "Content-Type": "application/json", **vc.USER_AGENT})
-            with urllib.request.urlopen(request, timeout=300) as response:
-                part = json.load(response)
-            data["entries"] += [e for e in (part.get("data") or {}).get("entries") or [] if e]
+    data = json.loads(path.read_text()) if path.exists() else {"entries": []}
+    have = ({e["rcsb_id"].upper() for e in data.get("entries") or [] if e.get("rcsb_id")}
+            | set(data.get("requested") or []))
+    # A cache written for another ID set must not answer for this one: fetch
+    # whatever it lacks (v6's cache holds every v6 ID, so v6 fetches nothing).
+    todo = sorted({i.upper() for i in ids} - have)
+    for start in range(0, len(todo), 100):
+        body = json.dumps({"query": SEQ_QUERY,
+                           "variables": {"ids": todo[start:start + 100]}}).encode()
+        request = urllib.request.Request(GRAPHQL, data=body, headers={
+            "Content-Type": "application/json", **vc.USER_AGENT})
+        with urllib.request.urlopen(request, timeout=300) as response:
+            part = json.load(response)
+        data.setdefault("entries", [])
+        data["entries"] += [e for e in (part.get("data") or {}).get("entries") or [] if e]
+    if todo or not path.exists():
+        data["requested"] = sorted(set(data.get("requested") or []) | set(todo))
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data))
     entries = data.get("entries") or (data.get("data") or {}).get("entries") or []
     out = {}
@@ -328,51 +329,67 @@ def entity_chains(workdir: Path, ids, name):
     return out
 
 
-def mdclaw_mentions(workdir: Path):
-    """PDB IDs the mdclaw checkout mentions, with one example location each."""
-    token = re.compile(r"(?i)(?<![A-Za-z0-9])([1-9][A-Za-z0-9]{3})(?![A-Za-z0-9])")
+PDB_TOKEN = re.compile(r"(?i)(?<![A-Za-z0-9])([1-9][A-Za-z0-9]{3})(?![A-Za-z0-9])")
+
+
+def _checkout_files(checkout: Path, commit: str):
+    """(relative path, bytes) of every file under MDCLAW_DIRS, in scan order.
+
+    With ``commit`` the files come from that commit's git tree, so the scan does
+    not depend on what the working tree holds when it runs; without it, from the
+    working tree.  Either way the order is v6's: directory by directory, each
+    sorted the way ``sorted(Path.rglob("*"))`` sorts (by path components).
+    """
+    if not commit:
+        for sub in MDCLAW_DIRS:
+            for path in sorted((checkout / sub).rglob("*")):
+                if not path.is_file() or "__pycache__" in path.parts:
+                    continue
+                try:
+                    yield str(path.relative_to(checkout)), path.read_bytes()
+                except OSError:
+                    continue
+        return
+    import io
+    import subprocess
+    import tarfile
+    archive = subprocess.run(["git", "-C", str(checkout), "archive", "--format=tar", commit,
+                              "--", *MDCLAW_DIRS], capture_output=True, check=True).stdout
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+        members = {m.name: m for m in tar.getmembers() if m.isfile()}
+        for sub in MDCLAW_DIRS:
+            names = sorted((n for n in members if n.split("/")[0] == sub),
+                           key=lambda n: tuple(n.split("/")))
+            for name in names:
+                if "__pycache__" not in name.split("/"):
+                    yield name, tar.extractfile(members[name]).read()
+
+
+def mdclaw_tokens(checkout: Path = MDCLAW_CHECKOUT, commit: str = ""):
+    """Every PDB-shaped token in the checkout's text files, with its first location."""
     seen = {}
-    for sub in MDCLAW_DIRS:
-        for path in sorted((MDCLAW_CHECKOUT / sub).rglob("*")):
-            if not path.is_file() or "__pycache__" in path.parts:
-                continue
-            try:
-                raw = path.read_bytes()
-            except OSError:
-                continue
-            if b"\0" in raw[:65536]:
-                continue                       # binary: images, bytecode
-            text = raw.decode("utf-8", errors="replace")
-            for number, line in enumerate(text.splitlines(), 1):
-                for match in token.finditer(line):
-                    value = match.group(1).upper()
-                    if re.search(r"[A-Z]", value) and value not in seen:
-                        seen[value] = f"{path.relative_to(MDCLAW_CHECKOUT)}:{number}"
+    for relative, raw in _checkout_files(checkout, commit):
+        if b"\0" in raw[:65536]:
+            continue                           # binary: images, bytecode
+        text = raw.decode("utf-8", errors="replace")
+        for number, line in enumerate(text.splitlines(), 1):
+            for match in PDB_TOKEN.finditer(line):
+                value = match.group(1).upper()
+                if re.search(r"[A-Z]", value) and value not in seen:
+                    seen[value] = f"{relative}:{number}"
+    return seen
+
+
+def mdclaw_mentions(workdir: Path, hs=None):
+    """PDB IDs the mdclaw checkout mentions, with one example location each."""
+    hs = hs or hsets.get()
+    seen = mdclaw_tokens(MDCLAW_CHECKOUT, hs.mdclaw_commit)
     existing = rcsb_entries(workdir, seen)
     return {pdb: where for pdb, where in seen.items()
-            if not existing.get(pdb, {}).get("missing") and pdb not in MDCLAW_NOT_PDB}
+            if not existing.get(pdb, {}).get("missing") and pdb not in hs.mdclaw_not_pdb}
 
 
-def load_external(workdir: Path):
-    """MDPrepBench, MDStudyBench and mdclaw-documented systems as cast-like items."""
-    mentions = mdclaw_mentions(workdir)
-    ids = set(MDPREPBENCH_PDBS) | set(mentions)
-    chains_by_pdb = entity_chains(workdir, ids, "development_external")
-    items = []
-    for pdb in sorted(ids):
-        sources = []
-        if pdb in MDPREPBENCH_PDBS:
-            sources.append("MDPrepBench")
-        if pdb in mentions:
-            sources.append(f"mdclaw {mentions[pdb]}")
-        chains = chains_by_pdb.get(pdb) or []
-        items.append({"task_id": f"{'+'.join(s.split()[0] for s in sources)}:{pdb}",
-                      "sources": sources, "pdb": pdb, "chains": chains})
-    study = workdir / "cache" / "mdstudybench" / "S01_task.json"
-    if not study.exists():
-        study.parent.mkdir(parents=True, exist_ok=True)
-        study.write_text(vc._get(MDSTUDYBENCH_TASK))
-    task = json.loads(study.read_text())
+def _reference_sequences(task):
     sequences = []
 
     def walk(node):
@@ -386,11 +403,40 @@ def load_external(workdir: Path):
             for value in node:
                 walk(value)
     walk(task)
-    items.append({"task_id": "MDStudyBench:S01_t4l_l99a", "sources": ["MDStudyBench S01"],
-                  "pdb": None, "chains": [(f"seq{i}", "protein", s)
-                                          for i, s in enumerate(dict.fromkeys(sequences), 1)]})
+    return list(dict.fromkeys(sequences))
+
+
+def load_external(workdir: Path, hs=None):
+    """MDPrepBench, MDStudyBench and mdclaw-documented systems as cast-like items."""
+    hs = hs or hsets.get()
+    prep = list(hs.mdprepbench_pdbs)
+    mentions = mdclaw_mentions(workdir, hs)
+    ids = set(prep) | set(mentions)
+    chains_by_pdb = entity_chains(workdir, ids, "development_external")
+    items = []
+    for pdb in sorted(ids):
+        sources = []
+        if pdb in prep:
+            sources.append("MDPrepBench")
+        if pdb in mentions:
+            sources.append(f"mdclaw {mentions[pdb]}")
+        chains = chains_by_pdb.get(pdb) or []
+        items.append({"task_id": f"{'+'.join(s.split()[0] for s in sources)}:{pdb}",
+                      "sources": sources, "pdb": pdb, "chains": chains})
+    for short, url in hs.mdstudybench_tasks:
+        study = workdir / "cache" / "mdstudybench" / f"{short}_task.json"
+        if not study.exists():
+            study.parent.mkdir(parents=True, exist_ok=True)
+            study.write_text(vc._get(url))
+        task = json.loads(study.read_text())
+        # S01 (T4 lysozyme L99A) keeps v6's label; any later task gets its own id.
+        label = "S01_t4l_l99a" if short == "S01" else str(task.get("task_id") or short)
+        items.append({"task_id": f"MDStudyBench:{label}", "sources": [f"MDStudyBench {short}"],
+                      "pdb": None, "chains": [(f"seq{i}", "protein", s)
+                                              for i, s in enumerate(_reference_sequences(task), 1)]})
     for item in items:
         item.update(axis=None, withdrawn=True, external=True, metadata={}, reference_system={},
+                    role="external",
                     kmers=kmer_set([(t, s) for _, t, s in item["chains"]]),
                     chain_kmers=chain_kmers(item["chains"]))
     return items, mentions
@@ -524,17 +570,35 @@ def listing_index(workdir: Path):
     return index
 
 
-def load_cast(workdir: Path, index):
-    cast = []
+def load_cast(workdir: Path, index, hs=None):
+    """The development set's MDDB tasks, each with its reference sequences.
+
+    ``role`` says what each one is: ``cast`` (the 98 of splits train/eval:
+    anchors, size caps, the "vs 98" columns), ``previous_test`` (an earlier
+    test split, now development data: excluded like the cast, an anchor when
+    the set says so), ``withdrawn`` (038, 061 and the development task 1EDN:
+    excluded, never anchors).  Only the tasks of the set's splits are read, so
+    a later split in the tree (v6's 101-130 for a v6 rerun) changes nothing.
+    """
+    hs = hs or hsets.get()
+    cast, previous = [], []
     for path in sorted(TASKS.glob("*/task.json")):
         task = json.loads(path.read_text())
+        split = task.get("split")
+        if split in hs.cast_splits:
+            target, role = cast, "cast"
+        elif split in hs.previous_test_splits:
+            target, role = previous, "previous_test"
+        else:
+            continue
         ref = task["reference"]
-        cast.append({"task_id": task["task_id"], "axis": task["axis"], "node": ref["node"],
-                     "accession": ref["accession"], "pdb": ref["pdb_ids"][0],
-                     "reference_system": ref.get("reference_system") or {},
-                     "withdrawn": False})
+        target.append({"task_id": task["task_id"], "axis": task["axis"], "node": ref["node"],
+                       "accession": ref["accession"], "pdb": ref["pdb_ids"][0],
+                       "reference_system": ref.get("reference_system") or {},
+                       "withdrawn": False, "role": role, "split": split})
+    cast += previous
     for extra in WITHDRAWN + DEVELOPMENT_EXTRA:
-        cast.append(dict(extra, reference_system={}, withdrawn=True))
+        cast.append(dict(extra, reference_system={}, withdrawn=True, role="withdrawn"))
     for item in cast:
         bundle = BUNDLES / f"{item['node']}_{item['accession']}" / "reference.pdb"
         if not bundle.exists():
@@ -553,6 +617,12 @@ def load_cast(workdir: Path, index):
     return cast
 
 
+def is_anchor(item, hs) -> bool:
+    """A diversity anchor of its axis: the 98, and earlier test tasks when the set says so."""
+    role = item.get("role", "withdrawn" if item.get("withdrawn") else "cast")
+    return role == "cast" or (role == "previous_test" and hs.previous_tests_are_anchors)
+
+
 def residues_of(meta_or_rs):
     """Polymer residues; MDDB's sequences when PROTRES is missing (8 MoDEL entries)."""
     total = sum(int(vc_float(meta_or_rs.get(k)) or 0) for k in ("PROTRES", "DNARES", "RNARES"))
@@ -562,9 +632,10 @@ def residues_of(meta_or_rs):
 
 
 def caps_by_axis(cast):
+    """Largest reference atoms and polymer residues per axis, over the 98 only."""
     caps = {}
     for item in cast:
-        if item["withdrawn"]:
+        if item["withdrawn"] or item.get("role", "cast") != "cast":
             continue
         rs = item["reference_system"]
         atoms = int(vc_float(rs.get("SYSTATS")) or 0)
@@ -705,7 +776,12 @@ def content_check(category, verified, meta, reference_pdb):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--workdir", default="/data1/rkp00079/rku00161/testset-20261031")
+    parser.add_argument("--set", default=hsets.DEFAULT, choices=sorted(hsets.SETS),
+                        help="which held-out set (heldout_sets.py); default v6")
+    parser.add_argument("--workdir", default=None, help="default: the set's work directory")
+    parser.add_argument("--anchors", choices=["set", "cast"], default="set",
+                        help="'cast' uses only the 98 as diversity anchors, whatever the set "
+                             "says (a sensitivity record, written with --out-suffix)")
     parser.add_argument("--reserves", type=int, default=RESERVES)
     parser.add_argument("--max-verify", type=int, default=400,
                         help="give up on a category after this many verification attempts")
@@ -715,21 +791,28 @@ def main(argv=None):
                         help="suffix for selected/selection_log file names (alternative runs)")
     args = parser.parse_args(argv)
     globals()["NUCLEIC_K"] = args.nucleic_k
-    workdir = Path(args.workdir)
+    hs = hsets.get(args.set)
+    if args.anchors == "cast":
+        import dataclasses
+        hs = dataclasses.replace(hs, previous_tests_are_anchors=False)
+    workdir = Path(args.workdir or hs.workdir)
     out_dir = workdir / "selection"
     log = lambda msg: print(msg, file=sys.stderr, flush=True)       # noqa: E731
 
     eligible = json.loads((out_dir / "eligible.json").read_text())
     index = listing_index(workdir)
-    cast = load_cast(workdir, index)
+    cast = load_cast(workdir, index, hs)
     caps = caps_by_axis(cast)
-    external, mentions = load_external(workdir)
+    external, mentions = load_external(workdir, hs)
     n_cast = len(cast)
+    roles = collections.Counter(c["role"] for c in cast)
     cast = cast + external
     cast_pdbs = {c["pdb"].upper() for c in cast if c.get("pdb")}
-    log(f"eligible {len(eligible)}; development set {len(cast)}: cast {n_cast} (98 + 2 withdrawn"
-        f" + {len(DEVELOPMENT_EXTRA)} development) + {len(external)} external (MDPrepBench "
-        f"{len(MDPREPBENCH_PDBS)}, mdclaw-documented {len(mentions)}, MDStudyBench 1); caps {caps}")
+    log(f"set {hs.name}; eligible {len(eligible)}; development set {len(cast)}: cast {n_cast} "
+        f"({roles['cast']} + {roles['previous_test']} earlier test + {roles['withdrawn']} withdrawn"
+        f"/development) + {len(external)} external (MDPrepBench {len(hs.mdprepbench_pdbs)}, "
+        f"mdclaw-documented {len(mentions)} at {hs.mdclaw_commit[:7] or 'working tree'}, "
+        f"MDStudyBench {len(hs.mdstudybench_tasks)}); caps {caps}")
 
     counts = collections.OrderedDict()
     pools = collections.defaultdict(list)
@@ -780,7 +863,7 @@ def main(argv=None):
 
     cast_features = {}
     for c in cast:
-        if c["withdrawn"]:
+        if c["withdrawn"] or not is_anchor(c, hs):
             continue
         cast_features.setdefault(c["axis"], []).append(
             (c["task_id"], features(c["metadata"], entries.get(c["pdb"].upper(), {}), c["axis"],
@@ -912,13 +995,15 @@ def main(argv=None):
             item["reserve_rank"] = rank
         reserve_items.extend(got)
 
-    shipped = [c for c in cast if not c["withdrawn"]]
+    shipped = [c for c in cast if c.get("role") == "cast"]
+    previous_tests = [c for c in cast if c.get("role") == "previous_test"]
 
     def summary(item):
         meta = item["row"]["metadata"]
         verified, exact = item["verified"], item["exact"]
-        vs98 = exact_distinctness([(c["label"], c["type"], c["sequence"])
-                                   for c in verified["reference_chains"]], shipped, [])
+        mine = [(c["label"], c["type"], c["sequence"]) for c in verified["reference_chains"]]
+        vs98 = exact_distinctness(mine, shipped, [])
+        vs_previous = exact_distinctness(mine, previous_tests, []) if previous_tests else None
         entry = entries.get(item["pdb"], {})
         return {
             "category": item["category"], "role": item["role"],
@@ -953,6 +1038,11 @@ def main(argv=None):
             "max_whole_containment_vs_98_task": vs98["whole_vs_cast_task"],
             "max_chain_containment_vs_98": vs98["chain_vs_cast"],
             "max_chain_containment_vs_98_task": vs98["chain_vs_cast_task"],
+            **({"max_whole_containment_vs_previous_test": vs_previous["whole_vs_cast"],
+                "max_whole_containment_vs_previous_test_task": vs_previous["whole_vs_cast_task"],
+                "max_chain_containment_vs_previous_test": vs_previous["chain_vs_cast"],
+                "max_chain_containment_vs_previous_test_task": vs_previous["chain_vs_cast_task"]}
+               if vs_previous else {}),
             "max_whole_containment_vs_cast": exact["whole_vs_cast"],
             "max_whole_containment_vs_cast_task": exact["whole_vs_cast_task"],
             "max_chain_containment_vs_cast": exact["chain_vs_cast"],
@@ -977,17 +1067,24 @@ def main(argv=None):
 
     result = {
         "generated": time.strftime("%Y-%m-%d %H:%M:%S %Z"),
-        "rule": "docs/test-set-selection.md",
+        # v6's record keeps its own keys, so a rerun compares field for field.
+        **({"set": hs.name, "split": hs.split} if hs.name != "v6" else {}),
+        "rule": hs.rule_doc,
         "threshold": THRESHOLD, "rmsd_max_angstrom": RMSD_MAX, "k_protein": K,
         "k_nucleic": NUCLEIC_K,
         "pool_counts": counts,
         "category_caps_atoms_residues": caps,
         "development_set": {
             "cast_tasks": [c["task_id"] for c in cast if not c.get("external")],
-            "mdprepbench_pdbs": MDPREPBENCH_PDBS,
-            "mdstudybench": MDSTUDYBENCH_TASK,
+            **({"previous_test_tasks": [c["task_id"] for c in previous_tests],
+                "previous_tests_are_anchors": hs.previous_tests_are_anchors}
+               if hs.previous_test_splits else {}),
+            "mdprepbench_pdbs": list(hs.mdprepbench_pdbs),
+            "mdstudybench": (hs.mdstudybench_tasks[0][1] if len(hs.mdstudybench_tasks) == 1
+                             else [url for _, url in hs.mdstudybench_tasks]),
             "mdclaw_documented_pdbs": mentions,
-            "mdclaw_tokens_not_pdb_mentions": MDCLAW_NOT_PDB,
+            **({"mdclaw_commit": hs.mdclaw_commit} if hs.name != "v6" else {}),
+            "mdclaw_tokens_not_pdb_mentions": hs.mdclaw_not_pdb,
         },
         "processing_order": order,
         "slots": dict(slots), "shortfall": shortfall,

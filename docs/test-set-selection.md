@@ -14,6 +14,14 @@ developed or documented against. Nothing here is committed.
   `scripts/select_test_set.py`, which calls `scripts/verify_candidates.py`.
   The commands are at the end of this page.
 
+**2026-11-01: test sets are single-use.** v6 (this page) was run once on a
+frozen MDClaw and its failures were used to fix MDClaw, so it is now
+development data. The next set, test-v7 (tasks 131–160, split `test_v7`,
+sealed), is in `docs/test-set-v7-selection.md`. The scripts now take
+`--set`, and the default is v6, so the commands under "Reproduce" still give
+this set (a `--set v6` rerun reproduces `selected.json` and
+`selection_log.json` exactly).
+
 Part 1 is the rule as it now stands (v4). It was written down while the
 procedure was applied. Section 1.10 lists every change made after a run, the
 reason for it, and who decided it. Part 2 is the result.

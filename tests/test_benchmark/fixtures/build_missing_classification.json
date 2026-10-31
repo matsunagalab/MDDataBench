@@ -442,5 +442,248 @@
         "site": "A:97"
       }
     ]
+  },
+  "140_nucleic_4f6n": {
+    "build_sites": [
+      "E:20"
+    ],
+    "bundle_reference_pdb_sha256": "0d82270d7304bc978b536468258bbf5191b6d39c59134fff58f707cd73e5a34b",
+    "reference_delta": 1,
+    "segments": [
+      {
+        "site": "E:20",
+        "class": "n_terminal"
+      }
+    ]
+  },
+  "146_antibody_5o14": {
+    "build_sites": [
+      "B:14",
+      "B:83",
+      "B:84",
+      "B:85",
+      "B:86",
+      "B:87",
+      "B:117",
+      "B:118",
+      "B:119",
+      "B:120",
+      "B:121",
+      "B:122"
+    ],
+    "bundle_reference_pdb_sha256": "ffa8c8317ddad9949e097544d7cf2e0a94ca99412339047bc5cab8343cd9cad3",
+    "reference_delta": 12,
+    "segments": [
+      {
+        "site": "B:14",
+        "class": "n_terminal"
+      },
+      {
+        "site": "B:83",
+        "class": "internal"
+      },
+      {
+        "site": "B:84",
+        "class": "internal"
+      },
+      {
+        "site": "B:85",
+        "class": "internal"
+      },
+      {
+        "site": "B:86",
+        "class": "internal"
+      },
+      {
+        "site": "B:87",
+        "class": "internal"
+      },
+      {
+        "site": "B:117",
+        "class": "internal"
+      },
+      {
+        "site": "B:118",
+        "class": "internal"
+      },
+      {
+        "site": "B:119",
+        "class": "internal"
+      },
+      {
+        "site": "B:120",
+        "class": "internal"
+      },
+      {
+        "site": "B:121",
+        "class": "internal"
+      },
+      {
+        "site": "B:122",
+        "class": "internal"
+      }
+    ]
+  },
+  "149_soluble_5n76": {
+    "build_sites": [
+      "F:1",
+      "F:12",
+      "F:13",
+      "F:14",
+      "F:64",
+      "F:65",
+      "F:66"
+    ],
+    "bundle_reference_pdb_sha256": "7799a9917fca8611190b915cd22eef33037e80db77f3dbd35f1e3b5999cd6612",
+    "reference_delta": 7,
+    "segments": [
+      {
+        "site": "F:1",
+        "class": "n_terminal"
+      },
+      {
+        "site": "F:12",
+        "class": "internal"
+      },
+      {
+        "site": "F:13",
+        "class": "internal"
+      },
+      {
+        "site": "F:14",
+        "class": "internal"
+      },
+      {
+        "site": "F:64",
+        "class": "c_terminal"
+      },
+      {
+        "site": "F:65",
+        "class": "c_terminal"
+      },
+      {
+        "site": "F:66",
+        "class": "c_terminal"
+      }
+    ]
+  },
+  "151_soluble_2x9o": {
+    "build_sites": [
+      "A:-7",
+      "A:-6",
+      "A:-5",
+      "A:-4",
+      "A:-3",
+      "A:-2",
+      "A:128",
+      "A:129",
+      "A:234",
+      "A:235",
+      "A:236"
+    ],
+    "bundle_reference_pdb_sha256": "457994a6a1a9b248fe5c7c14dc6a0518d5814f06f57d7ef6552c27aa18e1b730",
+    "reference_delta": 11,
+    "segments": [
+      {
+        "site": "A:-7",
+        "class": "n_terminal"
+      },
+      {
+        "site": "A:-6",
+        "class": "n_terminal"
+      },
+      {
+        "site": "A:-5",
+        "class": "n_terminal"
+      },
+      {
+        "site": "A:-4",
+        "class": "n_terminal"
+      },
+      {
+        "site": "A:-3",
+        "class": "n_terminal"
+      },
+      {
+        "site": "A:-2",
+        "class": "n_terminal"
+      },
+      {
+        "site": "A:128",
+        "class": "internal"
+      },
+      {
+        "site": "A:129",
+        "class": "internal"
+      },
+      {
+        "site": "A:234",
+        "class": "c_terminal"
+      },
+      {
+        "site": "A:235",
+        "class": "c_terminal"
+      },
+      {
+        "site": "A:236",
+        "class": "c_terminal"
+      }
+    ]
+  },
+  "152_soluble_2fp1": {
+    "build_sites": [
+      "A:34"
+    ],
+    "bundle_reference_pdb_sha256": "2f4dbdfb3ebbfccc4818f9b7263a9d9a80f12b396b6cfb972b586d75795a73a3",
+    "reference_delta": 1,
+    "segments": [
+      {
+        "site": "A:34",
+        "class": "n_terminal"
+      }
+    ]
+  },
+  "154_soluble_2pef": {
+    "build_sites": [
+      "A:385",
+      "A:386",
+      "A:387",
+      "A:388",
+      "A:389",
+      "A:390",
+      "A:391"
+    ],
+    "bundle_reference_pdb_sha256": "176ac1a3018eec3b79b77f9a7cf77b6a7fda5faf240ac5fe1d7a0efac13086ab",
+    "reference_delta": 7,
+    "segments": [
+      {
+        "site": "A:385",
+        "class": "internal"
+      },
+      {
+        "site": "A:386",
+        "class": "internal"
+      },
+      {
+        "site": "A:387",
+        "class": "internal"
+      },
+      {
+        "site": "A:388",
+        "class": "internal"
+      },
+      {
+        "site": "A:389",
+        "class": "internal"
+      },
+      {
+        "site": "A:390",
+        "class": "internal"
+      },
+      {
+        "site": "A:391",
+        "class": "internal"
+      }
+    ]
   }
 }

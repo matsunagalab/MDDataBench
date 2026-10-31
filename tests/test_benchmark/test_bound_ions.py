@@ -105,7 +105,12 @@ def _bundle(task):
 @pytest.mark.parametrize("task_dir", sorted(p.parent for p in TASKS.glob("*/task.json")),
                          ids=lambda p: p.name)
 def test_the_rule_applies_to_114_alone(task_dir):
-    """Applied to every task; only 114's contract changes (GPCR Na+ sites have two donors)."""
+    """Applied to every task; each contract carries exactly what the rule finds.
+
+    Over the 128 tasks of v0.6.1 only 114's contract changes (GPCR Na+ sites
+    have two donors); a later test split must state whatever the rule finds
+    for it, and nothing it does not.
+    """
     bt = _builder()
     task = json.loads((task_dir / "task.json").read_text())
     selection = task["reference"]["selection"]
@@ -113,7 +118,14 @@ def test_the_rule_applies_to_114_alone(task_dir):
     chosen = [{"deposit_chain": chain, "ranges": selection["ranges"].get(chain, [])}
               for chain in selection["chains"]]
     found = bt.bound_solvent_cations(cif, chosen, _bundle(task) / "reference.pdb")
+    stored = selection.get("bound_ions") or []
+    key = lambda ions: [(i["name"], i["chain"], i["residue"]) for i in ions]   # noqa: E731
+    assert key(found) == key(stored), task["task_id"]
     if task["task_id"] == "114_nucleic_1jrn":
         assert len(found) == 5
-    else:
+    elif int(task["task_id"][:3]) <= 130:
         assert found == [], task["task_id"]
+    if stored:
+        prompt = (task_dir / "prompt.md").read_text()
+        assert any(tb.bound_ion_sentence(stored, subject) in prompt
+                   for subject in ("protein", "nucleic acid", "system"))

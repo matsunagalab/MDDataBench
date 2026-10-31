@@ -40,8 +40,11 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from mddatabench.reference import NODES
-from mddatabench._task_builder import WATERS
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import heldout_sets as hsets                                         # noqa: E402
+
+from mddatabench.reference import NODES                              # noqa: E402
+from mddatabench._task_builder import WATERS                         # noqa: E402
 
 DIRECT_NODES = ("mmb", "oxf", "cin", "bsc", "inr", "jsc", "rpbs", "ufl")
 PAGE = 100
@@ -235,16 +238,20 @@ def compact(project, node, step, frames, frame_source, per_window, windows):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--workdir", default="/data1/rkp00079/rku00161/testset-20261031")
+    parser.add_argument("--set", default=hsets.DEFAULT, choices=sorted(hsets.SETS),
+                        help="which held-out set's work directory (heldout_sets.py); default v6")
+    parser.add_argument("--workdir", default=None, help="default: the set's work directory")
     parser.add_argument("--nodes", default=",".join(DIRECT_NODES))
+    parser.add_argument("--workers", type=int, default=0,
+                        help="nodes listed in parallel (default: all at once, as v6 ran)")
     args = parser.parse_args(argv)
-    workdir = Path(args.workdir)
+    workdir = Path(args.workdir or hsets.get(args.set).workdir)
     (workdir / "selection").mkdir(parents=True, exist_ok=True)
     log = lambda msg: print(msg, file=sys.stderr, flush=True)       # noqa: E731
 
     nodes = [n for n in args.nodes.split(",") if n]
     listings, failures = {}, {}
-    with cf.ThreadPoolExecutor(max_workers=len(nodes)) as pool:
+    with cf.ThreadPoolExecutor(max_workers=args.workers or len(nodes)) as pool:
         futures = {pool.submit(fetch_node, n, workdir, log): n for n in nodes}
         for future in cf.as_completed(futures):
             node = futures[future]
@@ -256,7 +263,7 @@ def main(argv=None):
 
     # Frame counts for inr come from the rmsds analysis (one request each).
     inr = listings.get("inr", {}).get("projects", {})
-    with cf.ThreadPoolExecutor(max_workers=4) as pool:
+    with cf.ThreadPoolExecutor(max_workers=min(4, args.workers or 4)) as pool:
         list(pool.map(lambda acc: rmsds_frames("inr", acc, workdir), sorted(inr)))
 
     counts = collections.OrderedDict()

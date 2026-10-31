@@ -81,3 +81,50 @@ def test_a_later_dataset_is_never_downgraded(tmp_path):
     assert result["dataset_id"] == "MDDataBench-v0.6"
     assert meta["dataset_id"] == "MDDataBench-v0.6" and len(meta["changelog"]) == lines
     assert result["changed"] == []
+
+
+def _one_task(tmp_path, task_id, row):
+    """A one-task dataset copied from the shipped one, and a one-row audit."""
+    src = REPO / "benchmarks" / "mddatabench"
+    dataset = tmp_path / "dataset"
+    (dataset / "tasks" / task_id).mkdir(parents=True)
+    for name in ("task.json", "prompt.md"):
+        (dataset / "tasks" / task_id / name).write_text((src / "tasks" / task_id / name).read_text())
+    (dataset / "dataset.json").write_text((src / "dataset.json").read_text())
+    audit = tmp_path / "audit.csv"
+    with audit.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["task", "unaddressed", "in_reference"])
+        writer.writeheader()
+        writer.writerow(dict(row, task=task_id))
+    return dataset, audit
+
+
+def test_a_cation_kept_bound_is_never_excluded(tmp_path):
+    """114's audit row predates v0.6.1 and lists K; the task keeps it as bound_ions."""
+    dataset, audit = _one_task(tmp_path, "114_nucleic_1jrn", {"unaddressed": "K", "in_reference": ""})
+    before = (dataset / "tasks/114_nucleic_1jrn/prompt.md").read_text()
+    assert apply_audit.apply(dataset, audit)["changed"] == []
+    assert (dataset / "tasks/114_nucleic_1jrn/prompt.md").read_text() == before
+    assert "not part of the reference" not in before
+
+
+def test_an_exclusion_sentence_that_names_a_sugar_too_counts_as_present(tmp_path):
+    """A sugar off any glycosylation site is excluded with the rest ("NAG and PG4")."""
+    task_id = "138_complex_5gy2"
+    if not (REPO / "benchmarks" / "mddatabench" / "tasks" / task_id).is_dir():
+        import pytest
+        pytest.skip("test_v7 not built")
+    dataset, audit = _one_task(tmp_path, task_id, {"unaddressed": "NAG PG4", "in_reference": ""})
+    before = (dataset / "tasks" / task_id / "prompt.md").read_text()
+    assert "The deposit's **NAG** and **PG4** are not part of the reference." in before
+    assert apply_audit.apply(dataset, audit)["changed"] == []
+    assert (dataset / "tasks" / task_id / "prompt.md").read_text() == before
+
+
+def test_the_shipped_dataset_is_a_fixed_point():
+    """Rerun over the shipped audit CSV, the step changes no task (dry run)."""
+    dataset = REPO / "benchmarks" / "mddatabench"
+    result = apply_audit.apply(dataset, dataset / "_audits" / "nonpolymer-20260914.csv",
+                               dry_run=True)
+    assert result["changed"] == []
+    assert result["unchanged"] == len(list((dataset / "tasks").glob("*/task.json")))

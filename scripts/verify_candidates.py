@@ -48,9 +48,12 @@ from pathlib import Path
 
 import numpy as np
 
-from mddatabench import _task_builder as tb
-from mddatabench import composition as cp
-from mddatabench.reference import NODES
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import heldout_sets as hsets                                         # noqa: E402
+
+from mddatabench import _task_builder as tb                         # noqa: E402
+from mddatabench import composition as cp                           # noqa: E402
+from mddatabench.reference import NODES                             # noqa: E402
 
 USER_AGENT = {"User-Agent": "MDDataBench-testset-verify/1.0"}
 
@@ -412,6 +415,8 @@ def validate_cast(workdir: Path, tasks_dir: Path, bundles: Path) -> dict:
     rows = []
     for task_json in sorted(tasks_dir.glob("*/task.json")):
         task = json.loads(task_json.read_text())
+        if str(task.get("split", "")).startswith("test"):
+            continue                       # the cast only: test splits were built by this code
         ref = task["reference"]
         pdb_id = ref["pdb_ids"][0]
         bundle = bundles / f"{ref['node']}_{ref['accession']}" / "reference.pdb"
@@ -451,7 +456,9 @@ def validate_cast(workdir: Path, tasks_dir: Path, bundles: Path) -> dict:
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--workdir", default="/data1/rkp00079/rku00161/testset-20261031")
+    parser.add_argument("--set", default=hsets.DEFAULT, choices=sorted(hsets.SETS),
+                        help="which held-out set's work directory (heldout_sets.py); default v6")
+    parser.add_argument("--workdir", default=None, help="default: the set's work directory")
     parser.add_argument("--validate-cast", action="store_true",
                         help="rebuild the shipped 98 selections and compare")
     parser.add_argument("--tasks", default=str(Path(__file__).resolve().parents[1]
@@ -459,7 +466,7 @@ def main(argv=None):
     parser.add_argument("--bundles", default="/data1/rkp00079/rku00161/references")
     parser.add_argument("targets", nargs="*", help="node:accession[:PDBID]")
     args = parser.parse_args(argv)
-    workdir = Path(args.workdir)
+    workdir = Path(args.workdir or hsets.get(args.set).workdir)
     if args.validate_cast:
         result = validate_cast(workdir, Path(args.tasks), Path(args.bundles))
         (workdir / "selection").mkdir(parents=True, exist_ok=True)

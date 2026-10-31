@@ -214,3 +214,62 @@ MDDB の全 8 ノードを走査した 35602 プロジェクトから選定し�
 | T128 | MoDEL | mmb:A001O | [1AJJ](https://www.rcsb.org/structure/1AJJ) | A:4-40 | 37 | Amber Parm99 | TIP3P | 300 | 1 ns | 1 | 2.44 | LDL RECEPTOR LIGAND-BINDING MODULE 5, CALCIUM-COORDI |
 | T129 | MoDEL | mmb:A008D | [2CRO](https://www.rcsb.org/structure/2CRO) | A:-1-63 | 65 | Amber Parm99 | TIP3P | 300 | 1 ns | 1 | 1.91 | STRUCTURE OF PHAGE 434 CRO PROTEIN AT 2.35 ANGSTROMS |
 | T130 | MoDEL | mmb:A009E | [1C2A](https://www.rcsb.org/structure/1C2A) | A:4-123 | 120 | Amber Parm99 | TIP3P | 300 | 1 ns | 1 | 3.77 | CRYSTAL STRUCTURE OF BARLEY BBI |
+
+## テスト v7 (30, 2026-11-01 選定・データセット v0.7、封印中)
+
+2 つ目の保留テスト分割（`split: "test_v7"`、タスク 131-160）。**封印中**で、
+実行するかどうかが決まるまで走らせない。
+テスト分割は 1 回限りという方針（2026-11-01）による。v0.6 のテスト分割（101-130）は、
+固定した MDClaw で 1 回走らせたあと、その失敗を MDClaw の修正に使ったので、
+いまは開発用データとして扱う。
+規則・母集団の件数・検証・構築の記録は `docs/test-set-v7-selection.md` にある。
+手順は v6 と同じで、MDClaw・エージェント・MD は一切使っていない。
+
+- **配列の重複なし**: v6 の除外集合に、v6 の 30 件と mdclaw `6524d3e` の文書に出てくる
+  PDB エントリを加えたものに対して、v6 と同じ基準を満たす。
+- **多様性の基準点**: 98 件に加えて v6 の同じ軸のタスクも基準点にした。
+- **軸ごとの件数**: リガンド 4、蛋白-蛋白 4、核酸 4、ナノボディ 3、抗体-抗原 2、
+  ATLAS 7、MoDEL 6。
+  - 膜と金属は候補がなく、その枠は単鎖に回した。
+  - 抗体-抗原は 1 枠分の予備を使い切り、その枠を ATLAS に回した。
+- **予備との差し替え（選定 8 件）**: ビルダーが正確に書けない選定を、各軸の次の予備に替えた。
+  - 3G19 → 3QXV、1KJR → 5EQ1: MDDB が 1 残基にまとめた LIG に、対応する寄託成分がない。
+  - 3O6Q → 2D10: 鎖間ジスルフィドの差を書けない。
+  - 6B12 → 1I51、4ETQ → (3MJ9 → 5C7X → 6A77 → なし): 寄託の 2 コピーの鎖を混ぜて選ぶ、
+    または Kabat 挿入コードの番号を取り違える。
+  - 7ONN → 1KPT: 未観測リンカー（225-228）を、存在しない番号 204・205 で作れと書いてしまう。
+    抗体-抗原から回した ATLAS の枠は、その次の予備 2PEF が埋めた。
+  - 2AF1 → 2STW、1PNE → 1QIB: v6 と同じ理由。
+
+| # | 軸 | ノード:accession | PDB | 鎖:残基範囲 | 残基 | 力場 | 水 | T | 窓 | rep | RMSD | 内容 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| T131 | リガンド | cin:A00BY | [2PQL](https://www.rcsb.org/structure/2PQL) | A:1-144 | 144 | Amber ff99SB-ILDN | TIP3P | 298 | 1 ns | 1 | 2.09 | Crystal Structure of Anopheles gambiae D7R4-tryptami |
+| T132 | リガンド | cin:A00E1 | [3QXV](https://www.rcsb.org/structure/3QXV) | A:4-131 | 123 | Amber ff99SB-ILDN | TIP3P | 298 | 1 ns | 1 | 1.80 | Structure of an Anti-Methotrexate CDR1-4 Graft VHH A |
+| T133 | リガンド | cin:A00IS | [5EQ1](https://www.rcsb.org/structure/5EQ1) | A:628-739 | 112 | Amber ff99SB-ILDN | TIP3P | 298 | 1 ns | 1 | 1.89 | Crystal structure of the human BRPF1 bromodomain in  |
+| T134 | リガンド | cin:A00E2 | [5I7X](https://www.rcsb.org/structure/5I7X) | A:23-122 | 100 | Amber ff99SB-ILDN | TIP3P | 298 | 1 ns | 1 | 3.16 | BRD9 in complex with Cpd2 (N,N-dimethyl-3-(6-methyl- |
+| T135 | 蛋白-蛋白 | inr:A002T | [2D10](https://www.rcsb.org/structure/2D10) | A:3-297 E:339-358 | 315 | CHARMM36m | TIP3P | 310 | 2.5 ns | 1 | 3.68 | Crystal structure of the Radixin FERM domain complex |
+| T136 | 蛋白-蛋白 | inr:A007O | [4KT5](https://www.rcsb.org/structure/4KT5) | A:-2-112 B:1-114 C:9-96 | 317 | CHARMM36m | TIP3P | 310 | 2.5 ns | 1 | 3.36 | Structure of GrlR-GrlA complex |
+| T137 | 蛋白-蛋白 | inr:A000Y | [1I51](https://www.rcsb.org/structure/1I51) | A:58-196 B:212-303 C:58-196 D:212-303 E:135-152 F:135-152 | 498 | CHARMM36m | TIP3P | 310 | 2.5 ns | 1 | 2.04 | CRYSTAL STRUCTURE OF CASPASE-7 COMPLEXED WITH XIAP |
+| T138 | 蛋白-蛋白 | inr:A00BJ | [5GY2](https://www.rcsb.org/structure/5GY2) | A:23-464 C:54-222 | 611 | CHARMM36m | TIP3P | 310 | 2.5 ns | 1 | 2.73 | Crystal structure of a complex between Bacillus subt |
+| T139 | 核酸 | mmb:A01DY | [2STW](https://www.rcsb.org/structure/2STW) | C:18-34 B:1-17 | 34 | 未記録 | TIP3P | 300 | 1 ns | 1 | 2.13 | SOLUTION NMR STRUCTURE OF THE HUMAN ETS1/DNA COMPLEX |
+| T140 | 核酸 | mmb:A01E2 | [4F6N](https://www.rcsb.org/structure/4F6N) | E:20-38 D:1-19 | 38 | 未記録 | TIP3P | 300 | 1 ns | 1 | 3.13 | Crystal structure of Kaiso zinc finger DNA binding p |
+| T141 | 核酸 | mmb:A01DQ | [1VTN](https://www.rcsb.org/structure/1VTN) | A:1-13 B:21-33 | 26 | 未記録 | TIP3P | 300 | 1 ns | 1 | 2.27 | CO-CRYSTAL STRUCTURE OF THE HNF-3/FORK HEAD DNA-RECO |
+| T142 | 核酸 | mmb:A01DD | [1A0A](https://www.rcsb.org/structure/1A0A) | D:1-17 C:1-17 | 34 | 未記録 | TIP3P | 300 | 1 ns | 1 | 2.41 | PHOSPHATE SYSTEM POSITIVE REGULATORY PROTEIN PHO4/DN |
+| T143 | ナノボディ | mmb:A0598 | [6IR2](https://www.rcsb.org/structure/6IR2) | B:16-139 | 124 | Amber ff99SB-ILDN | TIP3P | 300 | 1 ns | 3 | 1.50 | Crystal structure of red fluorescent protein mCherry |
+| T144 | ナノボディ | mmb:A059P | [6X05](https://www.rcsb.org/structure/6X05) | K:3-122 | 120 | Amber ff99SB-ILDN | TIP3P | 300 | 1 ns | 3 | 2.16 | Nup133 (aa55-481) from S. cerevisiae bound by VHH-SA |
+| T145 | ナノボディ | mmb:A058W | [6B73](https://www.rcsb.org/structure/6B73) | C:4-124 | 121 | Amber ff99SB-ILDN | TIP3P | 300 | 1 ns | 3 | 2.66 | Crystal Structure of a nanobody-stabilized active st |
+| T146 | 抗体-抗原 | inr:A00LR | [5O14](https://www.rcsb.org/structure/5O14) | B:14-255 D:1-212 C:1-222 | 676 | CHARMM36m | TIP3P | 300 | 2.5 ns | 3 | 3.46 | Co-crystal structure of a cross-reactive bactericida |
+| T147 | 抗体-抗原 | inr:A00LW | [5X0T](https://www.rcsb.org/structure/5X0T) | A:21-235 B:21-233 E:25-102 | 506 | CHARMM36m | TIP3P | 300 | 2.5 ns | 3 | 2.93 | Crystal structure of CD147 C2 domain in complex with |
+| T148 | ATLAS | bsc:A02N0 | [1HOE](https://www.rcsb.org/structure/1HOE) | A:1-74 | 74 | CHARMM36m | TIP3P | 300 | 1 ns | 3 | 3.45 | CRYSTAL STRUCTURE DETERMINATION, REFINEMENT AND THE  |
+| T149 | ATLAS | bsc:A03TC | [5N76](https://www.rcsb.org/structure/5N76) | F:1-66 | 66 | CHARMM36m | TIP3P | 300 | 1 ns | 3 | 3.47 | Crystal structure of the apo-form of the CO dehydrog |
+| T150 | ATLAS | bsc:A02OH | [1KPT](https://www.rcsb.org/structure/1KPT) | A:1-105 | 105 | CHARMM36m | TIP3P | 300 | 1 ns | 3 | 1.56 | STRUCTURE AND FUNCTION OF A VIRALLY ENCODED FUNGAL T |
+| T151 | ATLAS | bsc:A035Q | [2X9O](https://www.rcsb.org/structure/2X9O) | A:-7-236 | 244 | CHARMM36m | TIP3P | 300 | 1 ns | 3 | 3.80 | STRUCTURE OF 15, 16- DIHYDROBILIVERDIN:FERREDOXIN OX |
+| T152 | ATLAS | bsc:A02YH | [2FP1](https://www.rcsb.org/structure/2FP1) | A:34-199 | 166 | CHARMM36m | TIP3P | 300 | 1 ns | 3 | 2.58 | Secreted Chorismate Mutase from Mycobacterium tuberc |
+| T153 | ATLAS | bsc:A02L6 | [1D4T](https://www.rcsb.org/structure/1D4T) | A:1-104 | 104 | CHARMM36m | TIP3P | 300 | 1 ns | 3 | 2.16 | CRYSTAL STRUCTURE OF THE XLP PROTEIN SAP IN COMPLEX  |
+| T154 | ATLAS | bsc:A032C | [2PEF](https://www.rcsb.org/structure/2PEF) | A:51-423 | 373 | CHARMM36m | TIP3P | 300 | 1 ns | 3 | 2.54 | Crystal Structure of a Thermophilic Serpin, Tengpin, |
+| T155 | MoDEL | mmb:A00XJ | [1QIB](https://www.rcsb.org/structure/1QIB) | A:88-250 | 161 | Amber Parm99 | TIP3P | 300 | 1 ns | 1 | 2.73 | CRYSTAL STRUCTURE OF GELATINASE A CATALYTIC DOMAIN |
+| T156 | MoDEL | mmb:A004D | [1A5D](https://www.rcsb.org/structure/1A5D) | A:1-174 | 173 | Amber Parm99 | TIP3P | 300 | 1 ns | 1 | 1.93 | GAMMAE CRYSTALLIN FROM RAT LENS |
+| T157 | MoDEL | mmb:A00JB | [1HP9](https://www.rcsb.org/structure/1HP9) | A:1-22 | 22 | Amber Parm99 | TIP3P | 300 | 1 ns | 1 | 2.63 | kappa-Hefutoxins: a novel Class of Potassium Channel |
+| T158 | MoDEL | mmb:A00DP | [1EDG](https://www.rcsb.org/structure/1EDG) | A:1-380 | 380 | Amber Parm99 | TIP3P | 300 | 1 ns | 1 | 2.87 | SINGLE CRYSTAL STRUCTURE DETERMINATION OF THE CATALY |
+| T159 | MoDEL | mmb:A00AF | [1CS6](https://www.rcsb.org/structure/1CS6) | A:7-388 | 382 | Amber Parm99 | TIP3P | 300 | 1 ns | 1 | 2.16 | N-TERMINAL FRAGMENT OF AXONIN-1 FROM CHICKEN |
+| T160 | MoDEL | mmb:A008J | [1CEX](https://www.rcsb.org/structure/1CEX) | A:17-213 | 197 | Amber Parm99 | TIP3P | 300 | 1 ns | 1 | 2.45 | STRUCTURE OF CUTINASE |

@@ -127,3 +127,33 @@ task,pdb,chains,deposit_nonpoly,deposit_other_chains,glycan,in_reference,ref_non
 128_soluble_1ajj,1AJJ,A,CAx1 SO4x1,,,,,,yes,CA SO4,ok-excl
 129_soluble_2cro,2CRO,A,,,,,,,,,ok
 130_soluble_1c2a,1C2A,A,,,,,,,,,ok
+131_ligand_2pql,2PQL,A,TSSx1,,,TSS,LIGx1,TSS,,,ok
+132_ligand_3qxv,3QXV,A,MTXx1 SO4x1,,,MTX,LIGx1,MTX,yes,SO4,ok-excl
+133_ligand_5eq1,5EQ1,A,BEAx1 NO3x1,,,BEA,LIGx1,BEA,yes,NO3,ok-excl
+134_ligand_5i7x,5I7X,A,67Bx1,,,67B,LIGx1,67B,,,ok
+135_complex_2d10,2D10,AE,,,,,,,,,ok
+136_complex_4kt5,4KT5,ABC,PG4x2,,,,,,yes,PG4,ok-excl
+137_complex_1i51,1I51,ABCDEF,,,,,,,,,ok
+138_complex_5gy2,5GY2,AC,NAGx3 PG4x1,,,,,,yes,NAG PG4,ok-excl
+139_nucleic_2stw,2STW,CB,,,,,,,,,ok
+140_nucleic_4f6n,4F6N,ED,GOLx1,,,,,,yes,GOL,ok-excl
+141_nucleic_1vtn,1VTN,AB,,,,,,,,,ok
+142_nucleic_1a0a,1A0A,DC,,,,,,,,,ok
+143_nanobody_6ir2,6IR2,B,,,,,,,,,ok
+144_nanobody_6x05,6X05,K,,,,,,,,,ok
+145_nanobody_6b73,6B73,C,,,,,,,,,ok
+146_antibody_5o14,5O14,BDC,CLx1,,,,,,yes,CL,ok-excl
+147_antibody_5x0t,5X0T,ABE,,,,,,,,,ok
+148_soluble_1hoe,1HOE,A,,,,,,,,,ok
+149_soluble_5n76,5N76,F,,,,,,,,,ok
+150_soluble_1kpt,1KPT,A,,,,,,,,,ok
+151_soluble_2x9o,2X9O,A,BLAx1,,,,,,yes,BLA,ok-excl
+152_soluble_2fp1,2FP1,A,,,,,,,,,ok
+153_soluble_1d4t,1D4T,A,,,,,,,,,ok
+154_soluble_2pef,2PEF,A,,,,,,,,,ok
+155_soluble_1qib,1QIB,A,CAx3 ZNx2,,,,,,yes,CA ZN,ok-excl
+156_soluble_1a5d,1A5D,A,,,,,,,,,ok
+157_soluble_1hp9,1HP9,A,,,,,,,,,ok
+158_soluble_1edg,1EDG,A,,,,,,,,,ok
+159_soluble_1cs6,1CS6,A,GOLx1,,,,,,yes,GOL,ok-excl
+160_soluble_1cex,1CEX,A,,,,,,,,,ok

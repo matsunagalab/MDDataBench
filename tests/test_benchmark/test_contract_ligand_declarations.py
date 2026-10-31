@@ -56,15 +56,34 @@ def test_contract_ligand_atoms_are_declared(task_dir):
             f"{task_dir.name}: contract atoms in non-polymer {name} without one declared SMILES")
 
 
-@pytest.mark.parametrize("task_id", ["105_ligand_6mj7", "106_metal_6rnt"])
-def test_test_split_declarations_are_reproduced(task_id):
+def _test_split_tasks_with_ligands():
+    """(set, task id) of every test-split task whose build report names a ligand."""
+    sys.path.insert(0, str(REPO / "scripts"))
+    try:
+        import heldout_sets as hsets
+    except ImportError:
+        return []
+    out = []
+    for hs in hsets.SETS.values():
+        report = hs.workdir / "build" / "build_report.json"
+        if report.is_file():
+            out += [(hs.name, t["task_id"]) for t in json.loads(report.read_text())["tasks"]
+                    if t["ligands"] and (TASKS / t["task_id"] / "task.json").is_file()]
+    # v6's two, named so the check never silently drops them.
+    return out or [("v6", "105_ligand_6mj7"), ("v6", "106_metal_6rnt")]
+
+
+@pytest.mark.parametrize("name,task_id", _test_split_tasks_with_ligands())
+def test_test_split_declarations_are_reproduced(name, task_id):
+    """The stored declaration is what the builder derives (none when no contract atom is a ligand's)."""
     sys.path.insert(0, str(REPO / "scripts"))
     bt = pytest.importorskip("build_test_tasks")
+    hsets = pytest.importorskip("heldout_sets")
     pytest.importorskip("rdkit")
     task = json.loads((TASKS / task_id / "task.json").read_text())
-    report = Path("/data1/rkp00079/rku00161/testset-20261031/build/build_report.json")
+    report = hsets.get(name).workdir / "build" / "build_report.json"
     if not report.is_file():
         pytest.skip("build report not available")
     ligands = {t["task_id"]: t["ligands"] for t in json.loads(report.read_text())["tasks"]}
     assert bt.contract_ligand_declarations(_bundle(task), ligands[task_id]) == \
-        task["reference"]["extra_components"]
+        (task["reference"].get("extra_components") or [])
