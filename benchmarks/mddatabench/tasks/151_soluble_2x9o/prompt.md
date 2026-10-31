@@ -1,6 +1,6 @@
 # Task 151_soluble_2x9o
 
-Simulate 15, PDB entry **2X9O**, chain **A** residues **-7–236**, in explicit solvent.
+Simulate 15,16-DIHYDROBILIVERDIN-FERREDOXIN OXIDOREDUCTASE, PDB entry **2X9O**, chain **A** residues **-7–236**, in explicit solvent.
 
 - **TIP3P** water, neutralised
 - **300 K**, **NPT** at **1 bar**

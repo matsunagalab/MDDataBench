@@ -94,6 +94,27 @@
           "chain": "A",
           "residue": "30",
           "note": "SELENOMETHIONINE"
+        },
+        {
+          "name": "MSE",
+          "parent": "MET",
+          "chain": "B",
+          "residue": "1",
+          "note": "SELENOMETHIONINE"
+        },
+        {
+          "name": "MSE",
+          "parent": "MET",
+          "chain": "B",
+          "residue": "3",
+          "note": "SELENOMETHIONINE"
+        },
+        {
+          "name": "MSE",
+          "parent": "MET",
+          "chain": "B",
+          "residue": "30",
+          "note": "SELENOMETHIONINE"
         }
       ],
       "stated_protonation": [],

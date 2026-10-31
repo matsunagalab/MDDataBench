@@ -828,3 +828,29 @@ def test_without_ligands_a_shipped_prompt_is_unchanged():
     assert text == tb.build_prompt("060_metal_4ow0", "papain-like protease", "4OW0", metadata,
                                    chains, modres, [], 1.0,
                                    excluded_components=["DMS", "GOL", "S88"], ligands=())
+
+
+def test_short_keeps_a_locant_comma_and_cuts_at_a_clause_comma():
+    # test-v7 151: 2X9O's entity name was cut to "15".
+    assert tb._short("15,16-DIHYDROBILIVERDIN-FERREDOXIN OXIDOREDUCTASE") == \
+        "15,16-DIHYDROBILIVERDIN-FERREDOXIN OXIDOREDUCTASE"
+    assert tb._short("Papain-like protease, crystal form 2") == "Papain-like protease"
+    assert tb._short("Tlr5b protein,Variable lymphocyte receptor B") == "Tlr5b protein"
+
+
+def test_modified_residues_are_kept_per_chain(tmp_path):
+    # test-v7 136: 4KT5's chain B MSE records were dropped as duplicates of chain A's.
+    deposit = tmp_path / "x.pdb"
+    deposit.write_text(
+        "MODRES 4KT5 MSE A    1  MET  SELENOMETHIONINE\n"
+        "MODRES 4KT5 MSE B    1  MET  SELENOMETHIONINE\n"
+        "MODRES 4KT5 MSE A    1  MET  SELENOMETHIONINE\n")
+    out = tb.modified_residues(str(deposit), ["A", "B"])
+    assert [(e["chain"], e["residue"]) for e in out] == [("A", "1"), ("B", "1")]
+
+
+def test_modified_residue_sentence_names_the_chain_only_when_asked():
+    entry = {"name": "MSE", "parent": "MET", "chain": "B", "residue": "30", "note": "SELENOMETHIONINE"}
+    assert tb.modified_residue_sentence(entry).startswith("Residue 30 is deposited as **MSE**")
+    assert tb.modified_residue_sentence(entry, with_chain=True).startswith(
+        "Residue 30 of chain B is deposited as **MSE**")

@@ -7,11 +7,17 @@ Simulate GrlA in complex with GrlR, PDB entry **4KT5**, chain **A** residues **-
 - at least **2.5 ns** of production MD
 - neutral pH; ionisation states of the side chains are your choice
 
-Residue 1 is deposited as **MSE**, a modified MET. Simulate the unmodified residue.
+Residue 1 of chain A is deposited as **MSE**, a modified MET. Simulate the unmodified residue.
 
-Residue 3 is deposited as **MSE**, a modified MET. Simulate the unmodified residue.
+Residue 3 of chain A is deposited as **MSE**, a modified MET. Simulate the unmodified residue.
 
-Residue 30 is deposited as **MSE**, a modified MET. Simulate the unmodified residue.
+Residue 30 of chain A is deposited as **MSE**, a modified MET. Simulate the unmodified residue.
+
+Residue 1 of chain B is deposited as **MSE**, a modified MET. Simulate the unmodified residue.
+
+Residue 3 of chain B is deposited as **MSE**, a modified MET. Simulate the unmodified residue.
+
+Residue 30 of chain B is deposited as **MSE**, a modified MET. Simulate the unmodified residue.
 
 The deposit's **PG4** is not part of the reference. Simulate the protein without it.
 

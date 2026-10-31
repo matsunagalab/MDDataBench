@@ -5,6 +5,24 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-11-01 (2) — test-v7 review: three prompts rebuilt (136, 140, 151); 155's metal exclusion checked against the reference trajectory
+
+Coordinator review of the sealed test-v7 (db7c7a9) before it is run, looking for the defect classes test-v6 found (memo 2026-10-31 (3), (4)).
+
+- **Builder fixes (tests added in `test_task_builder.py`):**
+  - `modified_residues` deduplicated MODRES records by name and number only. It dropped 4KT5's chain B MSE 1/3/30 as duplicates of chain A's, so the contract recorded only A.
+  - With several chains selected, `modified_residue_sentence` named no chain ("Residue 1 is deposited as MSE" fits A and B). It now says "Residue 1 of chain A ...", as the protonation lines do.
+  - `_short` cut a name at its first comma: 2X9O's "15,16-DIHYDROBILIVERDIN-FERREDOXIN OXIDOREDUCTASE" became "Simulate 15". A comma followed by a digit is now kept as part of the name.
+- **Rebuilt:** 136, 140 and 151 (`build --set v7 --only`). All other v7 prompts are byte-identical to a full draft rebuild, and the three audits are clean.
+- **Cast check:** regenerating the cast with the fixed builder changes the derived text of 019, 020 and 022 only, in their glycosylation/MSE sentences, which now name the chain. Their shipped prompts are left as they are (development data).
+- **155 1QIB:** MoDEL, the reference has no water or ions, and the prompt excludes the deposit's Zn and Ca. This is the shape of 114's defect, so it was checked on the reference trajectory itself (40 frames over 10,000):
+  - The largest ligand–ligand distance of the catalytic Zn site (His201/205/211 NE2) grows from 3.68 Å in the deposit to a median of 8.0 Å.
+  - The structural Zn site grows from 4.39 Å to 14.3 Å.
+  - MoDEL therefore simulated without zinc, and the prompt is right. This is consistent with v6's 128 1AJJ, MoDEL without its Ca, which passed 24/24.
+- **The other doubts the build agent listed are accepted as stated:** 133's BEA at 0, the reference's form; 140's reverted 5CM; NMR model 1; partial molecule names.
+- **Full suite: 2702 passed.** The 4 failures are the known ones.
+- **Not done:** the two audit blind spots the build agent found (copy-mixing in multi-chain selections; a build residue absent from the deposit) are still open in `contract_audit.py`. For v7 they were covered by the agent's geometry pass over all multi-chain tasks and by replacing 4ETQ and 7ONN.
+
 ## 2026-11-01 — Test split v7 built and sealed: tasks 131-160 (split `test_v7`), dataset v0.7; v6's split `test` is now development data
 
 **Decision (user).** Test sets are single-use. Test-v6 (101-130) was run once on a frozen MDClaw, and its failures were then used to fix MDClaw, so it is development data. test-v7 is the lockbox for the next frozen MDClaw: built, checked and committed locally (not pushed), and **not to be run until that is decided**.

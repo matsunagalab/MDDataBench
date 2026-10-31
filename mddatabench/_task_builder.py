@@ -608,7 +608,11 @@ def modified_residues(deposit, chains):
         parent, note = line[24:27].strip(), line[29:].strip()
         if chains and chain not in chains:
             continue
-        if not any(e["name"] == name and e["residue"] == number for e in out):
+        # Keyed by chain too: a homomer's copies carry the same MODRES at the
+        # same number, and dropping all but the first left 4KT5's chain B MSE
+        # out of the contract (test-v7 136).
+        if not any(e["name"] == name and e["residue"] == number and e["chain"] == chain
+                   for e in out):
             out.append({"name": name, "parent": parent, "chain": chain,
                         "residue": number, "note": note})
     return out
@@ -1036,7 +1040,7 @@ def bound_ion_sentence(ions, polymer_subject: str = "protein") -> str:
             f"{'ion' if count == 1 else 'ions'} bound inside the {polymer_subject} ({where}).")
 
 
-def modified_residue_sentence(entry) -> str:
+def modified_residue_sentence(entry, with_chain: bool = False) -> str:
     """The prompt line for one MODRES record the reference reverted.
 
     A glycosylation site is a MODRES record whose residue is its own parent
@@ -1050,12 +1054,16 @@ def modified_residue_sentence(entry) -> str:
     """
     note = str(entry.get("note") or "").upper()
     parent = entry.get("parent")
+    # With several chains selected a bare number is ambiguous (4KT5's residue
+    # 1 exists in chains A and B); name the chain as the protonation lines do.
+    where = (f"Residue {entry['residue']} of chain {entry['chain']}"
+             if with_chain and entry.get("chain") else f"Residue {entry['residue']}")
     if "GLYCOSYLATION" in note and entry.get("name") == parent:
         linkage = {"ASN": "an N-linked", "SER": "an O-linked", "THR": "an O-linked"}.get(parent, "a")
-        return (f"Residue {entry['residue']} ({parent}) carries {linkage} glycan in the "
+        return (f"{where} ({parent}) carries {linkage} glycan in the "
                 "deposit (a glycosylation site). Simulate the unmodified residue without "
                 "the glycan: leave the sugar residues bonded to it out.")
-    return (f"Residue {entry['residue']} is deposited as **{entry['name']}**, a "
+    return (f"{where} is deposited as **{entry['name']}**, a "
             f"modified {parent}. Simulate the unmodified residue.")
 
 
@@ -1252,7 +1260,8 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
             # A modified residue absent from the reference is an omission, not
             # a request to restore its unmodified parent (6ME3 YCM1004).
             continue
-        lines += [modified_residue_sentence(entry), ""]
+        lines += [modified_residue_sentence(
+            entry, with_chain=len({c.get("deposit_chain") for c in chosen_chains}) > 1), ""]
     membrane = bilayer(metadata)
     if membrane:
         lipid = membrane["lipid"]
@@ -1347,8 +1356,14 @@ def molecule_name(entry, chains):
 
 
 def _short(text, limit=70):
-    """A name, not a paper title. Cut at a comma or a clause, never mid-word."""
-    text = str(text or "").split(",")[0].strip()
+    """A name, not a paper title. Cut at a comma or a clause, never mid-word.
+
+    A comma followed by a digit is a locant and belongs to the name (2X9O's
+    "15,16-DIHYDROBILIVERDIN-FERREDOXIN OXIDOREDUCTASE" was cut to "15",
+    test-v7 151); any other comma ends it, spaced or not (5GY2's "Tlr5b
+    protein,Variable lymphocyte receptor B").
+    """
+    text = re.split(r",(?!\d)", str(text or ""), maxsplit=1)[0].strip()
     if len(text) <= limit:
         return text
     cut = text[:limit].rsplit(" ", 1)[0]
