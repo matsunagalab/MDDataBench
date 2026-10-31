@@ -7,7 +7,7 @@ Simulate 5'-D(*GP*GP*GP*GP*TP*TP*TP*TP*GP*GP*GP*G)-3', PDB entry **1JRN**, chain
 - at least **1 ns** of production MD
 - neutral pH; ionisation states of the side chains are your choice
 
-The deposit's **K** is not part of the reference. Simulate the nucleic acid without it.
+Keep the deposit's five **K** ions bound inside the nucleic acid (chain A residues 5016 and 5017; chain B residues 5013, 5014 and 5015).
 
 Leave the prepared structure, the topology, the minimised state and the production
 trajectory as artifacts. The evaluator recomputes everything it needs from them.

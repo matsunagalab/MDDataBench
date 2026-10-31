@@ -1011,6 +1011,31 @@ def kept_component_sentence(entry: dict) -> str:
             f"reference. Simulate without {'it' if len(leave) == 1 else 'them'}.")
 
 
+def bound_ion_sentence(ions, polymer_subject: str = "protein") -> str:
+    """The prompt line keeping the cations the deposit binds inside the polymer.
+
+    ``ions``: entries ``{"name": "K", "chain": "A", "residue": "5016", ...}``
+    of one component name, from ``build_test_tasks.bound_solvent_cations``.
+    The reference's files carry no ion at all, so the exclusion sentence would
+    claim what they cannot show (114_nucleic_1jrn's channel K+, 2026-10-31).
+    """
+    ions = list(ions)
+    names = sorted({ion["name"] for ion in ions})
+    if len(names) != 1:
+        raise ValueError(f"one component per sentence, got {names}")
+    words = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
+    by_chain = collections.OrderedDict()
+    for ion in sorted(ions, key=lambda i: (i["chain"], _site_key(i["residue"]))):
+        by_chain.setdefault(ion["chain"], []).append(str(ion["residue"]))
+    where = "; ".join(
+        f"chain {chain} residue{'s' if len(numbers) > 1 else ''} "
+        + (numbers[0] if len(numbers) == 1 else ", ".join(numbers[:-1]) + " and " + numbers[-1])
+        for chain, numbers in by_chain.items())
+    count = len(ions)
+    return (f"Keep the deposit's {words.get(count, str(count))} **{names[0]}** "
+            f"{'ion' if count == 1 else 'ions'} bound inside the {polymer_subject} ({where}).")
+
+
 def modified_residue_sentence(entry) -> str:
     """The prompt line for one MODRES record the reference reverted.
 
@@ -1097,7 +1122,7 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
                  window_ns, replicas=1, joined_chains=(), disulfides=None,
                  extra_components=(), excluded_components=(),
                  effective_components=(), kept_components=(), polymer_subject="protein",
-                 ligands=()):
+                 ligands=(), bound_ions=()):
     """The text an agent is given.  Derived, not written.
 
     ``joined_chains`` names the deposit chains whose pieces the reference holds
@@ -1130,6 +1155,10 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
     ``{"name": <deposit CCD code>, "charge": <expected formal charge>}``; each
     becomes the last conditions bullet (``ligand_bullet``).  Empty by default,
     which leaves every other prompt exactly as before.
+
+    ``bound_ions`` lists cations the deposit binds inside the selected polymer
+    that an ion-free reference cannot show (``bound_ion_sentence``); empty by
+    default, and empty for all 98 cast tasks.
     """
     field = buildable_force_field(metadata.get("FF"))
     water = WATERS.get(str(metadata.get("WAT") or "").upper())
@@ -1251,6 +1280,11 @@ def build_prompt(task_id, title, pdb, metadata, chosen_chains, modres, protonati
                   "them.", ""]
     for entry in kept_components or ():
         lines += [kept_component_sentence(entry), ""]
+    grouped = collections.OrderedDict()
+    for ion in bound_ions or ():
+        grouped.setdefault(ion["name"], []).append(ion)
+    for ions in grouped.values():
+        lines += [bound_ion_sentence(ions, polymer_subject), ""]
     if excluded_components:
         lines += [excluded_components_sentence(excluded_components, polymer_subject), ""]
     for component in extra_components:

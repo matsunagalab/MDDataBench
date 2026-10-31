@@ -91,13 +91,40 @@ def _bundle(root, *, reference_profile=None, atom_indices=None):
     return root
 
 
-def _make_every_other_check_pass(monkeypatch, *, connectivity_mismatch=False):
+def _water_system(model_parameters, molecules=2, extra_site=False):
+    """A System of water only, and the residues a parmed Structure would list."""
+    q_o, q_h, sigma, epsilon = model_parameters
+    system = mm.System()
+    nonbonded = mm.NonbondedForce()
+    residues = []
+    for number in range(1, molecules + 1):
+        atoms = []
+        for atomic_number, charge, lj in ((8, q_o, (sigma, epsilon)),
+                                          (1, q_h, (1.0, 0.0)), (1, q_h, (1.0, 0.0))):
+            index = system.addParticle(16.0 if atomic_number == 8 else 1.008)
+            nonbonded.addParticle(charge, *lj)
+            atoms.append(SimpleNamespace(idx=index, atomic_number=atomic_number))
+        if extra_site:
+            index = system.addParticle(0.0)
+            nonbonded.addParticle(-0.5, 1.0, 0.0)
+            atoms.append(SimpleNamespace(idx=index, atomic_number=0))
+        residues.append(SimpleNamespace(name="HOH", number=number, atoms=atoms))
+    system.addForce(nonbonded)
+    return system, SimpleNamespace(atoms=[a for r in residues for a in r.atoms],
+                                   residues=residues)
+
+
+def _make_every_other_check_pass(monkeypatch, *, connectivity_mismatch=False,
+                                 submitted_system=None):
     reference, submitted = _Monomer(), _Monomer()
     system = mm.System()
     system.addParticle(1.0)
     nonbonded = mm.NonbondedForce()
     nonbonded.addParticle(0.0, 1.0, 0.0)
     system.addForce(nonbonded)
+    submitted_topology = SimpleNamespace(atoms=[], residues=[])
+    if submitted_system is not None:
+        system, submitted_topology = submitted_system
 
     monkeypatch.setattr(sc.cp, "read_residues", lambda _path: [])
     monomers = iter((([reference], {}), ([submitted], {})))
@@ -143,7 +170,8 @@ def _make_every_other_check_pass(monkeypatch, *, connectivity_mismatch=False):
     topology = SimpleNamespace(atoms=[], residues=[])
     monkeypatch.setattr(sc.tp, "load_reference", lambda *_args: topology)
     monkeypatch.setattr(
-        sc.tp, "load_submission", lambda *_args: (topology, [], None, system)
+        sc.tp, "load_submission",
+        lambda *_args: (submitted_topology, [], None, system)
     )
     monkeypatch.setattr(sc.tp, "backbone_links", lambda *_args: [])
     monkeypatch.setattr(sc.tp, "coordination_shell", lambda *_args, **_kwargs: {})
@@ -294,3 +322,86 @@ def test_null_rmsf_inside_the_contract_fails_only_the_profile_check(
     assert "0/1 reference contract atoms" in failed[0]["detail"]
     assert report["passed"] == 19
     assert report["total"] == 20
+
+
+TIP3P = sc.WATER_MODEL_PARAMETERS["tip3p"]
+SPCE = sc.WATER_MODEL_PARAMETERS["spce"]
+TIP3P_FB = (-0.848448, 0.424224, 0.3177956, 0.6521352)   # OpenMM amber14/tip3pfb.xml
+CHARMM_TIP3P = (-0.834, 0.417, 0.3150574, 0.6363864)     # CHARMM36 TIP3P oxygen
+
+
+def test_the_system_names_its_own_water_model():
+    for parameters, expected in ((TIP3P, "tip3p"), (CHARMM_TIP3P, "tip3p"), (SPCE, "spce")):
+        name, how = sc.water_model_from_system(*_water_system(parameters))
+        assert name == expected, how
+        assert "2 molecules" in how
+
+
+def test_neighbouring_and_four_site_waters_are_not_mistaken_for_tip3p_or_spce():
+    name, how = sc.water_model_from_system(*_water_system(TIP3P_FB))
+    assert name is None and "matches none" in how
+    name, how = sc.water_model_from_system(*_water_system(TIP3P, extra_site=True))
+    assert name is None and "not a three-site" in how
+    system, structure = _water_system(TIP3P)
+    nonbonded = system.getForce(0)
+    nonbonded.setParticleParameters(3, -0.8476, 0.316572, 0.649775)
+    nonbonded.setParticleParameters(4, 0.4238, 1.0, 0.0)
+    nonbonded.setParticleParameters(5, 0.4238, 1.0, 0.0)
+    name, how = sc.water_model_from_system(system, structure)
+    assert name is None and "more than one parameter set" in how
+    assert sc.water_model_from_system(None, structure)[0] is None
+    assert sc.water_model_from_system(
+        system, SimpleNamespace(atoms=[], residues=[]))[1] == "the System has no water residue"
+
+
+def test_a_build_openmm_system_record_is_graded_by_the_systems_water(tmp_path, monkeypatch):
+    """106_metal_6rnt, test-v6-cli glm r3: no ``parameters`` block, TIP3P built."""
+    _make_every_other_check_pass(monkeypatch, submitted_system=_water_system(TIP3P))
+    report = score_portable(
+        _submission(tmp_path / "submission", {
+            "water_model": None,
+            "forcefield_provenance": {"openmm_xml": [
+                "amber/ff99SBildn.xml", "amber/tip3p_standard.xml", "ligand_2AM.ffxml"]},
+        }),
+        _bundle(tmp_path / "bundle"),
+        _task(),
+    )
+    water = next(check for check in report["checks"]
+                 if check["check_id"] == "water_model_matches_reference")
+    assert water["passed"] is True, water["detail"]
+    assert "the System's own water parameters" in water["detail"]
+    assert report["passed"] == report["total"] == 20
+
+
+def test_a_system_water_that_is_not_the_reference_water_still_fails(tmp_path, monkeypatch):
+    _make_every_other_check_pass(monkeypatch, submitted_system=_water_system(SPCE))
+    report = score_portable(
+        _submission(tmp_path / "submission", {
+            "forcefield_provenance": {"openmm_xml": ["amber14/tip3p.xml"]},
+        }),
+        _bundle(tmp_path / "bundle"),
+        _task(),
+    )
+    failed = [check for check in report["checks"] if not check["passed"]]
+    assert [check["check_id"] for check in failed] == ["water_model_matches_reference"]
+    assert "'spce' from the System's own water parameters" in failed[0]["detail"]
+
+
+def test_no_s_s_bond_on_either_side_needs_no_monomer_pairing():
+    """105_ligand_6mj7, test-v6-cli: a free ARG named ARG left no pairing."""
+    passed, detail = sc._disulfide_verdict(set(), set(), [], [], True, None, [54], [54, 1])
+    assert passed and "neither topology carries any S-S bond" in detail
+    passed, _ = sc._disulfide_verdict(set(), set(), [], [], False, None, [54], [54, 1])
+    assert passed
+
+
+def test_s_s_bonds_without_a_pairing_still_fail():
+    edge = frozenset(((0, 20), (0, 93)))
+    passed, detail = sc._disulfide_verdict({edge}, {edge}, [], [], True, None, [123], [124])
+    assert not passed and "no complete monomer correspondence" in detail
+    passed, detail = sc._disulfide_verdict(set(), set(), [], ["CYS5-LIG1"], True, None,
+                                           [54], [54, 1])
+    assert not passed and "touch a residue outside the polymer" in detail
+    passed, detail = sc._disulfide_verdict(set(), {edge}, [], [], True,
+                                           (1, (0,), set(), set(), {edge}), [54], [54])
+    assert not passed and "unexpected" in detail

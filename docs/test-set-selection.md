@@ -581,6 +581,12 @@ deposit and the reference bundle.
   - Terminal caps the deposit carries and the reference lacks are named in the
     same exclusion sentence. The cast's 028 1DFJ leaves its ACE unsaid, and it
     is the one cast contract the audit reports a cap mismatch for.
+  - Added after the campaign (2026-10-31, memo (4)): `bound_ions` lists the
+    alkali cations the deposit binds inside the selected polymer (at least
+    four polymer O/N within 3.2 A) when the reference carries no water and no
+    ion at all. These are kept, not excluded. The reference's files cannot show
+    them, and 1JRN's G-quadruplex does not hold its structure without its
+    channel K+. Over the 128 tasks it changes 114 alone.
   - `stated_disulfides` is computed with the contract audit's own functions:
     the deposit's struct_conn pairs against the reference topology's S–S
     bonds, in the prompt's construct frame and converted to deposit numbering.

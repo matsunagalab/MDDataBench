@@ -68,8 +68,67 @@
       "stated_protonation": [],
       "numbering_certain": true,
       "derivation": "reference structure aligned to the deposit's SEQRES, then SEQRES positions mapped to author numbering through the observed residues",
-      "excluded_components": [
-        "K"
+      "bound_ions": [
+        {
+          "name": "K",
+          "chain": "A",
+          "residue": "5016",
+          "polymer_donors": 8,
+          "nearest": [
+            "A:DG1011:O6 2.59",
+            "B:DG2003:O6 2.65",
+            "B:DG2010:O6 2.73",
+            "B:DG2004:O6 2.85"
+          ]
+        },
+        {
+          "name": "K",
+          "chain": "A",
+          "residue": "5017",
+          "polymer_donors": 6,
+          "nearest": [
+            "A:DG1009:O6 2.67",
+            "A:DT1007:O2 2.77",
+            "B:DG2012:O6 2.82",
+            "A:DG1004:O6 2.98"
+          ]
+        },
+        {
+          "name": "K",
+          "chain": "B",
+          "residue": "5013",
+          "polymer_donors": 6,
+          "nearest": [
+            "B:DT2007:O2 2.50",
+            "A:DG1012:O6 2.70",
+            "B:DG2009:O6 2.75",
+            "B:DT2005:O2 2.86"
+          ]
+        },
+        {
+          "name": "K",
+          "chain": "B",
+          "residue": "5014",
+          "polymer_donors": 8,
+          "nearest": [
+            "B:DG2002:O6 2.53",
+            "B:DG2010:O6 2.66",
+            "A:DG1011:O6 2.69",
+            "A:DG1003:O6 2.87"
+          ]
+        },
+        {
+          "name": "K",
+          "chain": "B",
+          "residue": "5015",
+          "polymer_donors": 8,
+          "nearest": [
+            "B:DG2001:O6 2.49",
+            "A:DG1009:O6 2.63",
+            "A:DG1010:O6 2.63",
+            "B:DG2012:O6 2.69"
+          ]
+        }
       ]
     },
     "deposit": {

@@ -233,6 +233,92 @@ def heavy(counter):
     return collections.Counter({k: v for k, v in counter.items() if k not in ("H", "D")})
 
 
+# --- ions a solvent-stripped reference cannot show ------------------------------
+
+# Cations of the species a reference's processing strips together with the
+# water and the counter-ions: the scorer's own solvent set (composition
+# SOLVENT_RESIDUES) less the metals the structural-metal logic handles and the
+# anions. Their absence from a reference that carries no water and no ion at
+# all says nothing about the simulation.
+SOLVENT_CATIONS = frozenset({"NA", "K", "LI", "RB", "CS"})
+# A binding site rather than a surface contact: at least four polymer O/N
+# within 3.2 A. 1JRN's five channel K+ have six to eight (the O6 of the
+# G-tetrads, the O2 of the loop thymines); the other alkali ions any of the 128
+# deposits places on a selected chain, the allosteric Na+ of three GPCRs (6GT3,
+# 6JZH, 6ZDV), have two, the rest of their shell being water.
+BOUND_ION_MIN_DONORS = 4
+BOUND_ION_CUTOFF_ANGSTROM = 3.2
+
+
+def reference_carries_no_ion(reference: Path) -> bool:
+    """True when the reference's files hold no water and no ion of any kind."""
+    for line in open(reference, errors="replace"):
+        if (line.startswith(("ATOM", "HETATM"))
+                and line[17:21].strip().upper() in cp.SOLVENT_RESIDUES):
+            return False
+    return True
+
+
+def bound_solvent_cations(cif: Path, chosen, reference: Path) -> list:
+    """Alkali cations the deposit binds inside the selected polymer, on an ion-free reference.
+
+    Found 2026-10-31 on 114_nucleic_1jrn: the builder excluded 1JRN's five
+    channel K+ because the reference does not carry them, and its reference
+    carries no ion at all (MDDB: SOL, NA, CL, COUNION 0). The reference's
+    G-quadruplex keeps 99 % of its Hoogsteen hydrogen bonds and an O6 ring of
+    2.33 A over 10 ns; every submission built without the K+ opened that ring
+    to 2.85 A at minimisation, and kept 41-78 % of the bonds. Built with them,
+    the same System reproduces the reference's fluctuation (docs/memo.md).
+    """
+    if not reference_carries_no_ion(reference):
+        return []
+    import gemmi
+    import numpy as np
+    ranges = {e["deposit_chain"]: e["ranges"] for e in chosen}
+
+    def inside(chain, number):
+        for lo, hi in ranges.get(chain, ()):
+            try:
+                if int(lo) <= number <= int(hi):
+                    return True
+            except (TypeError, ValueError):
+                continue
+        return False
+
+    structure = gemmi.read_structure(str(cif))
+    structure.setup_entities()
+    donors, labels = [], []
+    for chain in structure[0]:
+        for residue in chain:
+            if (residue.entity_type != gemmi.EntityType.Polymer
+                    or not inside(chain.name, residue.seqid.num)):
+                continue
+            for atom in residue:
+                if atom.element.name in ("N", "O"):
+                    donors.append(atom.pos.tolist())
+                    labels.append(f"{chain.name}:{residue.name}{residue.seqid.num}:{atom.name}")
+    if not donors:
+        return []
+    donors = np.array(donors)
+    found = []
+    for chain in structure[0]:
+        if chain.name not in ranges:
+            continue
+        for residue in chain:
+            if residue.name.upper() not in SOLVENT_CATIONS or len(residue) != 1:
+                continue
+            distance = np.linalg.norm(donors - np.array(residue[0].pos.tolist()), axis=1)
+            close = np.flatnonzero(distance <= BOUND_ION_CUTOFF_ANGSTROM)
+            if len(close) >= BOUND_ION_MIN_DONORS:
+                found.append({
+                    "name": residue.name, "chain": chain.name,
+                    "residue": str(residue.seqid.num) + residue.seqid.icode.strip(),
+                    "polymer_donors": int(len(close)),
+                    "nearest": [f"{labels[i]} {distance[i]:.2f}"
+                                for i in close[np.argsort(distance[close])][:4]]})
+    return found
+
+
 # --- selection ---------------------------------------------------------------
 
 
@@ -347,6 +433,20 @@ def derive(task_id, node, accession, pdb, workdir=WORKDIR, bundle=None):
     glycan_sites = any("GLYCOSYLATION" in str(m.get("note", "")).upper() for m in modres)
     excluded = sorted(n for n in selected if n not in in_reference
                       and not (glycan_sites and n in SUGARS))
+    # Cations bound inside the polymer that an ion-free reference cannot show
+    # are kept, not excluded (114_nucleic_1jrn's channel K+, 2026-10-31).
+    bound_ions = (bound_solvent_cations(cif, chosen, reference)
+                  if cif.exists() else [])
+    if bound_ions:
+        names = {ion["name"] for ion in bound_ions}
+        sites = {(ion["chain"], ion["residue"]) for ion in bound_ions}
+        loose = sorted(f"{name} {chain}{number}" for (chain, number, name) in hetero
+                       if name in names and chain in chains and (chain, number) not in sites)
+        if loose:
+            raise SystemExit(f"{task_id}: {sorted(names)} is bound inside the polymer at "
+                             f"{sorted(sites)} and loose at {loose}; the builder states "
+                             "only one disposition per component")
+        excluded = [name for name in excluded if name not in names]
     # Terminal caps the deposit carries and the reference does not are named in
     # the same sentence; the cast's 1DFJ left its ACE unsaid and is the one
     # contract the audit reports a cap mismatch for.
@@ -387,6 +487,7 @@ def derive(task_id, node, accession, pdb, workdir=WORKDIR, bundle=None):
             "chains": chains, "entry": entry, "modres": modres, "protonation": protonation,
             "ligands": ligands, "excluded": excluded, "metals": metal_words,
             "effective": effective, "subject": subject, "title": title,
+            "bound_ions": bound_ions,
             "hetero_selected": dict(selected), "in_reference": sorted(in_reference),
             "reference_nonpolymer": {k: len(v) for k, v in kept_ref.items()}}
 
@@ -400,7 +501,8 @@ def prompt_for(task_id, pdb, d, window_ns, disulfides=None, kept=()):
         task_id, d["title"], pdb, meta, d["chosen"], d["modres"], d["protonation"],
         window_ns, disulfides=disulfides, excluded_components=d["excluded"],
         effective_components=d["effective"], kept_components=kept,
-        polymer_subject=d["subject"], ligands=d["ligands"])
+        polymer_subject=d["subject"], ligands=d["ligands"],
+        bound_ions=d.get("bound_ions") or ())
 
 
 def selection_block(d, disulfides=None, kept=()):
@@ -424,6 +526,8 @@ def selection_block(d, disulfides=None, kept=()):
     sel["derivation"] = DERIVATION
     if d["excluded"]:
         sel["excluded_components"] = d["excluded"]
+    if d.get("bound_ions"):
+        sel["bound_ions"] = d["bound_ions"]
     if kept:
         sel["kept_components"] = list(kept)
     return sel
@@ -911,6 +1015,9 @@ def main(argv=None):
     parser.add_argument("--only", default="", help="comma-separated task ids")
     parser.add_argument("--draft", default="", help="write drafts (no calibration) here")
     parser.add_argument("--extra", default="", help="also build these PDB ids from selected.json")
+    parser.add_argument("--report", default="",
+                        help="write the build report here instead of <workdir>/build "
+                             "(a rebuild of some tasks must not replace the record of all 30)")
     args = parser.parse_args(argv)
     items, replaced = plan()
     if args.extra:
@@ -943,8 +1050,9 @@ def main(argv=None):
         report = {"replaced": replaced,
                   "tasks": [build_task(i, sample, args.draft or None) for i in items]}
         name = "draft_report.json" if args.draft else "build_report.json"
-        (WORKDIR / "build").mkdir(parents=True, exist_ok=True)
-        (WORKDIR / "build" / name).write_text(json.dumps(report, indent=1))
+        target = Path(args.report) if args.report else WORKDIR / "build" / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(report, indent=1))
         print(json.dumps(report, indent=1)[:4000])
     elif args.command == "finalize":
         report = json.loads((WORKDIR / "build" / "build_report.json").read_text())

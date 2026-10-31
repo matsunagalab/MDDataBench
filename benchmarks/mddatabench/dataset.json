@@ -1,5 +1,5 @@
 {
-  "dataset_id": "MDDataBench-v0.6",
+  "dataset_id": "MDDataBench-v0.6.1",
   "description": "Short-MD tasks whose reference simulations come from MDDB. Each task is scored on two separate axes: prep (system building, checkable without running MD) and md (the run happened, at the conditions asked for, and its equilibrium statistics are indistinguishable from the reference own windows). Split 69 train / 29 evaluation by homology cluster, so the same system never appears on both sides. Version 0.6 adds a held-out test split of 30 new systems, sequence-distinct from the 98 and from everything MDClaw was developed against.",
   "reference_database": {
     "name": "MDDB",
@@ -915,6 +915,7 @@
   "changelog": [
     "v0.4 (2026-09-14): every prompt names the deposit's non-polymer components the reference does not carry (48 tasks) and, for 6W9C, which of two zincs is kept; glycosylation sites are named as glycans to leave out (four tasks, 9/14 morning).",
     "v0.5 (2026-09-16): the standard-protonation sentence is gone from every prompt. MDDB records no pH or protonation state, so the sentence encoded the references' build convention; the scorer now tolerates one proton on any ionisable side chain the task does not name, and the six tasks whose reference carries a variant name it with its residue name (HIP) and keep it strict.",
-    "v0.6 (2026-10-31): a held-out test split of 30 new systems (tasks 101-130), chosen by the pre-registered rule of docs/test-set-selection.md (no MDClaw, agent or MD involved in the choice) and sequence-distinct from the 98, the two withdrawn tasks, MDPrepBench, MDStudyBench and every PDB entry the mdclaw checkout documents; built by scripts/build_test_tasks.py, prompts from _task_builder.build_prompt, which gained the ligand bullet the cast's ligand prompts carry. The 98 are unchanged."
+    "v0.6 (2026-10-31): a held-out test split of 30 new systems (tasks 101-130), chosen by the pre-registered rule of docs/test-set-selection.md (no MDClaw, agent or MD involved in the choice) and sequence-distinct from the 98, the two withdrawn tasks, MDPrepBench, MDStudyBench and every PDB entry the mdclaw checkout documents; built by scripts/build_test_tasks.py, prompts from _task_builder.build_prompt, which gained the ligand bullet the cast's ligand prompts carry. The 98 are unchanged.",
+    "v0.6.1 (2026-11-01): 114_nucleic_1jrn's prompt keeps the five K+ bound in the G-quadruplex channel (selection.bound_ions) instead of excluding them: the reference's tetrads and its fluctuation require them (memo 2026-10-31 (4)); no other prompt changes. Scorer: a disulfide check with no S-S bond on either side passes without a monomer pairing; the water model is read from the System's water parameters when the build metadata lacks it."
   ]
 }

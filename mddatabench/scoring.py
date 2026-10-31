@@ -110,6 +110,75 @@ RANK_CORRELATION_FLOOR_CAP = 0.30
 RADIUS_OF_GYRATION_TOLERANCE_ANGSTROM = 0.5
 
 
+#: Nonbonded parameters of the water models a task asks for (every task's
+#: ``reference_conditions.WAT`` is TIP3P or SPCE), as oxygen charge (e),
+#: hydrogen charge (e), oxygen sigma (nm), oxygen epsilon (kJ/mol). The values
+#: are OpenMM's amber14 tip3p.xml / spce.xml, which both MDClaw builders load;
+#: CHARMM's TIP3P differs only in hydrogen Lennard-Jones and in the fourth
+#: digit, inside the tolerances below. The tolerances keep the neighbours
+#: apart: TIP3P-FB's oxygen charge is 0.0008 e from SPC/E's and its sigma
+#: 0.39 % larger.
+WATER_MODEL_PARAMETERS = {
+    "tip3p": (-0.834, 0.417, 0.315075, 0.635968),
+    "spce": (-0.8476, 0.4238, 0.316572, 0.649775),
+}
+WATER_CHARGE_TOLERANCE_E = 2e-4
+WATER_SIGMA_RELATIVE_TOLERANCE = 0.002
+WATER_EPSILON_RELATIVE_TOLERANCE = 0.005
+WATER_RESIDUE_NAMES = frozenset({"HOH", "WAT", "TIP3", "SOL", "T3P", "SPC"})
+
+
+def water_model_from_system(system, structure):
+    """``(name, how)`` of the water model the System gives every water, or ``(None, why)``.
+
+    Read from the NonbondedForce, so it names what exerts force rather than what
+    a metadata file says. Every water molecule must be three particles, none of
+    them virtual, with one model's parameters.
+    """
+    if system is None or structure is None:
+        return None, "no System and topology to read the water from"
+    nonbonded = next((f for f in system.getForces()
+                      if isinstance(f, mm.NonbondedForce)), None)
+    if nonbonded is None:
+        return None, "the System has no NonbondedForce"
+    seen, count = set(), 0
+    for residue in structure.residues:
+        if residue.name.strip().upper() not in WATER_RESIDUE_NAMES:
+            continue
+        atoms = list(residue.atoms)
+        oxygens = [a for a in atoms if a.atomic_number == 8]
+        hydrogens = [a for a in atoms if a.atomic_number == 1]
+        if (len(atoms) != 3 or len(oxygens) != 1 or len(hydrogens) != 2
+                or any(system.isVirtualSite(a.idx) for a in atoms)):
+            return None, (f"water {residue.name}{residue.number} is not a three-site "
+                          f"molecule ({len(atoms)} particles)")
+        charge_o, sigma_o, epsilon_o = nonbonded.getParticleParameters(oxygens[0].idx)
+        charges_h = [nonbonded.getParticleParameters(a.idx)[0] for a in hydrogens]
+        values = (charge_o.value_in_unit(mm.unit.elementary_charge),
+                  *(q.value_in_unit(mm.unit.elementary_charge) for q in charges_h),
+                  sigma_o.value_in_unit(mm.unit.nanometer),
+                  epsilon_o.value_in_unit(mm.unit.kilojoule_per_mole))
+        seen.add(tuple(round(v, 6) for v in values))
+        count += 1
+        if len(seen) > 1:
+            return None, f"the waters carry more than one parameter set: {sorted(seen)[:2]}"
+    if not count:
+        return None, "the System has no water residue"
+    q_o, q_h1, q_h2, sigma, epsilon = next(iter(seen))
+    for name, (want_o, want_h, want_sigma, want_epsilon) in WATER_MODEL_PARAMETERS.items():
+        if (abs(q_o - want_o) <= WATER_CHARGE_TOLERANCE_E
+                and abs(q_h1 - want_h) <= WATER_CHARGE_TOLERANCE_E
+                and abs(q_h2 - want_h) <= WATER_CHARGE_TOLERANCE_E
+                and abs(sigma - want_sigma) <= WATER_SIGMA_RELATIVE_TOLERANCE * want_sigma
+                and abs(epsilon - want_epsilon)
+                <= WATER_EPSILON_RELATIVE_TOLERANCE * want_epsilon):
+            return name, (f"{count} molecules, O {q_o:+.4f} e, H {q_h1:+.4f} e, "
+                          f"sigma {sigma:.6f} nm, epsilon {epsilon:.6f} kJ/mol")
+    return None, (f"the System's water (O {q_o:+.4f} e, H {q_h1:+.4f} e, sigma {sigma:.6f} nm, "
+                  f"epsilon {epsilon:.6f} kJ/mol) matches none of "
+                  f"{sorted(WATER_MODEL_PARAMETERS)}")
+
+
 def widened_calibration_band(band, key, slack, spread):
     """Widen a measured window band, asymmetrically for RMSF magnitude."""
     if not band:
@@ -527,11 +596,35 @@ def _check_topology_chemistry(check, submitted, submitted_bonds, reference,
                and submitted_sizes == [len(monomer) for monomer in submitted_polymer])
     best = (_best_disulfide_correspondence(
         expected, observed, reference_polymer, submitted_polymer) if aligned else None)
-    matches = best is not None and not best[3] and not best[4]
+    check("disulfide_bonds_match_reference", *_disulfide_verdict(
+        expected, observed, reference_dropped, submitted_dropped, aligned, best,
+        reference_sizes, submitted_sizes))
+
+
+def _disulfide_verdict(expected, observed, reference_dropped, submitted_dropped,
+                       aligned, best, reference_sizes, submitted_sizes):
+    """(passed, detail) of the whole-set S-S comparison.
+
+    Two topologies with no S-S bond anywhere carry equal sets under every
+    monomer pairing, so that answer needs no pairing. Requiring one anyway
+    graded the composition a second time on this axis: 105_ligand_6mj7
+    (test-v6-cli, 2026-10-31) lost this check in 4 of 20 attempts whose only
+    difference was naming the free arginine ``ARG``, a polymer residue name,
+    where the reference names it ``LIG``, so the submission's polymer filter
+    kept a one-residue monomer that the reference's dropped and no pairing of
+    the two sets existed. Non-empty sets still need the pairing.
+    """
+    no_bond_anywhere = not (expected or observed or reference_dropped
+                            or submitted_dropped)
+    matches = no_bond_anywhere or (best is not None and not best[3] and not best[4])
     detail = (f"reference topology has {len(expected)} S-S bond(s) "
               f"{tp.describe_monomer_position_pairs(expected)}; the submitted System has "
               f"{len(observed)} {tp.describe_monomer_position_pairs(observed)}")
-    if not aligned:
+    if no_bond_anywhere and (not aligned or best is None):
+        detail += ("; neither topology carries any S-S bond, so the sets are equal "
+                   "without a monomer pairing (the pairing is graded by the "
+                   "composition checks)")
+    elif not aligned:
         detail += ("; sets are not comparable because topology component sizes "
                    f"{reference_sizes} / {submitted_sizes} do not match the "
                    "coordinate component partition")
@@ -548,7 +641,7 @@ def _check_topology_chemistry(check, submitted, submitted_bonds, reference,
         if dropped:
             detail += (f"; {len(dropped)} {label} S-S bond(s) touch a residue "
                        f"outside the polymer and were not compared: {dropped[:3]}")
-    check("disulfide_bonds_match_reference", matches, detail)
+    return matches, detail
 
 
 # What the scorer needs the submission's DAG to have produced.  A run that
@@ -989,8 +1082,17 @@ def _score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
         else ""
     )
     metadata_errors = []
+    water_source = "parameters.water_model"
     if not isinstance(water_value, str) or not water_value.strip():
-        metadata_errors.append("parameters.water_model is missing or not a string")
+        # MDClaw's build_openmm_system records the force-field XML it used but
+        # no parameters block (106_metal_6rnt, test-v6-cli glm r3, 2026-10-31):
+        # the System it wrote is then the record of which water it built.
+        identified, how = water_model_from_system(system, submitted_topology)
+        if identified:
+            water, water_source = identified, f"the System's own water parameters ({how})"
+        else:
+            metadata_errors.append(
+                f"parameters.water_model is missing or not a string, and {how}")
     if (
         not isinstance(xml_values, list)
         or not xml_values
@@ -1007,8 +1109,10 @@ def _score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
             "amber_metadata.json cannot establish the water model: "
             + "; ".join(metadata_errors)
             if metadata_errors
-            else f"parameters.water_model={water!r}, forcefield xml carries "
-                 f"{wanted}: {wanted in xmls}"
+            else (f"parameters.water_model={water!r}" if water_source ==
+                  "parameters.water_model" else
+                  f"parameters.water_model is absent; {water!r} from {water_source}")
+                 + f", forcefield xml carries {wanted}: {wanted in xmls}"
         ),
     )
 

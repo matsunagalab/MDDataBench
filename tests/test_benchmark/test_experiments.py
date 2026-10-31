@@ -1412,6 +1412,92 @@ def test_run_experiment_seals_after_repeated_gateway_failures(tmp_path, monkeypa
     assert result["gateway_outages"] >= 1 and probes
 
 
+def _killed_run(argv, **kwargs):
+    """What a sandbox SIGKILLed from outside leaves: a cut stream, unshare's line, 1."""
+    for row in ({"type": "session", "id": "s"}, {"type": "agent_start"},
+                {"type": "message_update", "assistantMessageEvent": {"type": "thinking_delta"}}):
+        kwargs["stdout"].write(json.dumps(row) + "\n")
+    kwargs["stderr"].write("unshare: sigprocmask unblock failed: Invalid argument\n")
+    return SimpleNamespace(returncode=1)
+
+
+def test_a_sandbox_killed_from_outside_is_killed_not_an_agent_error(tmp_path, monkeypatch):
+    """test-v6-cli, 2026-10-31T05:13:22: 7 of 8 running sandboxes died at once."""
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 1)), str(DATASET))
+    attempt = attempts(root)[0].parent
+    monkeypatch.setattr(ex.subprocess, "run", _killed_run)
+    result = ex.run_attempt_agent(str(attempt), timeout_seconds=1)
+    assert result["exit_reason"] == "killed"
+    assert result["killed"]["kind"] == "agent_killed"
+    events = [row["event"] for row in ex._events(attempt)]
+    assert "agent_killed" in events
+    end = [row for row in ex._events(attempt) if row["event"] == "agent_end"][-1]
+    assert end["exit_reason"] == "killed" and end["returncode"] == 1
+
+
+def test_an_agent_error_without_the_kill_marker_stays_an_error(tmp_path, monkeypatch):
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 1)), str(DATASET))
+    attempt = attempts(root)[0].parent
+
+    def crashed(argv, **kwargs):
+        kwargs["stderr"].write("Error: unknown model rikyu/none\n")
+        return SimpleNamespace(returncode=1)
+
+    monkeypatch.setattr(ex.subprocess, "run", crashed)
+    result = ex.run_attempt_agent(str(attempt), timeout_seconds=1)
+    assert result["exit_reason"] == "error"
+    assert result["killed"] is None
+
+
+def _killed_agent(calls, submit_md=False):
+    def agent(attempt_dir, timeout_seconds=0):
+        calls.append(attempt_dir)
+        ex._append_event(Path(attempt_dir), "agent_start", command=["pi"])
+        if submit_md:
+            events = Path(attempt_dir) / "workspace" / ".mddatabench" / "sbatch-events.jsonl"
+            events.parent.mkdir(parents=True, exist_ok=True)
+            events.write_text(json.dumps({"at": "2026-10-31T05:10:00+00:00", "event": "sbatch",
+                                          "job_id": "252343", "returncode": 0}) + "\n")
+        if len(calls) == 1 or submit_md:
+            ex._append_event(Path(attempt_dir), "agent_end", exit_reason="killed")
+            return {"success": False, "exit_reason": "killed", "api_error": None,
+                    "killed": {"kind": "agent_killed", "error": "killed"}}
+        ex._append_event(Path(attempt_dir), "agent_end", exit_reason="completed")
+        return {"success": True, "exit_reason": "completed", "api_error": None, "killed": None}
+    return agent
+
+
+def test_run_experiment_requeues_an_attempt_killed_before_any_md(tmp_path, monkeypatch):
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 1)), str(DATASET))
+    attempt = attempts(root)[0].parent
+    calls = []
+    monkeypatch.setattr(ex, "run_attempt_agent", _killed_agent(calls))
+    monkeypatch.setattr(ex, "submit_attempt_scorer",
+                        lambda attempt_dir, bundle_root, sif: {"success": True})
+    monkeypatch.setattr(ex, "_probe_gateway", lambda harness, model: True)
+    result = ex.run_experiment(str(root), str(tmp_path), "/image.sif", max_agents=1)
+    assert len(calls) == 2 and result["launched"] == 1
+    retired = sorted((attempt / "retired").iterdir())
+    assert len(retired) == 1 and retired[0].name.endswith("-agent_killed")
+
+
+def test_an_attempt_killed_with_md_in_flight_is_scored_not_reset(tmp_path, monkeypatch):
+    root = tmp_path / "experiment"
+    ex.init_experiment(str(root), str(write_spec(tmp_path, [cell()], 1)), str(DATASET))
+    attempt = attempts(root)[0].parent
+    calls, scored = [], []
+    monkeypatch.setattr(ex, "run_attempt_agent", _killed_agent(calls, submit_md=True))
+    monkeypatch.setattr(ex, "submit_attempt_scorer",
+                        lambda attempt_dir, bundle_root, sif: scored.append(1) or {"success": True})
+    monkeypatch.setattr(ex, "_probe_gateway", lambda harness, model: True)
+    ex.run_experiment(str(root), str(tmp_path), "/image.sif", max_agents=1)
+    assert len(calls) == 1 and scored == [1]
+    assert not (attempt / "retired").exists()
+
+
 def test_gateway_breaker_opens_and_waits_for_a_successful_probe():
     answers = iter([False, False, True])
     breaker = ex._GatewayBreaker(probe=lambda: next(answers), threshold=2, interval_seconds=0)

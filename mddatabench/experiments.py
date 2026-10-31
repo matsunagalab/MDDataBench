@@ -1184,6 +1184,11 @@ def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
         # got an answer: this is the gateway's failure, not the agent's.
         exit_reason = "api_error"
         _append_event(attempt, "agent_api_error", **api_failure)
+    killed = _sandbox_killed(stderr_path) if exit_reason == "error" else None
+    if killed:
+        # Something outside the sandbox SIGKILLed it; no agent decides that.
+        exit_reason = "killed"
+        _append_event(attempt, "agent_killed", **killed)
     audit = (_image_mode_audit(stdout_path)
              if manifest["environment"].get("source_mode") == "image" else None)
     _append_event(attempt, "agent_end", exit_reason=exit_reason,
@@ -1192,8 +1197,38 @@ def run_attempt_agent(attempt_dir: str, timeout_seconds: int = 0,
     return {"success": exit_reason == "completed" and returncode == 0,
             "attempt_id": manifest["attempt_id"], "exit_reason": exit_reason,
             "returncode": returncode, "agent_wall_seconds": wall, "usage": usage,
-            "api_error": api_failure,
+            "api_error": api_failure, "killed": killed,
             "stdout": str(stdout_path), "stderr": str(stderr_path)}
+
+
+#: What util-linux unshare (2.39) prints, before exiting 1, when the PID 1 of
+#: the namespace it forked dies of a signal it could not handle; the sandbox's
+#: PID 1 handles SIGTERM, SIGINT and SIGHUP, so that is a SIGKILL from outside.
+#: Reproduced 2026-10-31 by SIGKILLing the child of
+#: ``unshare --user --map-root-user --mount --pid --fork``.
+SANDBOX_KILLED_MARKER = "unshare: sigprocmask unblock failed"
+
+
+def _sandbox_killed(stderr_path: Path) -> dict | None:
+    """The sandbox's PID 1 was SIGKILLed from outside, or None.
+
+    Every agent that ended with ``exit_reason`` error in the v5 and test-v6-cli
+    campaigns ended this way, in bursts that took every running sandbox at
+    once while the dispatcher survived: kimi-k3 v5 6 attempts at
+    2026-10-25T11:02:25-27, qwen3.6-35b 5 at 02:06:29-36, test-v6-cli 7 of the
+    8 running agents at 2026-10-31T05:13:22-23. Each transcript stops in the
+    middle of a streamed response, and the harness sealed them as the agent's
+    own ``agent_no_submission``.
+    """
+    try:
+        text = stderr_path.read_text(errors="replace")
+    except OSError:
+        return None
+    if SANDBOX_KILLED_MARKER not in text:
+        return None
+    return {"kind": "agent_killed",
+            "error": "the agent sandbox was killed by a signal from outside it "
+                     f"(stderr: {SANDBOX_KILLED_MARKER!r})"}
 
 
 def _api_failure(stdout_path: Path) -> dict | None:
@@ -2360,6 +2395,22 @@ def run_experiment(experiment_dir: str, bundle_root: str, scorer_sif: str,
                     scorer = finalize_attempt(
                         str(attempt), failure_stage="infra", failure_code=reason,
                         failure_detail=f"the LLM gateway failed {MAX_INFRA_RETRIES} runs: "
+                                       f"{failure.get('error')}")
+                    return {"attempt_id": attempt_id, "agent": agent, "scorer": scorer}
+                if agent.get("exit_reason") == "killed" and not last_md_job_id(attempt):
+                    # Killed from outside before any MD was submitted: not the
+                    # agent's failure and not the gateway's. Run it again. With
+                    # MD in flight the attempt is scored as it stands; reset it
+                    # by hand (reset_attempts --force --reason agent_killed).
+                    failure = agent.get("killed") or {}
+                    reason = "agent_killed"
+                    if _infra_reset_count(attempt, reason) < MAX_INFRA_RETRIES:
+                        reset = _reset_attempt(root, attempt, reason, failure)
+                        return {"attempt_id": attempt_id, "requeued": True,
+                                "agent": agent, "scorer": None, "reset": reset}
+                    scorer = finalize_attempt(
+                        str(attempt), failure_stage="infra", failure_code=reason,
+                        failure_detail=f"the agent sandbox was killed {MAX_INFRA_RETRIES} times: "
                                        f"{failure.get('error')}")
                     return {"attempt_id": attempt_id, "agent": agent, "scorer": scorer}
                 breaker.record(True)

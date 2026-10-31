@@ -5,6 +5,61 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-10-31 (4) — Benchmark-side causes among the 46 failed attempts of test-v6-cli: 114's prompt removed the quadruplex's channel K+, two scorer false negatives (105 disulfide, 106 water model), and 7 attempts of 110 killed from outside. Overturns (3)'s "the remaining failures are agent-side" for the 4 disulfide and the 1 water-model failure, and the build entry's clean audit as evidence that 114's prompt is right
+
+Investigated read-only on the sealed attempts; nothing was rescored or reset. All changes are uncommitted in the worktree `../MDDataBench-worktrees/benchside-20261031` (branch `benchside-fixes-20261031` off 64c4fe2), not in the main checkout, because the running `test-v6-sifonly` scores with the main checkout's scorer and task files.
+
+**114_nucleic_1jrn: the band holds; the prompt asked for a different system.** 10 of 24 attempts failed `fluctuation_magnitude_is_physical` (0.76-0.86 A against a ceiling of 0.742 A), 4 of them also the profile floor.
+- The reference is stationary: ten non-overlapping 1 ns windows give 0.565-0.623 A with no trend. Its ceiling is 1.25x its own mean, the second tightest of 78 single-replica tasks but inside the NAFlex 10 ns series (046-059, 111, 113: 1.245-1.40x). In the v4/v5 campaigns those cast tasks' submissions sat at 0.69-0.91x the reference with no failure.
+- The 24 submissions are built alike: OL15, TIP3P, 22 Na+ and no Cl-, 4 fs HMR. Failing ones do not differ in equilibration length, box or production length.
+- They differ in the quadruplex. 1JRN is the Oxytricha d(G4T4G4) G-quadruplex. The deposit's five K+ (chains A/B, 5013-5017) sit in its channel, six to eight O6/O2 within 3.2 A each. The prompt said "The deposit's K is not part of the reference. Simulate the nucleic acid without it". The reference carries no water and no ion of any kind (MDDB SOL, NA, CL, COUNION 0), so its files cannot show whether the simulation had the K+. Its geometry says it did:
+  - Over 10 ns the reference keeps 99.2 % of the 32 G-tetrad Hoogsteen hydrogen bonds, with a mean O6-to-axis radius of 2.33 A (crystal 2.25).
+  - Every submission opened that radius to 2.83-2.86 A at minimisation and kept 48-82 % of the bonds over its scored block.
+  - The 9 submissions where a bulk Na+ had entered the channel all passed (0.66-0.73 A). The 15 without one passed 5 times (mean 0.76 A).
+- Positive control (`testset-20261031/posctrl-114/`, 1 GPU job, ~16 min). The System of the sealed attempt cli_sif kimi r3 was rerun with the five Na+ farthest from the DNA moved onto the deposit's K sites, given Joung-Cheatham K+ parameters. Protocol: 1 ns restrained equilibration, 2 ns NPT, scorer estimator on the last 1 ns.
+  - With K+, two seeds: 0.614 and 0.617 A, inside the reference's own window range. Profile 0.63 and 0.78 (submissions 0.18-0.59), 95.7 % of the Hoogsteen bonds, three K+ still in the channel.
+  - Without K+, same protocol: 0.659 and 0.613 A. 0.54 and 2.0 Na+ had entered the channel during the extra relaxation the agents' runs did not have.
+- Verdict: a benchmark defect in the prompt (contract derivation), not in the calibration. No band rule changes.
+- **Fix (prompt; agents already ran on the old text).** `build_test_tasks.bound_solvent_cations` applies one rule to every task. A cation of a species stripped with the solvent (Na, K, Li, Rb, Cs), with at least four polymer O/N of the selected residues within 3.2 A, on a reference carrying no water and no ion, is kept, not excluded. `_task_builder.bound_ion_sentence` states it. Run over all 128 tasks it changes 114 alone: the other alkali ions any selected chain carries are the GPCR allosteric Na+ of 007/009/014, with two polymer donors.
+  - 114 was regenerated with `build_test_tasks.py build --only 114_nucleic_1jrn` (report written to scratch, not over `testset-20261031/build/build_report.json`). The prompt now reads "Keep the deposit's five **K** ions bound inside the nucleic acid (chain A residues 5016 and 5017; chain B residues 5013, 5014 and 5015)."
+  - `selection.excluded_components` is replaced by `selection.bound_ions`. Every other field is byte-identical, calibration included.
+  - `regenerate` on the 98 gives the same per-task statuses as the recorded run (76 identical, 17 name-only, 3 differs, 1 chains, 1 error). The contract audit of 114 is clean. The scorer needs no change: K is in `composition.SOLVENT_RESIDUES`.
+- No rescore can recover 114. The 24 test-v6-cli attempts, and the 12 test-v6-sifonly attempts already planned with the old prompt in their workspaces, ran or will run on the wrong system. They should be set aside and 114 rerun on the new prompt.
+
+**105_ligand_6mj7: a scorer false negative on disulfides.** 4 attempts (cli_sif deepseek r1, r3, glm r1, kimi r3) failed only `disulfide_bonds_match_reference`: "0 S-S ... 0 []; not comparable because no complete monomer correspondence exists".
+- Cause: those four named the free arginine `ARG`; the 16 others renamed it (LAR, ARL, AR1, AAR, ARZ, AGR, LIG). The reference names it `LIG`. `_polymer_monomers` keeps a monomer by residue name, so the submission's one-residue ARG counted as a polymer and the reference's LIG did not. No sequence-preserving pairing then exists.
+- The submissions are right. The arginine is a separate, unbonded component; it passes the declared-SMILES correspondence (zwitterion, +1, L), and the sequence, atom-count and connectivity checks pass on both sides.
+- Fix (`scoring._disulfide_verdict`): two topologies with no S-S bond anywhere (none compared and none dropped on either side) are equal under every pairing, so they pass without one. Non-empty sets still need the pairing.
+- Across every sealed attempt of every campaign, 25 carried "0 S-S / 0 / not comparable". Only these four lost nothing else. The other 21 already fail composition and gain one check without changing their verdict.
+
+**106_metal_6rnt glm cli_skill_sif r3: a scorer false negative, from an MDClaw metadata gap.** "amber_metadata.json cannot establish the water model: parameters.water_model is missing".
+- The topology was built by `build_openmm_system --forcefield-xml amber/ff99SBildn.xml amber/tip3p_standard.xml <ligand ffxml>`, after `build_amber_system` refused the 2'-AMP ligand 2AM as an unsupported modified nucleotide. 23 of the 24 attempts hit that refusal first.
+- That tool writes `forcefield_provenance.openmm_xml` but no `parameters` block; `water_model` sits at the top level and is `null`. The System's 12837 waters are exactly TIP3P (O -0.834 e, sigma 0.315075 nm, epsilon 0.635968 kJ/mol), identical to build_amber_system's.
+- Fix (`scoring.water_model_from_system`): when `parameters.water_model` is absent, the System's own water parameters name the model. TIP3P and SPC/E are matched with tolerances that keep TIP3P-FB and four-site models apart; the force-field XML must still carry the name. A string `parameters.water_model` is graded exactly as before.
+- Across all campaigns the scorer could not establish the water model twice: this attempt, and one qwen3.6 sif_only attempt whose record lacked the XML list.
+- For the MDClaw side: (i) `build_openmm_system` should record `parameters.water_model`. (ii) The same agent rewrote a completed node's artifact (`solv_001/solvated.pdb`, CRYST1 and CONECT added, original backed up) to make that tool accept it; nothing refused the write.
+
+**110_complex_3k1r: 7 attempts killed from outside, sealed as the agent's failure.**
+- cli_sif qwen r1-r3, cli_skill_sif kimi r1, r3 and qwen r1, r2 ended between 05:13:22 and 05:13:23 UTC, whatever their start (04:59-05:12). The eighth running agent survived. Every transcript stops mid-stream, and every stderr reads `unshare: sigprocmask unblock failed: Invalid argument`.
+- Reproduced: util-linux 2.39.3 unshare prints exactly that, and exits 1, when the PID 1 of its namespace is SIGKILLed from outside. The sandbox's PID 1 handles TERM, INT and HUP, so this is a SIGKILL, not a timeout.
+- The same burst signature is in v5: kimi-k3 6 attempts at 2026-10-25T11:02:25-27, qwen3.6-35b 5 at 02:06:29-36. Every `exit_reason: error` in every campaign is this. The killer was not identified: no dispatcher restart, no agent-issued kill, no user-visible journal.
+- Fix (`experiments._sandbox_killed`, dispatcher): such a run is `exit_reason: killed`. Before any MD submission it is reset and requeued like a gateway error, up to `MAX_INFRA_RETRIES`, then sealed as `infra/agent_killed`. With MD in flight it is scored as it stands and left for a manual `reset_attempts --force --reason agent_killed`.
+- The 7 should be reset (qwen cli r3 had submitted min/eq, so `--force`).
+
+**Other failures, judged agent- or runtime-side.**
+- 109 x3, 115 x2, 116 x2, 117 x1: the agent added ACE or NME caps the reference lacks; MDClaw refused only caps on native termini. The prompts never mention caps, and 3 of 4 models never add them.
+- 112 qwen cli r2: the only attempt of the campaign run on four GPUs (`--gpus=4`, `--device-index 0,1,2,3`). LangevinMiddle at 298 K gave 318 K, with water D 5.2e-5 cm2/s against 2.1-3.0e-5 everywhere else; the scorer is right (MDClaw/OpenMM runtime).
+- 109 glm skill r3: 1.78 A against a ceiling of 1.70 A, the tail of 21 graded attempts that span 1.0-1.78 A.
+- 105 qwen skill r2: an arginine with a neutral amine and COOH (+1 overall, not the pH 7 zwitterion).
+- The 13 other no-submission attempts all timed out (qwen 10, kimi 3). Seven of them are on 106, stuck after the 2AM refusal.
+
+**Tests.** New `tests/test_benchmark/test_bound_ions.py` (the rule over all 128 tasks with bundles, the sentence, the shipped 114). Water and disulfide cases in `test_scoring_metadata.py`, the kill marker and requeue in `test_experiments.py`. Full suite in mdclaw.sif with bundles: 2290 passed, 4 failed. These are the same 4 pre-existing failures as entry (3): 029 bundle delta x2, source_overlay x2. Ruff clean.
+
+**To rescore once the worktree is applied** (expected, all dry-scored into scratch with the worktree scorer):
+- 105 cli_sif deepseek r1, deepseek r3, glm r1, kimi r3: 19/20 → 20/20, pass.
+- 106 cli_skill_sif glm r3: 18/19 → 19/19, pass.
+- Optionally 109 cli_sif glm r1, qwen r3, cli_skill_sif qwen r2, and 116 cli_sif qwen r2, r3: +1 check each, still failed.
+
 ## 2026-10-31 (3) — Correction to the test split: 105 and 106 were unscorable on the md side (missing ligand declaration); fixed in the contract, all sealed attempts rescored. Overturns "all 30 audit clean" as evidence that every test task is scoreable
 
 **What happened.** In the running test campaign `runs/test-v6-cli`, 105 (6MJ7) went 0/20 and 106 (6RNT) 0/18 across all four models and both CLI conditions, while 101–104 passed 95/96. Every md check failed with the same scorer message: "not evaluable: 3 of 162 (5 of 314) reference contract atoms could not be placed in the submission ... non-polymer contract atoms require one declared SMILES".
