@@ -5,6 +5,33 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-11-01 (3) — test-v6 final: pass^3 after the benchmark-side corrections; v5 kill reruns
+
+Final held-out numbers of test-v6 for mdclaw `ac0e328` (image FILE 9104afbf, pi skills 8f45de7), as `runs/RESULTS-test-v6.md` records them.
+
+**pass^3, in the order CLI + skills / CLI only / SIF only:**
+
+| model | CLI + skills | CLI only | SIF only |
+|---|---|---|---|
+| deepseek-v4.1-flash | 30/30 | 30/30 | 1/30 |
+| glm-5.3-flash | 29/30 | 29/30 | 0 |
+| kimi-k3 | 29/30 | 30/30 | 0 |
+| qwen3.8-27b | 27/30 | 21/30 | 0 |
+
+**As-run, before any correction:** deepseek 27/27, glm 26/26, kimi 26/27, qwen3.8 26/19 (CLI + skills / CLI only).
+
+**What closed the gap.** All are benchmark- or infrastructure-side corrections; none of them changed MDClaw:
+- 105/106 ligand declarations;
+- two scorer false negatives;
+- 110 OOM kills rerun;
+- 114 K+ prompt fix, rerun 24/24.
+
+**v5 kill reruns** (11 attempts, v5 image file): kimi-k3 CLI only goes from 89/98 to 90/98, and qwen3.6-35b CLI only from 42/98 to 43/98. The other cells are unchanged.
+
+**Process notes:**
+- A rerun that must measure an older MDClaw has to name the image file. Compute-node jobs follow the shared alias outside the sandbox.
+- `prep/results_staged.py` reports as-run / after rescoring / after reruns.
+
 ## 2026-11-01 (2) — test-v7 review: three prompts rebuilt (136, 140, 151); 155's metal exclusion checked against the reference trajectory
 
 Coordinator review of the sealed test-v7 (db7c7a9) before it is run, looking for the defect classes test-v6 found (memo 2026-10-31 (3), (4)).
