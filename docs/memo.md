@@ -5,6 +5,23 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-11-02 — test-v7 final: held-out pass^3 of mdclaw 6524d3e (0.6.15)
+
+30 new systems (131–160) × 4 models × 3 conditions × 3 replicates, all terminal. Details are in `runs/RESULTS-test-v7.md`.
+
+| model | CLI + skills | CLI only | SIF only |
+|---|---|---|---|
+| deepseek-v4.1-flash | 30/30 | 28/30 | 0/30 |
+| glm-5.3-flash | 29/30 | 28/30 | 0/30 |
+| kimi-k3 | 29/30 | 27/30 | 0/30 |
+| qwen3.8-27b | 27/30 | 25/30 | 0/30 |
+
+- **Against test-v6 (different tasks, not paired):** CLI + skills is unchanged per model (115/120). CLI only is 108/120 against 110/120, with qwen3.8-27b up from 21 to 25.
+- **Benchmark-side:** no task failed for every model, and no correction was needed.
+- **138 and 147:** the CLI-only composition failures come from author and label chain IDs swapping in the deposit. A same-length stretch of another chain is selected. This is not a scorer defect.
+- **140:** 11 agent_no_submission from kimi and qwen3.8-27b, cause not investigated.
+- **Infrastructure:** c001 rebooted about 05:18 JST on 11-02; 8 attempts were rerun. test-v7 is development data from now on.
+
 ## 2026-11-01 (3) — test-v6 final: pass^3 after the benchmark-side corrections; v5 kill reruns
 
 Final held-out numbers of test-v6 for mdclaw `ac0e328` (image FILE 9104afbf, pi skills 8f45de7), as `runs/RESULTS-test-v6.md` records them.
