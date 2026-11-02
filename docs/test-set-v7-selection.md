@@ -624,6 +624,92 @@ reference. These points remain, most important first.
   in the same tree as everything else, and nothing in the harness refuses to
   run split `test_v7`. They are not pushed.
 
+## Part 5 — the membrane supplement, split `test_v7_membrane` (rule written 2026-11-02, before it was applied)
+
+test-v7 has no membrane task (2.2). All 55 membrane projects were eliminated by
+receptors already among the tasks, the size cap, and GPCR–G-protein complexes
+whose Gβ1, Gγ2 and scFv16 chains match external entries that the mdclaw checkout
+only mentions (6OT0, 6XBL). The user asked for **one** membrane task, to
+supplement test-v7. It is task 161, split `test_v7_membrane`, dataset v0.7.1.
+It is chosen by the rule below, which is fixed before any candidate is verified.
+Tasks 1–160 do not change, and test-v7's own rule above does not change.
+
+Integrity is as in Part 1, and nobody runs the task here: no MDClaw, pi, agent,
+`run_experiment` or MD on a candidate, and no campaign result under `runs*` is
+read to choose. Nothing is written under `/data1/rkp00048`. Work directory:
+`/data1/rkp00079/rku00161/testset-v7m-20261103`. Pool: test-v7's
+`selection/eligible.json` (listing of 2026-11-01), nothing fetched anew.
+
+### 5.1 The rule (pre-registered)
+
+1. **Candidates.** The membrane projects of the pool (Part 1: node mmb,
+   collections ebrains/mcns, `LIPIRES` ≥ 20, `PROTRES` > 0) that are not among
+   the 158 tasks, and whose PDB ID is not among the 158 tasks or MDPrepBench
+   (MDStudyBench S01 has no PDB ID, so it is compared by sequence only). The
+   withdrawn 038 and 061 and the development task 1EDN keep their place beside
+   the 158, as in Part 1; that is stricter than naming the 158 alone.
+2. **Distinctness.** 3-mers, the Ig V-domain cut, and chains of ≥ 30 residues,
+   as in Part 1.
+   - **Hard members** are the 158 tasks, 038, 061, 1EDN, MDPrepBench and
+     MDStudyBench. Each chain must have containment < 0.70 against every chain
+     of every hard member, and the whole system < 0.70 against every hard
+     member. There is no exemption here: a G-protein chain that matches a task
+     fails.
+   - **Mention-only members** are the entries the mdclaw checkout mentions and
+     MDPrepBench does not contain. The mentions are read from the git tree of
+     `6524d3e`, the same pin as v7; the checkout's HEAD is scanned as well, and
+     a difference is recorded. A candidate whose own PDB ID is mentioned is
+     **out**.
+   - **Exemption (a recorded relaxation of v6/v7).** Against mention-only
+     members only, a candidate chain is not compared when it is shared
+     machinery: a heterotrimeric G-protein subunit or scFv16, the way Ig
+     constant domains are not compared. A chain is recognised by the deposit
+     entity it aligns to, whose description must name a G-protein subunit
+     (`guanine nucleotide[- ]binding`, or a stated Gα/Gβ/Gγ or mini-G) or
+     scFv16. Every exempted chain is listed in the result. No other chain is
+     exempt: a receptor, a channel, a toxin, a Fab or a nanobody that matches a
+     mention still fails.
+   - The whole-system comparison with a mention-only member is made on the
+     candidate's non-exempt chains.
+3. **Size.** Polymer residues ≤ 1700 (the cast maximum is 1698) and reference
+   atoms ≤ 120,000. v6 and v7 capped atoms at the cast maximum, 91650 (008
+   6I53), so this is **a recorded relaxation**. The pick's size is reported
+   against the cast's largest membrane task.
+4. **Standard eligibility, as v6/v7** (`verify_candidates.verify` and
+   `content_check`):
+   - last-third RMSD ≤ 4.0 Å from MDDB's `rmsds`, strictly;
+   - SEQRES verification and `selection()`;
+   - the residue rule;
+   - a current RCSB entry;
+   - the bilayer present on the reference (≥ 20 lipid residues);
+   - distinctness again, on the reference's own sequences;
+   - a buildable force field: `FF` is CHARMM36-family, as for all 15 membrane
+     tasks so far, or one `buildable_force_field` names, and every lipid of the
+     reference is one the builder can state (`_task_builder.LIPIDS`) and the
+     scorer can decompose (`composition.LIPID_COMPONENTS`).
+   Frames and windows are as the pool states them.
+5. **Order.** Ascending maximum chain containment against the tasks, farthest
+   first. The key is the largest containment of any chain ≥ 30 residues (Ig: V
+   domain) against any chain of the 158 tasks, on MDDB's `PROTSEQ`; ties go to
+   the smaller accession. The pick is the first candidate that passes
+   verification, build, contract audit and review. Every candidate tried is
+   recorded with its reason. Verification continues down the list until there
+   is the pick plus at least 3 further candidates that pass step 4, counted as
+   distinct PDB IDs. Those are not built; they are the reserves, in order.
+
+Review (step 5) is the extra checks the test-v6 defects ask for, each answered
+in 5.5 from the reference's coordinates and metadata:
+- which ions, lipids, ligands, toxins or Fabs were in the simulation, and
+  whether the prompt states them; a bound ion or ligand the prompt excludes is
+  tested on the reference trajectory, as for 114 and 155;
+- for a homo-oligomer, that the chains are copies of one assembly and not a
+  symmetry mate or a copy mix, and author and label chain IDs;
+- that the bilayer sentence matches the reference and the scorer's membrane
+  check can pass on the reference's numbers;
+- that a correct submission can satisfy every scored check;
+- whether 1 ns fits `md_time_limit` 00:20:00 on one GB200 GPU, reasoned from
+  the atom count.
+
 ## Reproduce
 
 ```bash
