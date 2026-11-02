@@ -210,12 +210,13 @@ V7M = HeldOutSet(
     not_statable=dict(NOT_STATABLE_V6),
     dataset_id="MDDataBench-v0.7.1",
     changelog=("v0.7.1 (2026-11-02): one membrane task added as split test_v7_membrane "
-               "(task 161), because test_v7 has none; chosen by the rule pre-registered in Part 5 "
-               "of docs/test-set-v7-selection.md, which relaxes v7's rule in two recorded ways "
-               "(G-protein machinery is not compared with entries the mdclaw checkout only "
-               "mentions; the atom cap is 130,000). The builder now names a long gap the deposit "
-               "never resolved as an omission, not a crystallisation partner. Tasks 1-160 are "
-               "unchanged."),
+               "(task 161), because test_v7 has none; chosen by Part 5 of "
+               "docs/test-set-v7-selection.md, which relaxes v7's rule in two recorded ways (G-protein "
+               "machinery is not compared with entries the mdclaw checkout only mentions; the atom "
+               "cap is above v7's). The pre-registered cap of 120,000 gave no pick, and it was "
+               "raised to 130,000 afterwards, on the user's decision. The builder now names a long "
+               "gap the deposit never resolved as an omission, not a crystallisation partner. "
+               "Tasks 1-160 are unchanged."),
     # Not "test_v7_membrane": test_v7's own marker is "test_v7", a substring of it.
     description_marker="membrane supplement",
     description_addition=(" Version 0.7.1 adds a membrane supplement of one task to the second "
