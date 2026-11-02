@@ -213,7 +213,9 @@ V7M = HeldOutSet(
                "(task 161), because test_v7 has none; chosen by the rule pre-registered in Part 5 "
                "of docs/test-set-v7-selection.md, which relaxes v7's rule in two recorded ways "
                "(G-protein machinery is not compared with entries the mdclaw checkout only "
-               "mentions; the atom cap is 120,000). Tasks 1-160 are unchanged."),
+               "mentions; the atom cap is 130,000). The builder now names a long gap the deposit "
+               "never resolved as an omission, not a crystallisation partner. Tasks 1-160 are "
+               "unchanged."),
     description_marker="test_v7_membrane",
     description_addition=(" Version 0.7.1 adds one membrane task, split test_v7_membrane, to "
                           "supplement test_v7."),

@@ -98,6 +98,40 @@ def test_a_renumbered_fusion_partner_is_a_boundary(tmp_path):
     assert ranges == [["1", "3"], ["1001", "1003"], ["4", "6"]]
 
 
+def _two_pieces(tmp_path, observed_gap):
+    """A chain of 60 residues whose reference holds 1-10 and 51-60 apart."""
+    numbers = list(range(1, 11)) + list(range(51, 61))
+    if observed_gap:
+        numbers = list(range(1, 61))
+    names = ["ALA"] * 10 + ["GLY"] * 40 + ["SER"] * 10
+    path = deposit(tmp_path, {"A": names}, {"A": [(n, names[n - 1]) for n in numbers]})
+    record = {"鎖": [{"参照鎖": "A", "長さ": 10, "寄託鎖": "A", "種別": "SEQRES に連続一致",
+                       "SEQRES位置": "1-10"},
+                      {"参照鎖": "B", "長さ": 10, "寄託鎖": "A", "種別": "SEQRES に連続一致",
+                       "SEQRES位置": "51-60"}]}
+    return path, record
+
+
+def test_a_long_gap_the_deposit_never_resolved_is_not_a_fusion_partner(tmp_path):
+    """7DTD's cytoplasmic linkers: the prompt said 513 residues belong to a
+    crystallisation partner, of a channel that has none."""
+    path, record = _two_pieces(tmp_path, observed_gap=False)
+    [entry] = tb.selection(record, path)
+    assert entry["ranges"] == [["1", "10"], ["51", "60"]]
+    assert entry["omitted"] == [["11", "50"]] and not entry["removed_residues"]
+    prompt = tb.build_prompt("t", "x", "1ABC", {"TEMP": 300, "WAT": "TIP3P"}, [entry], [], [], 1.0)
+    assert "crystallisation partner" not in prompt
+    assert "Residue 11–50 of chain A is not part of the reference. Leave it out." in prompt
+
+
+def test_a_modelled_partner_stays_a_fusion(tmp_path):
+    path, record = _two_pieces(tmp_path, observed_gap=True)
+    [entry] = tb.selection(record, path)
+    assert entry["removed_residues"] == 40 and not entry["omitted"]
+    prompt = tb.build_prompt("t", "x", "1ABC", {"TEMP": 300, "WAT": "TIP3P"}, [entry], [], [], 1.0)
+    assert "40 residues between those ranges belong to the crystallisation partner" in prompt
+
+
 def test_identical_chains_are_not_all_placed_on_the_first_one(tmp_path):
     """A self-complementary duplex put both strands on deposit chain C, and the
     two identical ranges then read as a chain with a fusion in the middle."""

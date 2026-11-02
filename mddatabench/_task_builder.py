@@ -381,7 +381,8 @@ def selection(record, deposit):
                     "ranges": [[a, b]], "differences": differences,
                     "seqres_spans": [(lo, hi)], "seqres_start": lo,
                     "numbering_certain": bool(a and b)})
-    return merge_by_deposit_chain(assign_distinct_chains(out, deposit))
+    pieces = assign_distinct_chains(out, deposit)
+    return state_unresolved_gaps(merge_by_deposit_chain(pieces), pieces, deposit)
 
 
 def spans_overlap(one, other):
@@ -489,6 +490,47 @@ def assign_distinct_chains(entries, deposit):
                                     if entry.get("seqres_spans")
                                     else dict(entry, deposit_chain=twin))
     return [moved.get(id(entry), entry) for entry in order]
+
+
+def state_unresolved_gaps(merged, pieces, deposit):
+    """A long gap the deposit never resolved is an omission, not a fusion partner.
+
+    ``build_prompt`` calls what lies between two long ranges a crystallisation
+    partner, which is true of a GPCR's BRIL. 7DTD's sodium channel has none: it
+    is resolved in four pieces, and the two longest gaps (440-748, 997-1200) are
+    its own cytoplasmic linkers, of which the deposit has no residue. A partner
+    the deposit models keeps the fusion sentence, and so does any gap whose
+    author numbers do not run through it (the renumbered case), because those
+    numbers could not be named. A chain whose reference polymers are joined is
+    left alone: only pieces the reference holds apart reach this.
+    """
+    for entry in merged:
+        if (entry.get("reference_polymers") or 1) < 2:
+            continue
+        chain = entry["deposit_chain"]
+        spans = sorted(tuple(span) for piece in pieces if piece.get("deposit_chain") == chain
+                       for span in piece.get("seqres_spans") or [])
+        mapping = seqres_to_auth(deposit, chain)
+        gaps = []
+        for (_, end), (start, _) in zip(spans, spans[1:]):
+            length = start - end - 1
+            if length < FUSION_RESIDUES:
+                continue
+            first, last = mapping.get(end), mapping.get(start)
+            resolved = any(position in mapping for position in range(end + 1, start))
+            try:
+                runs_through = int(last) - int(first) - 1 == length
+            except (TypeError, ValueError):
+                runs_through = False
+            if resolved or not runs_through:
+                gaps = None
+                break
+            gaps.append([str(int(first) + 1), str(int(last) - 1)])
+        if gaps:
+            entry["omitted"] = sorted((entry.get("omitted") or []) + gaps,
+                                      key=lambda span: _sort_key(span[0]))
+            entry["removed_residues"] = None
+    return merged
 
 
 def merge_by_deposit_chain(entries):

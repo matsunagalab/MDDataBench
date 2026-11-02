@@ -191,6 +191,8 @@ def main(argv=None):
     parser.add_argument("--need", type=int, default=4,
                         help="stop after this many distinct PDB IDs pass step 4 (pick + 3)")
     parser.add_argument("--screen-only", action="store_true")
+    parser.add_argument("--max-atoms", type=int, default=MAX_ATOMS,
+                        help="atom cap of step 3 (rule as written: 120,000)")
     args = parser.parse_args(argv)
     hs = hsets.get("v7m")
     workdir, pool_dir = hs.workdir, hsets.V7.workdir
@@ -238,7 +240,7 @@ def main(argv=None):
             item["removed_by"] = "1 PDB ID among the tasks, MDPrepBench or the withdrawn"
         elif pdb in mentions or pdb in new_at_head:
             item["removed_by"] = f"2 own PDB ID mentioned in mdclaw ({mentions.get(pdb, 'HEAD')})"
-        elif residues > MAX_RESIDUES or atoms > MAX_ATOMS:
+        elif residues > MAX_RESIDUES or atoms > args.max_atoms:
             item["removed_by"] = f"3 size: {residues} residues, {atoms} atoms"
         elif seen["failures"]:
             item["removed_by"] = "2 distinctness: " + "; ".join(seen["failures"])
@@ -328,7 +330,7 @@ def main(argv=None):
     (selection / "selected.json").write_text(json.dumps(
         {"generated": time.strftime("%Y-%m-%d %H:%M:%S %Z"), "set": hs.name, "split": hs.split,
          "rule": hs.rule_doc, "threshold": THRESHOLD, "rmsd_max_angstrom": RMSD_MAX,
-         "max_residues": MAX_RESIDUES, "max_atoms": MAX_ATOMS,
+         "max_residues": MAX_RESIDUES, "max_atoms": args.max_atoms,
          "selected": picks, "reserves": kept[1:], "shortfall": {}},
         indent=1, ensure_ascii=False, default=str))
     log(f"tried {len(attempts)}, passed {[k['pdb_id'] for k in kept]}")

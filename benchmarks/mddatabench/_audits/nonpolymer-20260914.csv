@@ -157,3 +157,4 @@ task,pdb,chains,deposit_nonpoly,deposit_other_chains,glycan,in_reference,ref_non
 158_soluble_1edg,1EDG,A,,,,,,,,,ok
 159_soluble_1cs6,1CS6,A,GOLx1,,,,,,yes,GOL,ok-excl
 160_soluble_1cex,1CEX,A,,,,,,,,,ok
+161_membrane_7dtd,7DTD,A,9Z9x1 NAGx4,,,,,,yes,9Z9 NAG,ok-excl

@@ -214,6 +214,12 @@ def test_v7_plan_numbers_131_to_160_in_dispatch_order(bt):
         assert [i["task_id"] for i in items] == shipped
 
 
+def test_v7m_plan_is_task_161(bt):
+    items, replaced = _plan_or_skip(bt, "v7m")
+    assert [i["task_id"] for i in items] == ["161_membrane_7dtd"] and not replaced
+    assert _split_ids("test_v7_membrane") == ["161_membrane_7dtd"]
+
+
 @pytest.mark.parametrize("name", ["v6", "v7"])
 def test_finalize_is_idempotent_and_never_downgrades(bt, name, tmp_path, monkeypatch):
     """Rerunning a set's finalize on the shipped dataset changes neither file."""

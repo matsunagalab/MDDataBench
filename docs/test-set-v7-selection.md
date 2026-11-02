@@ -756,6 +756,98 @@ The nine, in rule order. Every one fails step 4:
   right on sequence: every one has no chain near a task (maxima 0.13–0.59).
   Seven of them are over the size cap of step 3.
 
+### 5.4 The proposal on this branch
+
+**This branch is a proposal.** Main records that the rule as written gives no
+pick. This branch shows what a one-line change of step 3 gives, and holds that
+task fully built and verified, so that accepting it is a merge. It is not a
+decision: the atom cap was changed after the candidates' values were known, so
+this task is chosen by a rule that is no longer pre-registered on that one
+point. The change is an atom cap of 130,000 in place of 120,000, and the same
+result follows from any cap from 126,711 up to no cap at all
+(`select_membrane_supplement.py --max-atoms`).
+
+- 12 candidates pass steps 1–3 at 130,000 (the nine above plus 7DTC, 6NT4 and
+  7DTD). 7DTD is the only one to pass step 4. There are **no reserves**, so the
+  rule's "at least 3 further candidates" cannot be met.
+- The records of the rule as written are in `selection/rule-as-written/`.
+
+### 5.5 Task 161_membrane_7dtd
+
+Human Nav1.1 α, cryo-EM, mmb:A0251, 1138 residues on one deposit chain, 832 DPPC,
+CHARMM36, TIP3P, 310 K, one 1 µs replica. Last-third RMSD 3.877 Å (drift
++0.225). Largest containment on the reference's own sequences: chain 0.25
+(108_complex_4mqv), whole system 0.28 (2LOP), mentions 0.33 (4MN3). No chain is
+exempt, so the G-protein exemption does not touch this task.
+
+**Builder change.** The draft said "513 residues between those ranges belong to
+the crystallisation partner". That is false: the channel has no partner, and
+those are its own I–II and II–III linkers, of which the deposit resolves no
+residue. The deposit's resolved runs (116–282, 312–439, 749–996, 1201–1795) are
+exactly the reference's four polymers.
+`_task_builder.state_unresolved_gaps` now states such a gap as an omission. It
+fires only between pieces the reference keeps apart, when no residue of the gap
+is resolved and the author numbers run through it. Over all 158 tasks it changes
+the derivation of one, 008 6I53, whose shipped prompt calls its unresolved
+GABA-A loops a partner; that prompt is left as shipped (development data). Under
+v6's rule a pick the builder cannot state takes the next reserve, so this fix
+is itself a departure, made because there is no reserve to take.
+
+**Calibration** (1 ns window, 100 windows over 100,001 frames, slack 4):
+
+| check | window range (mean) | effective limit | headroom (window SD) |
+|---|---|---|---|
+| rank correlation | 0.800–0.891 (0.857) | floor 0.30 (the cap) | 41.95 |
+| total fluctuation Å | 0.607–0.853 (0.654) | ceiling 1.06, upper only | 20.64 |
+| radius of gyration Å | 34.89–35.35 (35.16) | 34.07–36.17 | 61.88 |
+
+The windows are stationary: thirds of the trajectory give 0.668, 0.640 and 0.652
+Å. The highest total fluctuation is the first window, the only one above 0.72.
+The reference is single-replica, so no held-out measurement exists. Nothing is
+demoted.
+
+**Review, on the reference and the deposit.**
+- **What was in the simulation.** Protein and DPPC only: the tpr, like the PDB,
+  holds 126,711 atoms (18,551 + 108,160) and no water or ion, and MDDB records
+  SOL, NA and CL as null. So salt cannot be read from the reference. The β4
+  subunit (deposit chain B) is not in the reference; α is.
+- **Ions.** The deposit models none, in the pore or anywhere else, so the
+  bound-cation rule finds nothing.
+- **NAG.** All four sites (Asn338, 1378, 1392, 1403) carry both ND2 hydrogens in
+  the reference, so they are not glycosylated.
+- **9Z9** (a detergent, in contact with 17 residues of α). Tested on 41 frames across the trajectory (`window_frames`, 1-based), superposed on
+  the deposit. After the first frame, protein heavy atoms lie within 3 Å of a
+  median 49 % of its atoms and as close as 0.6–2.0 Å, which a bound 9Z9 would not
+  allow. It was not simulated, and the exclusion is right.
+- **Disulfides.** The reference has the deposit's six within α, 277–345 of them
+  across two polymers. The seventh, Cys919–β4 Cys58, has no partner in the
+  selection, and the reference's Cys919 is a free thiol (`HG1`). The prompt is
+  silent on it. An SSBOND record still names Cys919, so a tool reading the header
+  could try to bond it.
+- **Chain IDs.** Author A is label B, and author B (β4) is label A. The prompt
+  uses author IDs, as every prompt does. This is the swap behind the composition
+  failures of 138 and 147 (memo 2026-11-02). β4 resolves residues 39–106 and
+  111–153, so a label reading finds 116–153 of the wrong chain and nothing after.
+- **Bilayer.** "DPPC" matches: `lipid_chemistry` gives PC + PA, 832 lipids, and
+  the check needs ≥ 416. With an in-slab protein extent of 119 × 124 Å, 15 Å of
+  padding gives about 460 lipids and 10 Å about 370, so a tight box fails it. By
+  the same estimate the cast's 360-lipid tasks need about 18 Å.
+- **A correct start.** Over N, CA and C, the deposit's Rg is 35.15 Å, inside the
+  band, and 1.11 Å RMSD from `reference.pdb`. The 8 chain ends are charged
+  termini, as "separate termini" says.
+
+**Size.** 126,711 reference atoms against 91,650 for the cast's largest membrane
+task, 008 (× 1.38), and 832 lipids against 492, with 1138 residues against 1698.
+Water is not in the reference. Estimated from the extents, a submission at 15 Å
+padding has about 245,000 atoms, and one at the reference's box about 400,000. At
+4 fs with HMR on one GPU of this class, 1 ns should take 5–10 min and 10–15 min
+respectively; at 2 fs, double that, so the reference-size box would not fit
+00:20:00. These are estimates from atom counts, not measurements. The 1800 s
+agent limit also has to hold the packing and a membrane equilibration of that
+size.
+
+**Verification.** See the memo entry of 2026-11-03.
+
 ## Reproduce
 
 ```bash
