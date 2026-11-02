@@ -814,3 +814,15 @@ $S scripts/build_test_tasks.py --set v7 finalize
     used).
 - A rerun of the selection reads the listing cache, so it makes no network
   request except to nodes that failed.
+
+The membrane supplement (Part 5):
+
+```bash
+PYTHONPATH=$PWD python3 scripts/select_membrane_supplement.py --need 9     # the rule as written
+# on the branch v7m-7dtd-proposal:
+PYTHONPATH=$PWD python3 scripts/select_membrane_supplement.py --max-atoms 130000
+$S scripts/build_test_tasks.py --set v7m fetch
+$S scripts/build_test_tasks.py --set v7m calibrate    # whole frames, 15 GB, about an hour
+$S scripts/build_test_tasks.py --set v7m build
+$S scripts/build_test_tasks.py --set v7m finalize
+```
