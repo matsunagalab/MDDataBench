@@ -5,6 +5,12 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-11-03 (2) — test-v7m result: task 161 7DTD on frozen 6524d3e
+
+36 attempts (`runs/test-v7m`), all sealed. Attempts passed: CLI + skills 10/12, CLI only 9/12, SIF only 0/12. pass^3: glm in both CLI conditions, kimi with skills; the others 2/3 per condition. Failures are counted in `runs/RESULTS-test-v7.md`; no scorer-side defect showed.
+
+The size feared in the review did not stop anything: agents built and ran a Nav channel in a DPPC bilayer within the 1800 s agent limit and the 00:20:00 MD limit in 19 attempts. One task is weak evidence for pass^3, and the atom cap moved after the values were known, so this is a supplement, not a membrane pass rate.
+
 ## 2026-11-03 — Membrane supplement to test-v7: the pre-registered rule gives no pick; 7DTD is built on a proposal branch, not on main
 
 The user asked for one membrane task beside test-v7, by a rule fixed first. The rule is Part 5 of `docs/test-set-v7-selection.md`, committed (daf8d6c) before any candidate was verified. Applied by `scripts/select_membrane_supplement.py` (`v7m` set in `heldout_sets.py`). Work directory: `/data1/rkp00079/rku00161/testset-v7m-20261103`. No MDClaw, agent or MD ran, and nothing under `runs*` was read to choose; the two v7 spec files were copied for the dry init.
