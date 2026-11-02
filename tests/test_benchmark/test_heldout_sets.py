@@ -132,6 +132,7 @@ def test_v7m_supplements_v7_and_leaves_v6_and_v7_alone(bt):
     assert v7m.dataset_id == "MDDataBench-v0.7.1"
     assert bt._older("MDDataBench-v0.7", v7m.dataset_id)
     assert v7m.description_marker not in v7.description_addition
+    assert v7.description_marker not in v7m.description_addition
     # A set added later changes neither the default nor the earlier sets.
     assert hsets.DEFAULT == "v6"
     assert (v7.split, v7.first_number, v7.dataset_id) == ("test_v7", 131, "MDDataBench-v0.7")

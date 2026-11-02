@@ -216,9 +216,10 @@ V7M = HeldOutSet(
                "mentions; the atom cap is 130,000). The builder now names a long gap the deposit "
                "never resolved as an omission, not a crystallisation partner. Tasks 1-160 are "
                "unchanged."),
-    description_marker="test_v7_membrane",
-    description_addition=(" Version 0.7.1 adds one membrane task, split test_v7_membrane, to "
-                          "supplement test_v7."),
+    # Not "test_v7_membrane": test_v7's own marker is "test_v7", a substring of it.
+    description_marker="membrane supplement",
+    description_addition=(" Version 0.7.1 adds a membrane supplement of one task to the second "
+                          "held-out split."),
 )
 
 SETS = {s.name: s for s in (V6, V7, V7M)}
