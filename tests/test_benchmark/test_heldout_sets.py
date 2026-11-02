@@ -6,7 +6,8 @@ was run once on a frozen MDClaw and is now development data, and test-v7
 to its development set. ``scripts/heldout_sets.py`` holds each set's
 parameters. These tests pin that a run without ``--set`` is still v6, that
 ``--set v7`` switches every parameter together, and that the v6 selection and
-numbering are reproduced from the v6 records.
+numbering are reproduced from the v6 records. ``v7m`` is the one-task membrane
+supplement to test-v7 (``scripts/select_membrane_supplement.py``).
 """
 
 import json
@@ -120,6 +121,87 @@ def test_v6_plan_reproduces_tasks_101_to_130(bt):
     items, replaced = _plan_or_skip(bt, "v6")
     assert [i["task_id"] for i in items] == _split_ids("test")
     assert [(r["replaced"], r["by"]) for r in replaced] == [("2AF1", "1JE8"), ("1PNE", "1J7A")]
+
+
+def test_v7m_supplements_v7_and_leaves_v6_and_v7_alone(bt):
+    v7, v7m = hsets.V7, hsets.get("v7m")
+    assert v7m.split == "test_v7_membrane" and v7m.first_number == 161
+    assert v7m.previous_test_splits == ("test", "test_v7") and not v7m.previous_tests_are_anchors
+    assert v7m.mdclaw_commit == v7.mdclaw_commit
+    assert v7m.mdstudybench_tasks == v7.mdstudybench_tasks
+    assert v7m.dataset_id == "MDDataBench-v0.7.1"
+    assert bt._older("MDDataBench-v0.7", v7m.dataset_id)
+    assert v7m.description_marker not in v7.description_addition
+    # A set added later changes neither the default nor the earlier sets.
+    assert hsets.DEFAULT == "v6"
+    assert (v7.split, v7.first_number, v7.dataset_id) == ("test_v7", 131, "MDDataBench-v0.7")
+
+
+def test_load_cast_for_v7m_reads_all_158_tasks(st, tmp_path):
+    index = {}
+    cast = st.load_cast(tmp_path, index, hsets.get("v7m"))
+    tasks = [c for c in cast if c["role"] in ("cast", "previous_test")]
+    assert len(tasks) == len(_split_ids("train") + _split_ids("eval") + _split_ids("test")
+                             + _split_ids("test_v7"))
+    assert sum(c["role"] == "withdrawn" for c in cast) == 3
+
+
+@pytest.fixture
+def sm():
+    return pytest.importorskip("select_membrane_supplement")
+
+
+@pytest.mark.parametrize("description, expected", [
+    ("Guanine nucleotide-binding protein G(i) subunit alpha-1", True),
+    ("Guanine nucleotide-binding protein G(I)/G(S)/G(T) subunit beta-1", True),
+    ("Guanine nucleotide-binding protein G(I)/G(S)/G(O) subunit gamma-2", True),
+    ("Guanine nucleotide-binding protein G(i) subunit alpha-1,"
+     "Guanine nucleotide-binding protein subunit alpha-11", True),
+    ("scFv16", True), ("Single-chain Fv16", True), ("mini-Gs", True),
+    # 6E67: a receptor fused to a Gs peptide is a receptor.
+    ("Beta-2 adrenergic receptor,Endolysin,Guanine nucleotide-binding protein G(s) subunit "
+     "alpha isoforms short,Beta-2 adrenergic receptor chimera", False),
+    ("Sodium channel protein type 9 subunit alpha", False),
+    ("Muscarinic acetylcholine receptor M1", False), ("Nanobody-35", False), ("", False),
+])
+def test_only_g_protein_subunits_and_scfv16_are_machinery(sm, description, expected):
+    assert sm.is_machinery(description) is expected
+
+
+def _member(st, name, chains):
+    return {"task_id": name, "kmers": st.kmer_set([(t, s) for _, t, s in chains]),
+            "chain_kmers": st.chain_kmers(chains)}
+
+
+def test_the_exemption_holds_against_mentions_only(sm, st):
+    gbeta = "MSELDQLRQEAEQLKNQIRDARKACADATLSQITNNIDPVGRIQMRTRRTLRGHLAKIYAMHWGTDSRLLVSASQDGKLIIWD"
+    channel = "WMDCTTLYSFAVLLAFLVGAYIKDIHPKSQLTDKGAVFMLFWGHNIPVLNPDVLTKNVSEAACDVFQHYW"
+    rows = [{"type": "Protein", "description": "Guanine nucleotide-binding protein G(I)/G(S)/G(T) "
+             "subunit beta-1", "sequence": gbeta, "chains": "B"},
+            {"type": "Protein", "description": "Sodium channel", "sequence": channel, "chains": "A"}]
+    chains = [("P1", "protein", gbeta), ("P2", "protein", channel)]
+    machinery = _member(st, "mdclaw:6OT0", [("entity1", "protein", gbeta)])
+    other = _member(st, "other", [("x", "protein", "ACDEFGHIKLMNPQRSTVWYACDEFGHIKLMNPQRSTVWY")])
+
+    # Against a mention the G-protein chain does not count, and the channel passes.
+    assert sm.assess(chains, rows, [other], [other], [machinery])["failures"] == []
+    seen = sm.assess(chains, rows, [other], [other], [machinery])
+    assert seen["exempt_chains"] == ["P1"] and seen["chain_vs_mentions_all_chains"][0] == 1.0
+    # The same chain against a task or MDPrepBench entry fails: no exemption there.
+    assert sm.assess(chains, rows, [machinery], [machinery], [])["failures"]
+    # A non-machinery chain that matches a mention still fails.
+    mention = _member(st, "mdclaw:CHAN", [("entity1", "protein", channel)])
+    assert sm.assess(chains, rows, [other], [other], [mention])["failures"]
+
+
+def test_chain_max_ignores_short_chains_and_orders_by_tasks(sm, st):
+    long_chain = "ACDEFGHIKLMNPQRSTVWYACDEFGHIKLMNPQRSTVWY"
+    member = _member(st, "t", [("a", "protein", long_chain)])
+    short = st.chain_kmers([("P1", "protein", long_chain[:20])])
+    assert sm.chain_max(short, [member])[0] == 0.0
+    full = st.chain_kmers([("P1", "protein", long_chain)])
+    assert sm.chain_max(full, [member])[0] == 1.0
+    assert sm.chain_max(full, [member], skip=("P1",))[0] == 0.0
 
 
 def test_v7_plan_numbers_131_to_160_in_dispatch_order(bt):

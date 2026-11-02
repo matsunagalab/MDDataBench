@@ -710,6 +710,52 @@ in 5.5 from the reference's coordinates and metadata:
 - whether 1 ns fits `md_time_limit` 00:20:00 on one GB200 GPU, reasoned from
   the atom count.
 
+### 5.2 Result of the rule: no candidate passes
+
+Applied by `scripts/select_membrane_supplement.py`. Records are under
+`testset-v7m-20261103/selection/`: `candidates.json` (the funnel),
+`selection_log.json` (every candidate tried), and `all_steps_record.json` and
+`oversize_stability.json` (every step for every project past step 2, size
+ignored; a record, which chooses nothing).
+
+| Step | Removed | Left |
+|---|---:|---:|
+| membrane projects of the pool | | 55 |
+| already one of the 158 tasks | 15 | 40 |
+| distinctness against a task (0.89–1.00: β2AR, MT1, 5-HT2A, A2A, M2, GABA-A) | 17 | 23 |
+| size: 13 over 120,000 atoms, one (6CNJ) over 1700 residues | 14 | **9** |
+| own PDB ID mentioned in mdclaw | 0 | 9 |
+| stability, or SEQRES verification | **9** | **0** |
+
+The nine, in rule order. Every one fails step 4:
+
+| rank | PDB | node:accession | system | order key (max chain vs tasks) | res / atoms | last-third RMSD Å (drift) | why it fails |
+|---:|---|---|---|---:|---|---:|---|
+| 1 | 7K48 | mmb:A0258 | NavAb/Nav1.7-VS2A chimera + m3-huwentoxin-IV | 0.129 | 1048 / 117324 | 8.372 | unstable |
+| 2 | 6VXO | mmb:A023Q | NaChBac-Nav1.7VSDII chimera | 0.148 | 904 / 105688 | 4.175 (+0.58) | unstable |
+| 3 | 6W6O | mmb:A023X | NaChBac-Nav1.7VSDII + huwentoxin-IV | 0.148 | 1044 / 107294 | 5.545 | unstable |
+| 4 | 6J8H | mmb:A024C | Nav1.7 | 0.250 | 1140 / 117692 | 4.012 (+0.46) | unstable, by 0.012 Å |
+| 5 | 7E2Z | mmb:A02JU | 5-HT1A–Gi, aripiprazole | 0.256 | 870 / 75443 | 4.404 | unstable |
+| 6 | 7E2Y | mmb:A0252 | 5-HT1A–Gi, serotonin | 0.262 | 868 / 74495 | 4.588 | unstable |
+| 7 | 6OIJ | mmb:A023W | M1–G11 | 0.344 | 916 / 76291 | 5.889 | unstable |
+| 8 | 6K42 | mmb:A024F | α2B–Gi1 | 0.539 | 883 / 75776 | 4.685 | unexplained chain F, and unstable |
+| 9 | 7CMU | mmb:A024W | D3–Gi | 0.594 | 892 / 80521 | 4.072 (+0.47) | unstable |
+
+- **No pick and no reserve exist under the rule as written.** The 4.0 Å cut has
+  been strict in both sets (437D at 4.08 Å and 1UTG at 4.032 Å are out), so
+  6J8H at 4.012 Å is out too. The rule is not changed here: a threshold moved
+  after the candidates' values are known is no longer pre-registered, so any
+  change is the user's decision.
+- The nine fail on stability, not on sequence. The exemption of step 2 reaches
+  five of them (7E2Z, 7E2Y, 6OIJ, 6K42, 7CMU), whose Gα, Gβ and Gγ chains have
+  containment 1.00 against the mentions 6OT0 and 6XBL, and it made no difference
+  to the outcome.
+- `6524d3e` and the checkout's HEAD (`ca0ec66`) agree on every candidate: no
+  candidate's PDB ID is new at HEAD.
+- The scan also shows that the list of 16 systems given with the request was
+  right on sequence: every one has no chain near a task (maxima 0.13–0.59).
+  Seven of them are over the size cap of step 3.
+
 ## Reproduce
 
 ```bash

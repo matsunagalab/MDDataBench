@@ -11,7 +11,8 @@ and the next set excludes it. So each set names the splits that are its
 development set, the mdclaw commit whose text it excludes, and the ids, split
 and dataset version it is built under.
 
-Rules: docs/test-set-selection.md (v6) and docs/test-set-v7-selection.md (v7).
+Rules: docs/test-set-selection.md (v6) and docs/test-set-v7-selection.md (v7, and
+its membrane supplement v7m, Part 5).
 """
 
 from __future__ import annotations
@@ -190,7 +191,35 @@ V7 = HeldOutSet(
                           "\"test\" is now development data."),
 )
 
-SETS = {s.name: s for s in (V6, V7)}
+# One membrane task added to test-v7, whose own selection found none. Its rule is
+# Part 5 of docs/test-set-v7-selection.md, applied by
+# scripts/select_membrane_supplement.py: the pool is test-v7's, and the exemption
+# of G-protein machinery and the larger atom cap are recorded relaxations.
+V7M = HeldOutSet(
+    name="v7m",
+    workdir=Path("/data1/rkp00079/rku00161/testset-v7m-20261103"),
+    split="test_v7_membrane",
+    first_number=161,
+    retrieved="2026-11-02",
+    rule_doc="docs/test-set-v7-selection.md",
+    previous_test_splits=("test", "test_v7"),
+    # No greedy here: candidates are ordered by distance to the tasks alone.
+    previous_tests_are_anchors=False,
+    mdclaw_commit=V7.mdclaw_commit,
+    mdstudybench_tasks=V7.mdstudybench_tasks,
+    not_statable=dict(NOT_STATABLE_V6),
+    dataset_id="MDDataBench-v0.7.1",
+    changelog=("v0.7.1 (2026-11-02): one membrane task added as split test_v7_membrane "
+               "(task 161), because test_v7 has none; chosen by the rule pre-registered in Part 5 "
+               "of docs/test-set-v7-selection.md, which relaxes v7's rule in two recorded ways "
+               "(G-protein machinery is not compared with entries the mdclaw checkout only "
+               "mentions; the atom cap is 120,000). Tasks 1-160 are unchanged."),
+    description_marker="test_v7_membrane",
+    description_addition=(" Version 0.7.1 adds one membrane task, split test_v7_membrane, to "
+                          "supplement test_v7."),
+)
+
+SETS = {s.name: s for s in (V6, V7, V7M)}
 DEFAULT = "v6"
 
 
