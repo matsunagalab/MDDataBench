@@ -5,6 +5,25 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-11-03 — Membrane supplement to test-v7: the pre-registered rule gives no pick; 7DTD is built on a proposal branch, not on main
+
+The user asked for one membrane task beside test-v7, by a rule fixed first. The rule is Part 5 of `docs/test-set-v7-selection.md`, committed (daf8d6c) before any candidate was verified. Applied by `scripts/select_membrane_supplement.py` (`v7m` set in `heldout_sets.py`). Work directory: `/data1/rkp00079/rku00161/testset-v7m-20261103`. No MDClaw, agent or MD ran, and nothing under `runs*` was read to choose; the two v7 spec files were copied for the dry init.
+
+**Result: no candidate passes.** 55 membrane projects: 15 are tasks, 17 are the same receptors (0.89–1.00), 14 are over the size cap, and the 9 left all fail step 4.
+- 7K48 8.37 Å, 6VXO 4.175, 6W6O 5.55, 6J8H 4.012, 7E2Z 4.40, 7E2Y 4.59, 6OIJ 5.89, 6K42 4.69 (also an unexplained chain), 7CMU 4.072.
+- 6J8H stays out at 4.012 Å: the cut has been strict since 437D and 1UTG.
+- No threshold was moved after these values were known. Dataset v0.7 on main is unchanged, and main has no task 161.
+
+**The only project that passes every quality gate is over the size cap.** 7DTD (mmb:A0251, human Nav1.1 α): RMSD 3.877 Å, SEQRES contiguous, largest chain containment 0.25, but 126,711 atoms against the cap of 120,000. For any atom cap from 126,711 up to none, it is the only one to pass, and there is no reserve. Options with their numbers are in Part 5.3. Raising the RMSD cut instead gives 6J8H (4.02), then 7CMU (4.1), then 6VXO (4.2).
+
+**Proposal, awaiting the user's decision:** branch `v7m-7dtd-proposal` (worktree `../MDDataBench-worktrees/v7m-7dtd-proposal`), not merged. It carries `161_membrane_7dtd`, split `test_v7_membrane`, dataset v0.7.1, atom cap 130,000, fully verified.
+- Builder fix there: `state_unresolved_gaps`. The draft called the channel's own unresolved linkers (513 residues) a crystallisation partner. Over 158 tasks this changes the derivation of 008 only, whose shipped prompt has the same false sentence and is left as shipped.
+- Bands: rank 0.800–0.891 (floor 0.30), total fluctuation 0.607–0.853 Å (ceiling 1.06), Rg 34.89–35.35 Å (34.07–36.17; deposit 35.15). Headroom 42 / 21 / 62 window SD. Single replica, so no held-out measurement.
+- Checked on the reference: protein and DPPC only, no ion in the deposit, NAG sites unglycosylated, and protein moves into the 9Z9 site over 41 frames, so 9Z9 was not simulated.
+- Doubts: author A = label B (the 138/147 swap class); free Cys919 under an SSBOND record that names β4; at least 416 DPPC needed, about 13 Å of padding; about 245,000 atoms at 15 Å padding, estimated, not measured.
+- Verification on the branch: `audit_task_contract` clean, `audit_task_cast` 157/159 (the 2 are the cast's 028/036). pytest in mdclaw.sif with bundles, cwd = the worktree: 2734 passed, 4 failed, the known 029 ×2 and source_overlay ×2. Ruff clean. Dry `init_experiment` from copies of the two v7 specs: 12 attempts, v0.7.1, every `task_prompt.md` byte-identical, no workspace file names the accession or an MDDB host. `run_experiment` was never called.
+- An incidental defect fixed on the way: `v7m`'s description marker `test_v7_membrane` contains `test_v7`, so a v7 `finalize` on an older dataset skipped its own sentence. `test_finalize_bumps_an_older_dataset_once` caught it.
+
 ## 2026-11-02 — test-v7 final: held-out pass^3 of mdclaw 6524d3e (0.6.15)
 
 30 new systems (131–160) × 4 models × 3 conditions × 3 replicates, all terminal. Details are in `runs/RESULTS-test-v7.md`.
