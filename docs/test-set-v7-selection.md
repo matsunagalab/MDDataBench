@@ -756,6 +756,36 @@ The nine, in rule order. Every one fails step 4:
   right on sequence: every one has no chain near a task (maxima 0.13–0.59).
   Seven of them are over the size cap of step 3.
 
+### 5.3 What is left to decide
+
+Nothing below is the rule. It is measured so that the decision can be made
+with the numbers in hand. `all_steps_record.json` holds every step of 5.1 for
+all 23 projects past step 2, size ignored.
+
+| Change (one at a time) | What passes step 4 | First in rule order |
+|---|---|---|
+| Atom cap raised to any value ≥ 126,711, up to no cap at all | **7DTD alone** | 7DTD; no reserve |
+| RMSD cut 4.02 Å, atoms ≤ 120,000 | 6J8H | 6J8H; no reserve |
+| RMSD cut 4.1 Å | 6J8H, 7CMU | 6J8H; 1 reserve |
+| RMSD cut 4.2 Å | 6VXO, 6J8H, 7CMU | 6VXO; 2 reserves |
+| RMSD cut 4.6 Å | adds 7E2Z, 7E2Y | 6VXO; 4 reserves |
+
+- **7DTD** (mmb:A0251, human Nav1.1 α; 1138 residues, 126,711 atoms) is the only
+  project of the whole membrane pool past step 2 that passes every quality gate
+  of step 4: RMSD 3.877 Å (drift +0.225), every chain contiguous on SEQRES,
+  largest chain containment 0.25 against the tasks. It is 6,711 atoms (5.6 %)
+  over the cap of step 3.
+- Of the 14 projects over the size cap, only 7DTD passes stability; 6CNJ, the
+  one over the residue cap alone, is at 4.279 Å, and the others at 5.35–15.7 Å.
+- The size cap is a cost limit and the RMSD cut a validity limit: above it
+  "the reference has left the deposited fold". So the atom cap is the smaller
+  departure from v6/v7, and it is the one a proposal was built for.
+- That proposal is on the local branch `v7m-7dtd-proposal`, in the worktree
+  `../MDDataBench-worktrees/v7m-7dtd-proposal`, and is **not** on main. Its
+  build and verification are written up on that branch, Parts 5.4 and 5.5.
+- Main carries the `v7m` set and the selection script, but no task 161: dataset
+  v0.7 and its 158 tasks are unchanged.
+
 ## Reproduce
 
 ```bash

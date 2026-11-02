@@ -214,9 +214,10 @@ V7M = HeldOutSet(
                "of docs/test-set-v7-selection.md, which relaxes v7's rule in two recorded ways "
                "(G-protein machinery is not compared with entries the mdclaw checkout only "
                "mentions; the atom cap is 120,000). Tasks 1-160 are unchanged."),
-    description_marker="test_v7_membrane",
-    description_addition=(" Version 0.7.1 adds one membrane task, split test_v7_membrane, to "
-                          "supplement test_v7."),
+    # Not "test_v7_membrane": test_v7's own marker is "test_v7", a substring of it.
+    description_marker="membrane supplement",
+    description_addition=(" Version 0.7.1 adds a membrane supplement of one task to the second "
+                          "held-out split."),
 )
 
 SETS = {s.name: s for s in (V6, V7, V7M)}
