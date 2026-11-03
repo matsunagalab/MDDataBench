@@ -5,6 +5,59 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-11-04 — MDCrow baseline on test-v7: harness built on branch `mdcrow-baseline`, nothing run yet
+
+Goal (paper decision log 2026-11-04): measure the public MDCrow agent on the 31 test-v7 tasks (131–161, dataset v0.7.1) with the same prompts and scorer, `rikyu/deepseek-v4.1-flash` and `rikyu/glm-5.3-flash`, 3 replicates each (186 attempts). Code: `mddatabench/mdcrow_baseline/` (runner, recorder, convert, campaign). Not merged.
+
+**MDCrow as measured.** ur-whitelab/MDCrow `b3b0b57` (= upstream main on 11-04), checkout `/data1/rkp00079/rku00161/mdcrow-bench/MDCrow`, unmodified. Environment `/data1/rkp00079/rku00161/mdcrow-bench/env`, conda-forge from MDCrow's own `environment.yaml` plus, each recorded in `env-mdcrow.yaml`:
+- python 3.12 and `cuda-version=12.9` (selects OpenMM's CUDA build for aarch64);
+- numpy<2 and scipy 1.14.0 in conda (MDCrow pins scipy==1.14.0, langchain 0.2.12 needs numpy<2; without the conda pin pip swaps numpy under conda's binaries);
+- `nest_asyncio` by pip (imported by MDCrow, missing from its setup.py).
+
+The result is OpenMM 8.6.1 (same as MDClaw 0.6.15) and langchain 0.2.12 / langchain-openai 0.1.19. packmol comes with AmberTools. MDClaw is not importable there. Versions: `env-pip-freeze.txt`, `env-conda-list.txt`, both copied into each experiment's `frozen/`.
+
+**What MDCrow does that shaped the design** (code read at b3b0b57):
+- **MD runs in the agent's own process,** synchronously inside the SetUpandRun tool.
+- **OpenMM's platform is hard-coded to `CPU`** (`setup_and_run.py:322`, `:656`). Measured on the login node: 12.6 ns/day for 20,361 atoms at 16 threads, no faster at 32.
+- **Several artifacts are never saved:** no System XML, no state before or after minimisation, and its log has only step, potential energy and temperature (no volume or density).
+- **Unknown model names are rejected** (`makellm.py`).
+- **No ligand parametrisation** (only nine solvent HET codes via SMIRNOFF) **and no membrane builder.** 131–134 and 161 are expected to fail.
+
+**Decisions (user, 11-04):**
+1. **Run on GPU.** The runner answers MDCrow's `getPlatformByName("CPU")` with `CUDA`; MDCrow's files are untouched.
+2. **One attempt is one Slurm job with one GPU,** agent and MD together, inside the attempt sandbox.
+3. **The budget is 5400 s for the whole attempt** (the MDClaw agent limit of 1800 s plus three 20-minute MD jobs; MDCrow cannot separate the two). Slurm's 01:40:00 is the backstop.
+4. **Missing files are recorded, not rebuilt (option C3).** `recorder.py` hooks `openmm.app.Simulation` and saves the System as built, the states before and after minimisation, and an extra StateDataReporter log with volume and density. `convert.py` then only links files and writes production.json / amber_metadata.json from values read off the live objects.
+
+Rejected alternatives:
+- C1, link only: every attempt unscorable.
+- C2, rebuild in the converter: favours MDCrow and can never pass `minimization_reduced_the_energy`.
+
+**Model connection.** The runner replaces `mdcrow.agent.agent._make_llm` with `ChatOpenAI` on the RIKYU gateway.
+- Kept at MDCrow's values: temperature 0.1 and request_timeout 1000 s.
+- Streaming is off, so usage comes back with each response.
+- max_tokens is 32768, as pi sends.
+- **No reasoning parameter is sent.** pi sends none either: the rikyu provider has `supportsReasoningEffort: false`, so `--thinking high` never reached the gateway in the MDClaw campaigns. The server reasons by default (reasoning tokens are reported); langchain-openai 0.1.19 drops the reasoning text.
+- Agent settings as in MDCrow's experiment notebooks: `Structured`, `top_k_tools="all"`, no memory, AgentExecutor default of 15 iterations.
+
+**Isolation.** The sandbox plan shows the attempt's `workspace/` and `record/`, the MDCrow env and runner (read-only), and the key file (read-only) and nothing else. Verified on the pilot attempt: references, `manifest.json`, the harness and other attempts are absent; `mdclaw` is not importable; RCSB is reachable. An empty `workspace/setup.py` is required because MDCrow locates its root by that file and refuses to import without one.
+
+**Compute nodes reach the internet** (probe job 276864 on c277, 11-04 02:08):
+- gateway 401 without a key;
+- RCSB, UniProt and PubChem 200;
+- `mmb.mddbr.eu` 200.
+
+**Benchmark-side observations, not fixed:**
+1. **`mddbr.eu` is not blocked.** README:333 says it is; `docs/validation-design.md:197` already notes it is not. It was not blocked in the MDClaw campaigns either, so both sides are equal.
+2. **`water_model_matches_reference` uses substring tests** (`wanted in water and wanted in xmls`). MDCrow's default `amber14/tip3pfb.xml` (TIP3P-FB) would pass a TIP3P task.
+
+**Tests.**
+- `tests/test_mdcrow_convert.py`: 9, stdlib.
+- `tests/test_mdcrow_recorder.py`: 1, a real water box on the Reference platform. 10/10 pass in the MDCrow env.
+- `tests/test_mdcrow_known_output.py` (slow): rearranges passed sif_only submissions into the MDCrow layout and checks that the score is unchanged check-for-check. Not yet run.
+
+**State.** Pilot planned at `runs/mdcrow-v7-pilot` (157_soluble_1hp9 × deepseek × r1), not submitted; it waits for the user's approval.
+
 ## 2026-11-03 (2) — test-v7m result: task 161 7DTD on frozen 6524d3e
 
 36 attempts (`runs/test-v7m`), all sealed. Attempts passed: CLI + skills 10/12, CLI only 9/12, SIF only 0/12. pass^3: glm in both CLI conditions, kimi with skills; the others 2/3 per condition. Failures are counted in `runs/RESULTS-test-v7.md`; no scorer-side defect showed.
