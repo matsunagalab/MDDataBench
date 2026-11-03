@@ -5,6 +5,24 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-11-04 (2) — MDCrow baseline: known-output check passes; pilot passes 20/20; token logging fixed
+
+**Known-output check passed** (job 277033, scorer image 5612e4a6, 3/3). Three passed sif_only submissions were rearranged into the MDCrow/recorder layout, converted, and scored. Every check came out the same as on the original. The submissions were 157 glm r1, 141 deepseek r2 and 155 deepseek r1 from test-v7-sifonly.
+
+**Pilot passed** (`runs/mdcrow-v7-pilot`, 157_soluble_1hp9 × deepseek-v4.1-flash × r1, job 277034 on c215, scorer 277035). The verdict was 20/20.
+- MDCrow downloaded 1HP9, cleaned it with PDBFixer (heterogens and water removed, H added at pH 7) and ran SetUpandRun.
+- It chose `amber14-all.xml` + `amber14/tip3p.xml`, PME 1.0 nm, HBonds, LangevinMiddle 2 fs, 300 K, NPT 1 bar (MonteCarloBarostat every 25 steps).
+- The run was 1,000 equilibration steps, then 500,000 production steps.
+- The platform request for CPU was substituted once, and the run used CUDA on an NVIDIA GB200 at the default single precision. 1 ns of 4,730 atoms took 89 s.
+- The whole job took 495 s, so 495 GPU-s.
+- MDCrow's final answer string was empty.
+- Measured T 300.6 K, density 1.021 g/mL, solvent clock ratio 0.94.
+
+**Token logging was empty in the pilot, now fixed.** MDCrow's `run(prompt, callbacks=...)` hands `callbacks` to `AgentExecutor.invoke` as a keyword argument, and langchain 0.2's `Chain.invoke` reads callbacks only from `config`, so they never fire. This is a defect of MDCrow b3b0b57; it does not change its behaviour.
+- The runner now attaches its callback to the `ChatOpenAI` object it builds. One gateway call with `.bind(stop=...)` counted prompt, completion and reasoning tokens.
+- Tool-level callbacks are not available this way. The transcript keeps the full prompt of every LLM call instead, which carries MDCrow's ReAct scratchpad of tool calls and observations.
+- The pilot's token usage is lost.
+
 ## 2026-11-04 — MDCrow baseline on test-v7: harness built on branch `mdcrow-baseline`, nothing run yet
 
 Goal (paper decision log 2026-11-04): measure the public MDCrow agent on the 31 test-v7 tasks (131–161, dataset v0.7.1) with the same prompts and scorer, `rikyu/deepseek-v4.1-flash` and `rikyu/glm-5.3-flash`, 3 replicates each (186 attempts). Code: `mddatabench/mdcrow_baseline/` (runner, recorder, convert, campaign). Not merged.

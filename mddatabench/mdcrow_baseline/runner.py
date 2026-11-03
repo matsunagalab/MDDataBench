@@ -26,8 +26,8 @@ MDCrow is constructed as in the paper's experiment notebooks:
 everything else at MDCrow's defaults. The question is the task prompt, verbatim.
 
 Writes ``<record_dir>/run.json`` (exit reason, timings, token usage) and
-``<record_dir>/transcript.jsonl`` (one line per LLM call, tool call and agent
-step). The API key is read from a file and never written anywhere.
+``<record_dir>/transcript.jsonl`` (each LLM call: the full prompt, which
+carries MDCrow's scratchpad of tool calls and observations, and the reply). The API key is read from a file and never written anywhere.
 """
 
 from __future__ import annotations
@@ -79,9 +79,11 @@ def make_callback(transcript: Path, usage: dict):
             log("llm_start", prompt_chars=sum(len(p) for p in prompts))
 
         def on_chat_model_start(self, serialized, messages, **kwargs):
+            # The whole prompt: MDCrow's ReAct scratchpad carries every tool
+            # call and observation, and tool callbacks do not reach here.
             self._t0 = time.time()
-            log("llm_start", prompt_chars=sum(len(str(m.content)) for batch in messages
-                                              for m in batch))
+            log("llm_start", messages=[{"role": m.type, "content": m.content}
+                                       for batch in messages for m in batch])
 
         def on_llm_end(self, response, **kwargs):
             output = (response.llm_output or {})
@@ -104,23 +106,6 @@ def make_callback(transcript: Path, usage: dict):
         def on_llm_error(self, error, **kwargs):
             usage["llm_errors"] += 1
             log("llm_error", error=repr(error))
-
-        def on_tool_start(self, serialized, input_str, **kwargs):
-            log("tool_start", tool=(serialized or {}).get("name"), input=input_str)
-
-        def on_tool_end(self, output, **kwargs):
-            log("tool_end", output=str(output)[:20000])
-
-        def on_tool_error(self, error, **kwargs):
-            log("tool_error", error=repr(error))
-
-        def on_agent_action(self, action, **kwargs):
-            usage["agent_steps"] += 1
-            log("agent_action", tool=action.tool, tool_input=action.tool_input,
-                log=action.log)
-
-        def on_agent_finish(self, finish, **kwargs):
-            log("agent_finish", output=finish.return_values, log=finish.log)
 
     return Recorder()
 
@@ -154,7 +139,7 @@ def main(argv=None) -> int:
            "host": os.uname().nodename,
            "cuda_visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES")}
     usage = {"calls": 0, "calls_with_usage": 0, "prompt_tokens": 0, "completion_tokens": 0,
-             "reasoning_tokens": 0, "llm_errors": 0, "agent_steps": 0}
+             "reasoning_tokens": 0, "llm_errors": 0}
     run["token_usage"] = usage
     _write_json(record / "run.json", run)
 
@@ -180,10 +165,15 @@ def main(argv=None) -> int:
         import mdcrow
         import mdcrow.agent.agent as agent_module
 
+        callback = make_callback(record / "transcript.jsonl", usage)
+
         def make_llm(model, temp, streaming):
+            # The callback is attached to the model itself: MDCrow.run passes
+            # its ``callbacks`` to AgentExecutor.invoke as a keyword, which
+            # langchain 0.2 ignores (it reads callbacks from ``config`` only).
             return ChatOpenAI(model=model, base_url=args.base_url, api_key=key,
                               temperature=temp, request_timeout=1000, streaming=False,
-                              max_tokens=args.max_tokens)
+                              max_tokens=args.max_tokens, callbacks=[callback])
 
         agent_module._make_llm = make_llm
         run["mdcrow_file"] = mdcrow.__file__
@@ -191,8 +181,7 @@ def main(argv=None) -> int:
                                     top_k_tools="all", use_memory=False)
         run["ckpt_dir"] = str(Path(agent.path_registry.ckpt_dir).resolve())
         _write_json(record / "run.json", run)
-        callback = make_callback(record / "transcript.jsonl", usage)
-        output, _ = agent.run(prompt, callbacks=[callback])
+        output, _ = agent.run(prompt)
         run["final_output"] = output.get("output") if isinstance(output, dict) else str(output)
         run["exit_reason"] = "completed"
     except DeadlineReached as exc:
