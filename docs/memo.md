@@ -5,6 +5,25 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-11-04 (6) — MDCrow main run v7d done: pass^3 4/31 and 5/31; one pass rests on the water-model substring match
+
+`runs/mdcrow-v7d` (1feaa5e): 186/186 sealed by 19:56, no infra failures. Write-up: `runs/RESULTS-mdcrow-v7.md`; aggregates: `runs/mdcrow-v7d/collect.json`.
+
+| model | pass^3 | pass@1 (Wilson 95%) | GPU-h |
+|---|---|---|---|
+| deepseek-v4.1-flash | 4/31 (148, 155, 157, 158) | 14/93 = 15.1% (9.2–23.7) | 19.8 |
+| glm-5.3-flash | 5/31 (+154) | 16/93 = 17.2% (10.9–26.1) | 15.6 |
+
+The same 31 tasks under MDClaw 6524d3e give pass^3 30/31 and 30/31 (CLI + skills), 28/31 and 29/31 (CLI only), 0/31 and 0/31 (SIF only), for deepseek and glm. MDCrow passes only soluble single-chain deposits.
+
+- **Failures** (156): checks_failed 116, agent_no_submission 30 (24 iteration limit, mostly ligand), agent_exception 6, agent_timeout 4 (all 161 membrane).
+- **checks_failed** is almost all the residue set:
+  - 65 have chain lengths unlike the requested range. MDCrow's cleaning runs PDBFixer `findMissingResidues`.
+  - 44 keep extra chains. MDCrow has no chain selection.
+- **Zero passes** on ligand, complex, nucleic, nanobody, antibody and membrane.
+
+**Scorer-side finding, reported, not fixed.** The 154_soluble_2pef × deepseek r1 pass used `amber14/tip3pfb.xml` on a task that asks for TIP3P. `water_model_matches_reference` passed it ("forcefield xml carries tip3p: True"). Scored strictly, deepseek pass@1 is 13/93; pass^3 is unchanged. MDClaw passes were not checked for the same pattern.
+
 ## 2026-11-04 (5) — v7c stopped: unfenced JSON actions also end the run; patch 4 added; rerun as `runs/mdcrow-v7d`
 
 This supersedes entry (4)'s "main result" line.
