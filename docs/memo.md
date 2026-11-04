@@ -5,6 +5,17 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-11-04 (2) — 7DTD on both MDClaw versions
+
+24 CLI attempts per version on 161_membrane_7dtd (runs/test-v7m-base on 8aa6be6, runs/test-v7m on 6524d3e).
+
+| condition | 8aa6be6 | 6524d3e |
+|---|---|---|
+| CLI + skills | 11/12 | 10/12 |
+| CLI only | 5/12 | 9/12 |
+
+CLI only improves, as on the 30 v7 tasks, and CLI + skills is flat. One task is weak evidence. Recorded in `runs/RESULTS-test-v7.md`.
+
 ## 2026-11-04 — Version comparison on held-out test-v7: 8aa6be6 (first campaign) vs 6524d3e
 
 These are the same 30 v7 tasks, 4 models and the CLI conditions, 3 replicates each. The baseline is the MDClaw of the first full campaign (image file and pi skills both at 8aa6be6, runs/test-v7-base); the current version is runs/test-v7-cli.
