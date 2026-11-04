@@ -5,6 +5,26 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-11-04 (7) — No MDClaw pass rests on the water-model substring match
+
+This follows up entry (6). The user asked whether any MDClaw pass has the same pattern.
+
+**Where the defect is.** `scoring.py:1105` passes `water_model_matches_reference` when `wanted in water and wanted in xmls`, a substring test. So "tip3p" matches `amber14/tip3pfb`. `water_model_from_system` (scoring.py:131) reads the real parameters, but it is used only when `parameters.water_model` is absent.
+
+**Check.** For every pass (all checks passed), I grepped the water-oxygen NonbondedForce particle (q ≈ −0.8, σ ≈ 0.31, ε ≈ 0.6) out of every `system.system.xml` under the attempt. This reads the System, not the metadata.
+
+- test-v7 MDClaw, 1,353 passes: all TIP3P (q −0.834, σ 0.3150752, ε 0.635968).
+  - test-v7-cli 693, test-v7-sifonly 20, test-v7m 19, test-v7-base 605, test-v7m-base 16.
+  - The one pass with a differently named file (140 glm r3 in test-v7-base, `system_dna.system.xml`) was read by hand: TIP3P.
+  - Every pass's metadata also says `tip3p`, and no `tip3pfb` appears in any `amber_metadata.json`.
+- test-v6, 731 passes: 708 TIP3P and 23 SPC/E. All 23 SPC/E passes are 112_nucleic_1hlv, the only SPCE task. 124 glm r2 (`amber_top.system.xml`) was read by hand: TIP3P.
+- The MDCrow pass 154 × deepseek r1 really is TIP3P-FB (7,794 waters at q −0.848448, σ 0.317796).
+
+**So the defect changes exactly one verdict across v6, v7 and MDCrow.** Not fixed. A fix would be the user's decision; options:
+
+- exact basename match on the water-model name;
+- or always also fingerprint the System, adding TIP3P-FB to `WATER_MODEL_PARAMETERS` so that it is told apart.
+
 ## 2026-11-04 (6) — MDCrow main run v7d done: pass^3 4/31 and 5/31; one pass rests on the water-model substring match
 
 `runs/mdcrow-v7d` (1feaa5e): 186/186 sealed by 19:56, no infra failures. Write-up: `runs/RESULTS-mdcrow-v7.md`; aggregates: `runs/mdcrow-v7d/collect.json`.
