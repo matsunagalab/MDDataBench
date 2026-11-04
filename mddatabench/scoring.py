@@ -21,6 +21,7 @@ import hashlib
 import itertools
 import json
 import pathlib
+import re
 import traceback
 
 import mdtraj as md
@@ -177,6 +178,21 @@ def water_model_from_system(system, structure):
     return None, (f"the System's water (O {q_o:+.4f} e, H {q_h1:+.4f} e, sigma {sigma:.6f} nm, "
                   f"epsilon {epsilon:.6f} kJ/mol) matches none of "
                   f"{sorted(WATER_MODEL_PARAMETERS)}")
+
+
+def water_name_tokens(value: str) -> frozenset:
+    """The words of a water-model name or force-field file name.
+
+    ``"amber14/tip3p.xml"`` and ``"TIP3P"`` give ``{"tip3p"}``,
+    ``"amber/tip3p_standard.xml"`` gives ``{"tip3p", "standard"}``, and
+    ``"amber14/tip3pfb.xml"`` gives ``{"tip3pfb"}``: a model is named only by a
+    whole word. Until 2026-11-04 the check tested substrings, so ``tip3p`` was
+    found in ``amber14/tip3pfb.xml`` and a TIP3P-FB system passed a TIP3P task
+    (MDCrow baseline, 154_soluble_2pef deepseek-v4.1-flash r1).
+    """
+    stem = value.strip().lower().replace("\\", "/").rsplit("/", 1)[-1]
+    stem = re.sub(r"\.xml$", "", stem)
+    return frozenset(token for token in re.split(r"[^a-z0-9]+", stem) if token)
 
 
 def widened_calibration_band(band, key, slack, spread):
@@ -1075,11 +1091,11 @@ def _score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
     water_value = parameters.get("water_model") if isinstance(parameters, dict) else None
     xml_values = provenance.get("openmm_xml") if isinstance(provenance, dict) else None
     water = water_value.lower() if isinstance(water_value, str) else ""
-    xmls = (
-        " ".join(xml_values).lower()
+    xml_names = (
+        [water_name_tokens(value) for value in xml_values]
         if isinstance(xml_values, list)
         and all(isinstance(value, str) for value in xml_values)
-        else ""
+        else []
     )
     metadata_errors = []
     water_source = "parameters.water_model"
@@ -1102,9 +1118,25 @@ def _score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
             "forcefield_provenance.openmm_xml is missing or not a non-empty string list"
         )
     wanted = task["reference"]["reference_conditions"]["WAT"].lower()
+    xml_carries = any(wanted in names for names in xml_names)
+    # A named model is also held against the System's own water: the metadata
+    # says what the agent meant, the NonbondedForce what was simulated. Only a
+    # System that names another model, or water that matches no model a task
+    # asks for, overrides the name; a System that cannot be read (its own check
+    # fails) or carries no recognisable water residue leaves the names to decide.
+    system_note, system_disagrees = "", False
+    if water_source == "parameters.water_model" and not metadata_errors:
+        identified, how = water_model_from_system(system, submitted_topology)
+        if identified:
+            system_disagrees = identified != wanted
+            system_note = f"; the System's water is {identified!r} ({how})"
+        elif "matches none" in how:
+            system_disagrees = True
+            system_note = f"; {how}"
     check(
         "water_model_matches_reference",
-        not metadata_errors and wanted in water and wanted in xmls,
+        not metadata_errors and wanted in water_name_tokens(water) and xml_carries
+        and not system_disagrees,
         (
             "amber_metadata.json cannot establish the water model: "
             + "; ".join(metadata_errors)
@@ -1112,7 +1144,7 @@ def _score(job_dir: pathlib.Path, bundle: pathlib.Path, task: dict) -> dict:
             else (f"parameters.water_model={water!r}" if water_source ==
                   "parameters.water_model" else
                   f"parameters.water_model is absent; {water!r} from {water_source}")
-                 + f", forcefield xml carries {wanted}: {wanted in xmls}"
+                 + f", forcefield xml carries {wanted}: {xml_carries}" + system_note
         ),
     )
 

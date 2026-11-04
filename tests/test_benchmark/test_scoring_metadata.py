@@ -405,3 +405,64 @@ def test_s_s_bonds_without_a_pairing_still_fail():
     passed, detail = sc._disulfide_verdict(set(), {edge}, [], [], True,
                                            (1, (0,), set(), set(), {edge}), [54], [54])
     assert not passed and "unexpected" in detail
+
+
+def test_water_names_are_matched_as_whole_words():
+    assert sc.water_name_tokens("amber14/tip3p.xml") == {"tip3p"}
+    assert sc.water_name_tokens("TIP3P") == {"tip3p"}
+    assert sc.water_name_tokens("amber/tip3p_standard.xml") == {"tip3p", "standard"}
+    assert sc.water_name_tokens("amber/spce_standard.xml") == {"spce", "standard"}
+    assert "tip3p" not in sc.water_name_tokens("amber14/tip3pfb.xml")
+    assert "tip3p" not in sc.water_name_tokens("amber14/tip3pfb")
+
+
+def test_tip3p_fb_named_in_the_metadata_fails_a_tip3p_task(tmp_path, monkeypatch):
+    """MDCrow baseline, 154_soluble_2pef deepseek-v4.1-flash r1 (2026-11-04)."""
+    _make_every_other_check_pass(monkeypatch, submitted_system=_water_system(TIP3P_FB))
+    report = score_portable(
+        _submission(tmp_path / "submission", {
+            "parameters": {"water_model": "amber14/tip3pfb"},
+            "forcefield_provenance": {"openmm_xml": ["amber14-all.xml", "amber14/tip3pfb.xml"]},
+        }),
+        _bundle(tmp_path / "bundle"),
+        _task(),
+    )
+    failed = [check for check in report["checks"] if not check["passed"]]
+    assert [check["check_id"] for check in failed] == ["water_model_matches_reference"]
+    assert "forcefield xml carries tip3p: False" in failed[0]["detail"]
+    assert "matches none" in failed[0]["detail"]
+
+
+def test_a_tip3p_name_on_a_tip3p_fb_system_fails(tmp_path, monkeypatch):
+    _make_every_other_check_pass(monkeypatch, submitted_system=_water_system(TIP3P_FB))
+    report = score_portable(
+        _submission(tmp_path / "submission", {
+            "parameters": {"water_model": "tip3p"},
+            "forcefield_provenance": {"openmm_xml": ["amber/tip3p_standard.xml"]},
+        }),
+        _bundle(tmp_path / "bundle"),
+        _task(),
+    )
+    failed = [check for check in report["checks"] if not check["passed"]]
+    assert [check["check_id"] for check in failed] == ["water_model_matches_reference"]
+    assert "forcefield xml carries tip3p: True" in failed[0]["detail"]
+    assert "matches none" in failed[0]["detail"]
+
+
+def test_a_named_model_that_the_system_confirms_passes(tmp_path, monkeypatch):
+    """MDClaw's shape: tip3p named, amber/tip3p_standard.xml, TIP3P in the System."""
+    _make_every_other_check_pass(monkeypatch, submitted_system=_water_system(TIP3P))
+    report = score_portable(
+        _submission(tmp_path / "submission", {
+            "parameters": {"water_model": "tip3p"},
+            "forcefield_provenance": {"openmm_xml": ["amber/ff14SB.xml",
+                                                     "amber/tip3p_standard.xml"]},
+        }),
+        _bundle(tmp_path / "bundle"),
+        _task(),
+    )
+    water = next(check for check in report["checks"]
+                 if check["check_id"] == "water_model_matches_reference")
+    assert water["passed"] is True, water["detail"]
+    assert "the System's water is 'tip3p'" in water["detail"]
+    assert report["passed"] == report["total"] == 20
