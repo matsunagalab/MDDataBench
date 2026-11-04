@@ -5,6 +5,37 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-11-04 (8) — Water-model check fixed; MDCrow v7d rescored: deepseek pass@1 14 → 13/93
+
+This overturns the deepseek pass@1 of entry (6).
+
+**User decision (2026-11-04).** Fix the check and rescore MDCrow.
+
+**Fix.** Scoring 59bd171 on a new branch `scorer-water-exact` from main 65c68f6, **not merged to main**. It is cherry-picked into `mdcrow-baseline` as be66fed.
+
+- `water_name_tokens`: water names and force-field file names are compared as whole words. `amber/tip3p_standard.xml` → {tip3p, standard}; `amber14/tip3pfb.xml` → {tip3pfb}.
+- A model named in the metadata is also held against `water_model_from_system`. It fails when the System names another model, or when its water matches no model a task asks for. An unreadable System, or one with no recognisable water residue, leaves the decision to the names.
+- 4 new tests in `tests/test_benchmark/test_scoring_metadata.py`. `tests/test_benchmark` gives 2308 passed in the scorer image. The `test_source_overlay` image-mode cases fail on unmodified main too, in that setting.
+
+**No MDClaw verdict changes.** Over the 2,084 v6 and v7 MDClaw passes:
+
+- no `amber_metadata.json` that the old rule passed fails the new name rule (2,106 files with an xml list);
+- every System's water is TIP3P or, on 112, SPC/E (entry 7).
+
+**Rescore.** Slurm job 281500: 16 CPUs, 453 s, frozen source `runs/mdcrow-v7d/frozen/source-waterexact-be66fed`. It covered all 146 attempts with a submission. The first verdicts are kept as `score.1feaa5e.json` / `result.1feaa5e.json`. The water check flipped on 3 deepseek TIP3P-FB attempts:
+
+- 154 r1: pass → fail;
+- 137 r2 and 153 r1: already failing.
+
+| model | pass^3 | pass@1 |
+|---|---|---|
+| deepseek | 4/31 (unchanged) | 13/93 = 14.0% (8.4–22.5) |
+| glm | unchanged | unchanged |
+
+Aggregates: `runs/mdcrow-v7d/collect-waterexact.json`.
+
+**First campaign v7, not rescored.** Its 154 deepseek r3 pass also used TIP3P-FB. Under the fixed scorer, v7 deepseek is 0/31 and 8/93.
+
 ## 2026-11-04 (7) — No MDClaw pass rests on the water-model substring match
 
 This follows up entry (6). The user asked whether any MDClaw pass has the same pattern.
