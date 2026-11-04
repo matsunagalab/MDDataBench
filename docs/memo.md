@@ -5,6 +5,22 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-11-04 — Version comparison on held-out test-v7: 8aa6be6 (first campaign) vs 6524d3e
+
+These are the same 30 v7 tasks, 4 models and the CLI conditions, 3 replicates each. The baseline is the MDClaw of the first full campaign (image file and pi skills both at 8aa6be6, runs/test-v7-base); the current version is runs/test-v7-cli.
+
+| pass^3 summed over 4 models (of 120) | 8aa6be6 | 6524d3e |
+|---|---|---|
+| CLI + skills | 97 | 115 |
+| CLI only | 66 | 108 |
+
+- Attempts passed: CLI + skills 328 vs 350 of 360; CLI only 277 vs 343 of 360.
+- Paired over model x condition x task: 63 cells fixed and 3 broken (sign test p = 1.3e-15).
+- qwen3.8-27b CLI only went from 10/30 to 25/30. unhandled_error (23 attempts on the baseline) does not occur on the current version.
+- 140 4F6N is equally hard on both versions (11 of 24 attempts fail).
+- Caveats: this compares whole system versions (OpenMM 8.5.1 vs 8.6.1, conda vs pixi image). The baseline was chosen as the first-campaign version after the user asked for an older one; the stopped e299aee run (112/720) is not used.
+- Details: `runs/RESULTS-test-v7.md`.
+
 ## 2026-11-03 (2) — test-v7m result: task 161 7DTD on frozen 6524d3e
 
 36 attempts (`runs/test-v7m`), all sealed. Attempts passed: CLI + skills 10/12, CLI only 9/12, SIF only 0/12. pass^3: glm in both CLI conditions, kimi with skills; the others 2/3 per condition. Failures are counted in `runs/RESULTS-test-v7.md`; no scorer-side defect showed.
