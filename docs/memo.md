@@ -5,6 +5,30 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-11-04 (5) — v7c stopped: unfenced JSON actions also end the run; patch 4 added; rerun as `runs/mdcrow-v7d`
+
+This supersedes entry (4)'s "main result" line.
+
+**What v7c showed.** In v7c the empty-reply patch worked: the agent got "Invalid or incomplete response" and went on. But two deepseek attempts ended after one call with a tool call as their "answer". deepseek had written the Action as bare JSON, with no ``` fence. LangChain's `StructuredChatOutputParser` returns `AgentFinish` for any reply without a fence.
+
+The same happened in **16 of 93 deepseek attempts in v7**. Those 16 and the 27 empty replies account for all 43 of deepseek's "final answer, no simulation" attempts in v7.
+
+**User decision (2026-11-04).** Read these as tool calls and rerun all 186.
+
+I stopped the v7c dispatcher (PID 3119176) and v7c's jobs by ID (280371–280388). `runs/mdcrow-v7c` is kept as an aborted run and is not counted.
+
+**Patch 4** (1feaa5e). When a reply has no fence, the first JSON object in it that has an `"action"` key is parsed as the fenced form would be. The reply text is kept as the step's log. A bare `{"action": "Final Answer", ...}` becomes a proper finish. Prose without such an object stays a Final Answer.
+
+**Replay check.** All 1,073 v7 replies were parsed with and without the patches. Only the expected replies change:
+
+- 16 change from finish to action;
+- 73 empty replies change from finish to parse error;
+- 61 actions get decoded JSON-string inputs.
+
+No other reply parses differently.
+
+**State.** `runs/mdcrow-v7d` (revision 1feaa5e, not dirty) was launched at 8 concurrent, dispatcher PID 3456791. This is the main result.
+
 ## 2026-11-04 (4) — v7b aborted: the empty-reply patch went through OutputFixingParser; rerun as `runs/mdcrow-v7c`
 
 This overturns patch 1 of entry (3).
