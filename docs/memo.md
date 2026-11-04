@@ -5,6 +5,48 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-11-04 (3) — MDCrow first v7 campaign done (14/186); rerun as `runs/mdcrow-v7b` with three LangChain patches
+
+**First campaign** (`runs/mdcrow-v7`, revision 758e563, 186/186 sealed by about 12:00, no infra failures, 0 gateway errors).
+
+| model | pass^3 | pass@1 | Wilson 95% | GPU-h |
+|---|---|---|---|---|
+| deepseek-v4.1-flash | 1/31 (154) | 9/93 = 9.7% | 5.2–17.4% | 6.3 |
+| glm-5.3-flash | 0/31 | 5/93 = 5.4% | 2.3–12.0% | 5.5 |
+
+This campaign is kept as the first run. It is not the main result.
+
+**Two causes that have nothing to do with MD dominated the failures.**
+
+- *TypeError, 54 attempts (53 GLM, 1 deepseek).*
+  - glm-5.3-flash writes `"action_input": "{\"pdb_id\": ...}"`, a JSON *string*.
+  - LangChain's structured-chat parser keeps it as a string and passes it positionally to `CleaningToolFunction._run(**input_args)`. That raises `TypeError: takes 1 positional argument but 2 were given`.
+  - The error escapes `AgentExecutor` (MDCrow catches only inside the tool body), so the run ends.
+  - deepseek sent JSON strings in 3 attempts. One other TypeError was a missing `traj_file`.
+- *Empty reply, about 40 attempts ended before any MD (27 deepseek, 13 GLM).*
+  - The reply used all `max_tokens` = 32768 on reasoning (`reasoning_tokens` = 32768) and had empty content.
+  - `StructuredChatOutputParser` returns `AgentFinish("")` for text with no action block, so the agent stopped.
+  - 73 attempts had at least one capped call.
+
+**Other failures, kept as agent failures in both runs.**
+
+- `create_simulation.py:129` `answer.split("SCRIPT:")` ValueError (5).
+- `SystemExit` from an LLM-written script exec'd by MDCrow (1).
+- 15-iteration limit (5).
+- checks_failed: mostly monomer, sequence and atom-count mismatches, meaning wrong chains or residues were kept (47 of 50).
+
+**User decision (2026-11-04).** The TypeError is not essential to the comparison, so clear it and rerun. The empty reply becomes a retry. Rerun all 186 under one condition, 8 concurrent.
+
+**Patches** (f77b854; `runner.patch_tool_calls`; in LangChain only, MDCrow b3b0b57 unchanged). All three are counted in `run.json` `harness_events` and logged in `transcript.jsonl`.
+
+1. **Empty reply.** It raises `OutputParserException`. MDCrow's agent uses `StructuredChatOutputParserWithRetries` with LangChain's `OutputFixingParser` (one LLM re-format call), then `handle_parsing_errors=True` ("Invalid or incomplete response" observation). So the agent is asked again instead of stopping.
+2. **JSON-string `action_input`.** One that decodes to an object is decoded. Plain strings such as `"2PQL"` are left alone.
+3. **Tool `TypeError`.** It is returned as the observation (`Failed: the call to <tool> raised TypeError: ...`), as MDCrow's tools return "Failed..." for their own errors.
+
+Tests: `tests/test_mdcrow_runner_patch.py` (2, including an AgentExecutor built as MDCrow builds it, fed an empty reply then the real GLM reply).
+
+**State.** `runs/mdcrow-v7b` (revision f77b854, not dirty) was launched at 13:52 with `launch.sh 8`, dispatcher PID 3033337. No other LLM campaign is running; test-v7-base's dispatcher exited at 12:25.
+
 ## 2026-11-04 (2) — MDCrow baseline: known-output check passes; pilot passes 20/20; token logging fixed
 
 **Known-output check passed** (job 277033, scorer image 5612e4a6, 3/3). Three passed sif_only submissions were rearranged into the MDCrow/recorder layout, converted, and scored. Every check came out the same as on the original. The submissions were 157 glm r1, 141 deepseek r2 and 155 deepseek r1 from test-v7-sifonly.
