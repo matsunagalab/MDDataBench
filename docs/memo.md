@@ -5,6 +5,21 @@ decided, and why. Newest entries go at the top. Append as work continues; do
 not rewrite past entries when a later finding contradicts them — add the
 correction and say what it overturns.
 
+## 2026-11-04 (4) — v7b aborted: the empty-reply patch went through OutputFixingParser; rerun as `runs/mdcrow-v7c`
+
+This overturns patch 1 of entry (3).
+
+**What went wrong.** MDCrow's structured agent parses with `StructuredChatOutputParserWithRetries` plus LangChain's `OutputFixingParser`. The empty-reply error raised in the base parser therefore went to the fixing parser first. That parser re-asks the LLM with only the format instructions and the empty completion: no task, no scratchpad.
+
+- All 9 v7b attempts that had sealed (all after one empty reply) got back a Final Answer of the kind "Please provide the question you want me to answer." The run ended there, just as in v7.
+- I stopped the v7b dispatcher (PID 3033337) and cancelled v7b's own jobs by ID (280331–280367, taken from `slurm/jobs.json`). `runs/mdcrow-v7b` is kept as an aborted run and is not counted.
+
+**Fix** (23e6f84). The empty reply is rejected in `StructuredChatOutputParserWithRetries.parse`, before the fixing parser. `handle_parsing_errors=True` then gives the agent "Invalid or incomplete response" with its scratchpad intact. Other parse errors still go to the fixing parser as before.
+
+The e2e test now builds the agent with the fixing parser and checks that the first step is `_Exception`. It fails on f77b854 and passes on 23e6f84.
+
+**State.** `runs/mdcrow-v7c` (revision 23e6f84, not dirty) was launched with `launch.sh 8`, dispatcher PID 3119176. This is the main result.
+
 ## 2026-11-04 (3) — MDCrow first v7 campaign done (14/186); rerun as `runs/mdcrow-v7b` with three LangChain patches
 
 **First campaign** (`runs/mdcrow-v7`, revision 758e563, 186/186 sealed by about 12:00, no infra failures, 0 gateway errors).
