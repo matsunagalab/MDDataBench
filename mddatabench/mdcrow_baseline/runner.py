@@ -119,6 +119,11 @@ def patch_tool_calls(events: dict, log_path: Path) -> None:
       parse error, not a final answer. MDCrow builds its AgentExecutor with
       ``handle_parsing_errors=True``, so the agent is told the reply was invalid
       and goes on; LangChain would otherwise end the run with an empty answer.
+      The error is raised before LangChain's ``OutputFixingParser``: that parser
+      asks the LLM to re-format the reply without the task or the scratchpad,
+      and for an empty reply the LLM answers "please provide a question" as the
+      Final Answer, which ends the run just the same (seen in the first v7b
+      attempts, 2026-11-04).
     - A JSON *string* ``action_input`` that decodes to an object
       (``"action_input": "{\\"pdb_id\\": ...}"``) is decoded. LangChain would pass
       the string as one positional argument, and MDCrow's keyword-only tools
@@ -129,7 +134,8 @@ def patch_tool_calls(events: dict, log_path: Path) -> None:
     """
     import functools
 
-    from langchain.agents.structured_chat.output_parser import StructuredChatOutputParser
+    from langchain.agents.structured_chat.output_parser import (
+        StructuredChatOutputParser, StructuredChatOutputParserWithRetries)
     from langchain_core.agents import AgentAction
     from langchain_core.exceptions import OutputParserException
     from langchain_core.tools import BaseTool
@@ -139,14 +145,22 @@ def patch_tool_calls(events: dict, log_path: Path) -> None:
             handle.write(json.dumps({"t": round(time.time(), 3), "event": kind, **fields},
                                     default=str) + "\n")
 
-    original_parse = StructuredChatOutputParser.parse
+    original_parse_with_retries = StructuredChatOutputParserWithRetries.parse
 
-    @functools.wraps(original_parse)
-    def parse(self, text):
+    @functools.wraps(original_parse_with_retries)
+    def parse_with_retries(self, text):
         if not text.strip():
             events["empty_replies_rejected"] += 1
             log("empty_reply_rejected")
             raise OutputParserException("Could not parse LLM output: empty reply")
+        return original_parse_with_retries(self, text)
+
+    StructuredChatOutputParserWithRetries.parse = parse_with_retries
+
+    original_parse = StructuredChatOutputParser.parse
+
+    @functools.wraps(original_parse)
+    def parse(self, text):
         result = original_parse(self, text)
         if isinstance(result, AgentAction) and isinstance(result.tool_input, str):
             try:

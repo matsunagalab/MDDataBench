@@ -69,8 +69,10 @@ def test_json_string_input_is_decoded_and_type_errors_are_returned(tmp_path):
 
 
 def test_agent_survives_empty_reply_and_json_string_input(tmp_path):
-    """An AgentExecutor built as MDCrow builds it (StructuredChatAgent,
-    handle_parsing_errors=True) goes on after an empty reply."""
+    """An AgentExecutor built as MDCrow builds it (StructuredChatAgent with
+    LangChain's default OutputFixingParser, handle_parsing_errors=True) goes on
+    after an empty reply, and the empty reply never reaches the fixing parser
+    (which re-asks the LLM without the task)."""
     final = 'Action:\n```\n{"action": "Final Answer", "action_input": "done"}\n```'
     script = textwrap.dedent(f"""
         import json, sys
@@ -97,14 +99,21 @@ def test_agent_survives_empty_reply_and_json_string_input(tmp_path):
         llm = FakeListChatModel(responses=["", {GLM_REPLY!r}, {final!r}])
         tools = [KwargsOnly()]
         agent = StructuredChatAgent.from_llm_and_tools(llm, tools)
-        executor = AgentExecutor.from_agent_and_tools(agent, tools, handle_parsing_errors=True)
+        assert agent.output_parser.output_fixing_parser is not None
+        executor = AgentExecutor.from_agent_and_tools(agent, tools, handle_parsing_errors=True,
+                                                      return_intermediate_steps=True)
         out = executor.invoke({{"input": "clean it"}})
-        print(json.dumps({{"output": out["output"], "calls": calls, "events": events}}))
+        steps = [step[0].tool for step in out["intermediate_steps"]]
+        print(json.dumps({{"output": out["output"], "calls": calls, "events": events,
+                           "steps": steps}}))
     """)
     proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
                           check=True)
     out = json.loads(proc.stdout.strip().splitlines()[-1])
     assert out["output"] == "done"
+    # The empty reply became an "Invalid or incomplete response" observation;
+    # had it gone to the fixing parser, the fixer would have taken GLM_REPLY.
+    assert out["steps"] == ["_Exception", "CleaningToolFunction"]
     assert out["calls"] == [{"pdb_id": "2PQL_033607", "remove_water": False}]
     assert out["events"] == {"empty_replies_rejected": 1, "json_string_inputs_decoded": 1,
                              "tool_type_errors_returned": 0}
