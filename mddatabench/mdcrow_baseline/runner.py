@@ -110,6 +110,72 @@ def make_callback(transcript: Path, usage: dict):
     return Recorder()
 
 
+def patch_tool_calls(events: dict, log_path: Path) -> None:
+    """Keep a malformed reply or tool call from ending the agent.
+
+    Three changes in LangChain, none in MDCrow:
+
+    - An empty reply (the model spent all of ``max_tokens`` on reasoning) is a
+      parse error, not a final answer. MDCrow builds its AgentExecutor with
+      ``handle_parsing_errors=True``, so the agent is told the reply was invalid
+      and goes on; LangChain would otherwise end the run with an empty answer.
+    - A JSON *string* ``action_input`` that decodes to an object
+      (``"action_input": "{\\"pdb_id\\": ...}"``) is decoded. LangChain would pass
+      the string as one positional argument, and MDCrow's keyword-only tools
+      raise ``TypeError``.
+    - A ``TypeError`` from a tool call (wrong or missing arguments) is returned to
+      the agent as the observation, the way MDCrow's tools already return
+      "Failed..." for their own errors, instead of ending the run.
+    """
+    import functools
+
+    from langchain.agents.structured_chat.output_parser import StructuredChatOutputParser
+    from langchain_core.agents import AgentAction
+    from langchain_core.exceptions import OutputParserException
+    from langchain_core.tools import BaseTool
+
+    def log(kind, **fields):
+        with open(log_path, "a") as handle:
+            handle.write(json.dumps({"t": round(time.time(), 3), "event": kind, **fields},
+                                    default=str) + "\n")
+
+    original_parse = StructuredChatOutputParser.parse
+
+    @functools.wraps(original_parse)
+    def parse(self, text):
+        if not text.strip():
+            events["empty_replies_rejected"] += 1
+            log("empty_reply_rejected")
+            raise OutputParserException("Could not parse LLM output: empty reply")
+        result = original_parse(self, text)
+        if isinstance(result, AgentAction) and isinstance(result.tool_input, str):
+            try:
+                decoded = json.loads(result.tool_input)
+            except ValueError:
+                decoded = None
+            if isinstance(decoded, dict):
+                events["json_string_inputs_decoded"] += 1
+                log("tool_input_decoded", tool=result.tool)
+                result = AgentAction(result.tool, decoded, result.log)
+        return result
+
+    StructuredChatOutputParser.parse = parse
+
+    original_run = BaseTool.run
+
+    @functools.wraps(original_run)
+    def run(self, tool_input, *args, **kwargs):
+        try:
+            return original_run(self, tool_input, *args, **kwargs)
+        except TypeError as exc:
+            events["tool_type_errors_returned"] += 1
+            log("tool_type_error", tool=self.name, error=repr(exc))
+            return (f"Failed: the call to {self.name} raised TypeError: {exc}. "
+                    "Check the tool's input arguments.")
+
+    BaseTool.run = run
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--workspace", required=True)
@@ -141,6 +207,9 @@ def main(argv=None) -> int:
     usage = {"calls": 0, "calls_with_usage": 0, "prompt_tokens": 0, "completion_tokens": 0,
              "reasoning_tokens": 0, "llm_errors": 0}
     run["token_usage"] = usage
+    harness_events = {"empty_replies_rejected": 0, "json_string_inputs_decoded": 0,
+                      "tool_type_errors_returned": 0}
+    run["harness_events"] = harness_events
     _write_json(record / "run.json", run)
 
     # MDCrow finds its working root by walking up from the cwd to a directory
@@ -166,6 +235,7 @@ def main(argv=None) -> int:
         import mdcrow.agent.agent as agent_module
 
         callback = make_callback(record / "transcript.jsonl", usage)
+        patch_tool_calls(harness_events, record / "transcript.jsonl")
 
         def make_llm(model, temp, streaming):
             # The callback is attached to the model itself: MDCrow.run passes

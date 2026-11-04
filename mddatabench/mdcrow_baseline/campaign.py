@@ -236,7 +236,10 @@ def init(experiment_dir: str, dataset_dir: str, mdcrow_env: str, mdcrow_source: 
         "deadline_seconds": int(deadline_seconds), "slurm_time": slurm_time,
         "cpus_per_task": int(cpus_per_task), "partition": partition, "platform": platform,
         "agent": {"agent_type": "Structured", "top_k_tools": "all", "use_memory": False,
-                  "temperature": "MDCrow default (0.1)", "max_iterations": "LangChain default (15)"},
+                  "temperature": "MDCrow default (0.1)", "max_iterations": "LangChain default (15)",
+                  "langchain_patches": ["empty reply -> parse error (handle_parsing_errors retry)",
+                                        "JSON-string action_input decoded to an object",
+                                        "tool TypeError returned as the observation"]},
     }
     _write_json(root / "experiment.json", spec)
 
