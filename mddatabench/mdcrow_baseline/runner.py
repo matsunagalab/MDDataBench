@@ -113,7 +113,7 @@ def make_callback(transcript: Path, usage: dict):
 def patch_tool_calls(events: dict, log_path: Path) -> None:
     """Keep a malformed reply or tool call from ending the agent.
 
-    Three changes in LangChain, none in MDCrow:
+    Four changes in LangChain, none in MDCrow:
 
     - An empty reply (the model spent all of ``max_tokens`` on reasoning) is a
       parse error, not a final answer. MDCrow builds its AgentExecutor with
@@ -124,6 +124,11 @@ def patch_tool_calls(events: dict, log_path: Path) -> None:
       and for an empty reply the LLM answers "please provide a question" as the
       Final Answer, which ends the run just the same (seen in the first v7b
       attempts, 2026-11-04).
+    - A reply with no ``` fence that holds a JSON object with an "action" key
+      (deepseek-v4.1-flash writes that now and then) is parsed as the fenced
+      form would be. LangChain takes any unfenced reply as the Final Answer, so
+      the run ended with the tool call as its "answer" (16 deepseek attempts of
+      the first v7 campaign).
     - A JSON *string* ``action_input`` that decodes to an object
       (``"action_input": "{\\"pdb_id\\": ...}"``) is decoded. LangChain would pass
       the string as one positional argument, and MDCrow's keyword-only tools
@@ -158,10 +163,35 @@ def patch_tool_calls(events: dict, log_path: Path) -> None:
     StructuredChatOutputParserWithRetries.parse = parse_with_retries
 
     original_parse = StructuredChatOutputParser.parse
+    decoder = json.JSONDecoder()
+
+    def bare_action(text):
+        """The first JSON object in ``text`` that has an "action" key, if any."""
+        start = text.find("{")
+        while start != -1:
+            try:
+                value, _ = decoder.raw_decode(text, start)
+            except ValueError:
+                value = None
+            if isinstance(value, dict) and "action" in value:
+                return value
+            start = text.find("{", start + 1)
+        return None
 
     @functools.wraps(original_parse)
     def parse(self, text):
-        result = original_parse(self, text)
+        if self.pattern.search(text) is None:
+            action = bare_action(text)
+            if action is not None:
+                # The same parse as the fenced form; the log keeps the reply as given.
+                events["bare_json_actions_read"] += 1
+                log("bare_json_action_read", action=action.get("action"))
+                result = original_parse(self, "```\n" + json.dumps(action) + "\n```")
+                result.log = text
+            else:
+                result = original_parse(self, text)
+        else:
+            result = original_parse(self, text)
         if isinstance(result, AgentAction) and isinstance(result.tool_input, str):
             try:
                 decoded = json.loads(result.tool_input)
@@ -221,8 +251,8 @@ def main(argv=None) -> int:
     usage = {"calls": 0, "calls_with_usage": 0, "prompt_tokens": 0, "completion_tokens": 0,
              "reasoning_tokens": 0, "llm_errors": 0}
     run["token_usage"] = usage
-    harness_events = {"empty_replies_rejected": 0, "json_string_inputs_decoded": 0,
-                      "tool_type_errors_returned": 0}
+    harness_events = {"empty_replies_rejected": 0, "bare_json_actions_read": 0,
+                      "json_string_inputs_decoded": 0, "tool_type_errors_returned": 0}
     run["harness_events"] = harness_events
     _write_json(record / "run.json", run)
 
